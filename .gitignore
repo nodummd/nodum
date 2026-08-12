@@ -1,0 +1,50 @@
+# ── Secrets & environment ──────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# ── Python ─────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Node / Next.js ─────────────────────────────────────────
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+.eslintcache
+.turbo/
+
+# ── Playwright ─────────────────────────────────────────────
+test-results/
+playwright-report/
+blob-report/
+
+# ── OS / editor ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ── Docker / local data ────────────────────────────────────
+*.log
+data/
+pgdata/
+minio-data/
+
+# ── Claude local state ─────────────────────────────────────
+.claude/settings.local.json
