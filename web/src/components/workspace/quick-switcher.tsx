@@ -47,7 +47,12 @@ export function QuickSwitcher({
   });
 
   const trimmed = query.trim();
-  const exactMatch = results?.some((r) => r.title.toLowerCase() === trimmed.toLowerCase()) ?? false;
+  const exactMatch =
+    results?.some(
+      (r) =>
+        r.title.toLowerCase() === trimmed.toLowerCase() ||
+        r.alias?.toLowerCase() === trimmed.toLowerCase(),
+    ) ?? false;
   const createValue = trimmed && !exactMatch ? `__create-${trimmed}` : "";
 
   const validValues = new Set([...(results?.map((r) => r.id) ?? []), createValue].filter(Boolean));
@@ -106,9 +111,20 @@ export function QuickSwitcher({
           <CommandGroup heading={trimmed ? "Notes" : "Recent"}>
             {results?.map((r) => (
               <CommandItem key={r.id} value={r.id} onSelect={selectValue}>
-                <span className="truncate">{r.title}</span>
-                {r.path !== r.title && (
-                  <span className="ml-auto truncate pl-4 text-[11px] text-ob-faint">{r.path}</span>
+                {r.alias ? (
+                  <>
+                    <span className="truncate">{r.alias}</span>
+                    <span className="ml-auto truncate pl-4 text-[11px] text-ob-faint">
+                      ↳ alias of {r.title}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="truncate">{r.title}</span>
+                    {r.path !== r.title && (
+                      <span className="ml-auto truncate pl-4 text-[11px] text-ob-faint">{r.path}</span>
+                    )}
+                  </>
                 )}
               </CommandItem>
             ))}

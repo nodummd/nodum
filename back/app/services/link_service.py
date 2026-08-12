@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.links import Link
-from app.models.vaults import Note
+from app.models.vaults import Note, NoteAlias
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault
 from app.settings import get_settings
@@ -46,6 +46,20 @@ async def _resolve_targets(db: AsyncSession, vault_id: UUID, targets: set[str]) 
         title_key = row.title.lower()
         if title_key in targets and title_key not in resolved:
             resolved[title_key] = row.id
+
+    # Anything still unresolved may be a frontmatter alias. Oldest row wins
+    # when two notes claim the same alias (uuid7 ids are time-ordered).
+    unresolved = targets - resolved.keys()
+    if unresolved:
+        alias_rows = (
+            await db.execute(
+                select(NoteAlias.note_id, func.lower(NoteAlias.alias).label("key"))
+                .where(NoteAlias.vault_id == vault_id, func.lower(NoteAlias.alias).in_(unresolved))
+                .order_by(NoteAlias.id)
+            )
+        ).all()
+        for arow in alias_rows:
+            resolved.setdefault(arow.key, arow.note_id)
     return resolved
 
 
@@ -81,6 +95,53 @@ async def sync_note_links(db: AsyncSession, note: Note) -> None:
                 is_embed=is_embed,
                 count=n,
             )
+        )
+
+
+async def sync_note_aliases(db: AsyncSession, note: Note) -> None:
+    """Recompute the note's alias rows from frontmatter. Caller commits.
+
+    Newly added aliases claim matching unresolved links vault-wide; removed
+    aliases release links that were resolved through them (links written
+    against the note's title/path are left alone).
+    """
+    from sqlalchemy import update
+
+    from app.utils.markdown_parse import frontmatter_aliases
+
+    wanted = frontmatter_aliases(note.properties or {})
+    wanted_lower = {a.lower() for a in wanted}
+    existing = {
+        a.lower() for a in (await db.scalars(select(NoteAlias.alias).where(NoteAlias.note_id == note.id))).all()
+    }
+    if wanted_lower == existing:
+        return
+
+    await db.execute(delete(NoteAlias).where(NoteAlias.note_id == note.id))
+    for alias in wanted:
+        db.add(NoteAlias(vault_id=note.vault_id, note_id=note.id, alias=alias))
+
+    added = wanted_lower - existing
+    if added:
+        await db.execute(
+            update(Link)
+            .where(
+                Link.vault_id == note.vault_id,
+                Link.target_note_id.is_(None),
+                Link.target_title.in_(added),
+            )
+            .values(target_note_id=note.id)
+        )
+    removed = (existing - wanted_lower) - {note.title.lower(), note.path.lower()}
+    if removed:
+        await db.execute(
+            update(Link)
+            .where(
+                Link.vault_id == note.vault_id,
+                Link.target_note_id == note.id,
+                Link.target_title.in_(removed),
+            )
+            .values(target_note_id=None)
         )
 
 
