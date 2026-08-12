@@ -201,7 +201,7 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 | 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ✅ |
 | 9 | feature/web-obsidian-ui | REWRITE (user feedback): pixel-faithful Obsidian workspace — ribbon, explorer, tabs, panels, switcher, status bar | ✅ |
 | 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ✅ |
-| 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ⬜ |
+| 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ✅ |
 | 12 | feature/web-search-palette | search UI, quick switcher, command palette, backlinks/outline/tags panes | ⬜ |
 | 13 | feature/daily-templates | daily notes, templates, bookmarks, version history UI | ⬜ |
 | 14 | feature/import-export | vault zip import (Obsidian-compatible), export, Celery jobs | ⬜ |
@@ -284,6 +284,18 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
   NEXT: feature/web-graph — @cosmos.gl/graph GPU graph view (global + local,
   filters/forces per docs/research/obsidian-graph-spec.md), then Playwright
   e2e + daily notes/templates + import/export + prod compose verification.
+- **2026-08-12 (g)**: feature/web-graph SHIPPED & BROWSER-VERIFIED. cosmos.gl
+  GPU graph: nodes sized by degree, ghost nodes, click-to-open + ghost-click
+  creates note, hover tooltip+ring, HTML label overlay (tracked positions,
+  zoom fade), filters + force sliders, CSS-variable colors, fitView framing
+  (points must seed around space center 2048 — camera gotcha). Graph tab via
+  ⌘G. MINOR BUGS NOTED: (1) reading-view wikilink preprocessor converts
+  [[..]] inside inline code (regex runs pre-parse); (2) local graph not yet
+  surfaced in right panel (props ready).
+  REMAINING FOR v1 DoD: Playwright e2e suite · daily notes + templates ·
+  bookmarks · vault import/export (Obsidian zip) · command palette content
+  (⌘P currently opens empty switcher state) · prod compose full-stack boot
+  check · README/docs polish · project skills (.claude/skills/nodum-*).
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
