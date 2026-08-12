@@ -124,3 +124,48 @@ async def test_graph_nodes_carry_tags(client: AsyncClient, workspace: dict) -> N
     graph = (await client.get(f"{workspace['base']}/graph", headers=workspace["headers"])).json()["data"]
     node = next(n for n in graph["nodes"] if n["title"] == "Tagged node")
     assert "graph/test" in node["tags"]
+
+
+async def test_date_operators_and_sort(client: AsyncClient, workspace: dict) -> None:
+    import datetime
+
+    await workspace["create"]("Alpha doc", "shared keyword alpha content")
+    await workspace["create"]("Beta doc", "shared keyword beta content")
+
+    today = datetime.date.today().isoformat()
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+
+    # created: today matches; yesterday-only range excludes everything
+    r_today = await client.get(
+        f"{workspace['base']}/search",
+        params={"q": f"keyword created:{today}"},
+        headers=workspace["headers"],
+    )
+    assert {r["title"] for r in r_today.json()["data"]["results"]} == {"Alpha doc", "Beta doc"}
+
+    r_past = await client.get(
+        f"{workspace['base']}/search",
+        params={"q": f"keyword created:<{yesterday}"},
+        headers=workspace["headers"],
+    )
+    assert r_past.json()["data"]["results"] == []
+
+    # range form includes today
+    r_range = await client.get(
+        f"{workspace['base']}/search",
+        params={"q": f"keyword updated:{yesterday}..{today}"},
+        headers=workspace["headers"],
+    )
+    assert len(r_range.json()["data"]["results"]) == 2
+
+    # sort=title is alphabetical regardless of rank
+    r_sorted = await client.get(
+        f"{workspace['base']}/search",
+        params={"q": "keyword", "sort": "title"},
+        headers=workspace["headers"],
+    )
+    titles = [r["title"] for r in r_sorted.json()["data"]["results"]]
+    assert titles == sorted(titles)
+
+    # results now expose created_at for client-side display
+    assert "created_at" in r_sorted.json()["data"]["results"][0]
