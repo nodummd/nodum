@@ -228,3 +228,51 @@ body {
   white-space: nowrap;
   will-change: transform, opacity;
 }
+
+/* ============================================================
+   Callouts (Obsidian's 13 types — color via --callout-color r,g,b)
+   ============================================================ */
+.nodum-callout {
+  margin: 0.8em 0;
+  border-radius: 8px;
+  background: rgba(var(--callout-color), 0.1);
+  overflow: hidden;
+}
+.nodum-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 0.95em;
+  color: rgb(var(--callout-color));
+  background: transparent;
+  text-align: left;
+}
+.nodum-callout-title:disabled {
+  cursor: default;
+}
+.nodum-callout-content {
+  padding: 0 12px 8px 36px;
+}
+.nodum-callout-content > *:first-child { margin-top: 0; }
+.nodum-callout-content > *:last-child { margin-bottom: 0; }
+.nodum-callout blockquote {
+  border-left-color: rgb(var(--callout-color));
+}
+
+/* Live preview callout lines */
+.cm-callout-line {
+  background: rgba(var(--callout-color), 0.08);
+  border-left: 3px solid rgb(var(--callout-color)) !important;
+  padding-left: 12px !important;
+}
+.cm-callout-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+.cm-callout-header svg { flex-shrink: 0; }

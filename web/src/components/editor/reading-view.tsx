@@ -9,6 +9,9 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
+import { CalloutBox } from "./callout-box";
+import { remarkCallouts } from "@/lib/editor/remark-callouts";
+
 import "katex/dist/katex.min.css";
 
 interface ReadingViewProps {
@@ -44,9 +47,11 @@ export function ReadingView({ content, onNavigate }: ReadingViewProps) {
   return (
     <div className="nodum-reading">
       <ReactMarkdown
-        remarkPlugins={[remarkFrontmatter, remarkGfm, remarkMath]}
+        remarkPlugins={[remarkFrontmatter, remarkGfm, remarkMath, remarkCallouts]}
         rehypePlugins={[rehypeKatex]}
         components={{
+          // @ts-expect-error -- custom hast node emitted by remarkCallouts
+          callout: CalloutBox,
           a({ href, children, ...props }) {
             if (href?.startsWith("nodum:")) {
               const target = decodeURIComponent(href.slice("nodum:".length));
