@@ -2,7 +2,7 @@
 
 /** Reading view — rendered markdown (gfm + math + callouts + wikilinks + embeds). */
 
-import { useMemo } from "react";
+import { Children, isValidElement, useMemo, type ReactElement } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkFrontmatter from "remark-frontmatter";
@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 import { CalloutBox } from "./callout-box";
+import { MermaidDiagram, ShikiCodeBlock } from "./code-block";
 import { AttachmentImage, NoteEmbed } from "./embeds";
 import { isImageTarget } from "@/lib/editor/markdown-extensions";
 import { remarkCallouts } from "@/lib/editor/remark-callouts";
@@ -57,6 +58,19 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
         components={{
           // @ts-expect-error -- custom hast node emitted by remarkCallouts
           callout: CalloutBox,
+          pre({ children, ...props }) {
+            // Fenced code arrives as <pre><code class="language-x">…</code></pre>;
+            // route it through shiki (or mermaid for ```mermaid fences).
+            const only = Children.count(children) === 1 ? Children.only(children) : null;
+            if (isValidElement(only) && only.type === "code") {
+              const codeEl = only as ReactElement<{ className?: string; children?: unknown }>;
+              const lang = /language-(\S+)/.exec(codeEl.props.className ?? "")?.[1] ?? "";
+              const code = String(codeEl.props.children ?? "").replace(/\n$/, "");
+              if (lang.toLowerCase() === "mermaid") return <MermaidDiagram code={code} />;
+              return <ShikiCodeBlock code={code} lang={lang} />;
+            }
+            return <pre {...props}>{children}</pre>;
+          },
           a({ href, children, ...props }) {
             if (href?.startsWith("nodum:")) {
               const target = decodeURIComponent(href.slice("nodum:".length));
