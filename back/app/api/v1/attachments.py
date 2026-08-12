@@ -25,9 +25,7 @@ def _serialize(a: Any) -> dict[str, Any]:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def upload_attachment(
-    vault_id: UUID, file: UploadFile, user_id: CurrentUserId, db: SessionDep
-) -> dict[str, Any]:
+async def upload_attachment(vault_id: UUID, file: UploadFile, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Upload a file (multipart form field ``file``)."""
     content = await file.read()
     if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
@@ -61,9 +59,7 @@ async def resolve_by_filename(
 
 
 @router.get("/{attachment_id}/url")
-async def download_url(
-    vault_id: UUID, attachment_id: UUID, user_id: CurrentUserId, db: SessionDep
-) -> dict[str, Any]:
+async def download_url(vault_id: UUID, attachment_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     data = (await attachment_service.presigned_url(db, vault_id, user_id, attachment_id)).unwrap()
     return {"data": data}
 
