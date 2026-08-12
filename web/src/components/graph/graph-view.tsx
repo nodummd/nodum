@@ -216,6 +216,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       links[i * 2 + 1] = t;
     });
 
+    // Hover dim (research spec): fade non-neighbors to ~0.2 alpha, eased
+    const adjacency: Set<number>[] = filtered.nodes.map(() => new Set<number>());
+    filtered.edges.forEach(([s, t]) => {
+      adjacency[s].add(t);
+      adjacency[t].add(s);
+    });
+
     const graph = new CosmosGraph(container, {
       backgroundColor: [0, 0, 0, 0],
       enableDrag: true,
@@ -246,17 +253,52 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         if (node && event instanceof MouseEvent) {
           setHovered({ title: node.title, x: event.offsetX, y: event.offsetY });
         }
+        const target = colors.slice();
+        for (let i = 0; i < n; i++) {
+          if (i === index || adjacency[index].has(i)) continue;
+          target[i * 4 + 3] = colors[i * 4 + 3] * 0.2;
+        }
+        animateColors(target);
+        const dimmedLinks = baseLinkColors.slice();
+        filtered.edges.forEach(([s, t], i) => {
+          if (s !== index && t !== index) dimmedLinks[i * 4 + 3] *= 0.15;
+        });
+        graphRef.current?.setLinkColors(dimmedLinks);
       },
-      onPointMouseOut: () => setHovered(null),
+      onPointMouseOut: () => {
+        setHovered(null);
+        animateColors(colors.slice());
+        graphRef.current?.setLinkColors(baseLinkColors.slice());
+      },
     });
+
+    // Eased color transition (easeOutQuad over ~160ms) toward a target array
+    let dimRaf = 0;
+    let currentColors = colors.slice();
+    function animateColors(target: Float32Array): void {
+      cancelAnimationFrame(dimRaf);
+      const start = currentColors.slice();
+      const t0 = performance.now();
+      const DURATION = 160;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / DURATION);
+        const eased = t * (2 - t);
+        const mixed = new Float32Array(start.length);
+        for (let i = 0; i < mixed.length; i++) mixed[i] = start[i] + (target[i] - start[i]) * eased;
+        graphRef.current?.setPointColors(mixed);
+        currentColors = mixed;
+        if (t < 1) dimRaf = requestAnimationFrame(step);
+      };
+      dimRaf = requestAnimationFrame(step);
+    }
 
     graph.setPointPositions(positions);
     graph.setPointColors(colors);
     graph.setPointSizes(sizes);
     graph.setLinks(links);
-    const linkColors = new Float32Array(filtered.edges.length * 4);
-    for (let i = 0; i < filtered.edges.length; i++) linkColors.set(linkColor, i * 4);
-    graph.setLinkColors(linkColors);
+    const baseLinkColors = new Float32Array(filtered.edges.length * 4);
+    for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
+    graph.setLinkColors(baseLinkColors);
     graph.render(0.9);
     graph.fitView(300);
     graphRef.current = graph;
@@ -307,6 +349,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     return () => {
       clearTimeout(fitTimer);
       cancelAnimationFrame(rafRef.current);
+      cancelAnimationFrame(dimRaf);
       overlay.remove();
       graph.destroy();
       graphRef.current = null;
