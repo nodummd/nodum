@@ -82,18 +82,64 @@ class TableWidget extends WidgetType {
   }
 }
 
-// ── Properties (frontmatter) widget ──────────────────────────────────────────
+// ── Properties (frontmatter) widget — field-level editing ────────────────────
+
+interface PropField {
+  key: string;
+  keyLine: number;
+  /** Scalar raw value ("" when the key introduces a list). */
+  value: string;
+  /** For lists: [lineIdx, itemText] per `- item` line. */
+  items: [number, string][];
+}
+
+function unquote(v: string): string {
+  return v.replace(/^["']|["']$/g, "");
+}
+
+/** Quote a scalar for YAML when it needs it. */
+function yamlScalar(v: string): string {
+  if (v === "") return '""';
+  if (/^[\w./-]+$/.test(v) || /^-?\d+(\.\d+)?$/.test(v) || v === "true" || v === "false") return v;
+  return JSON.stringify(v);
+}
+
+/** Light structural parse of top-level `key: value` + nested `- item` lines. */
+function parseFields(lines: string[]): PropField[] {
+  const fields: PropField[] = [];
+  let current: PropField | null = null;
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) return;
+    const listMatch = /^\s+-\s+(.*)$/.exec(line);
+    if (listMatch && current) {
+      current.items.push([idx, unquote(listMatch[1])]);
+      return;
+    }
+    const kv = /^([\w][\w -]*):\s*(.*)$/.exec(line);
+    if (kv) {
+      current = { key: kv[1], keyLine: idx, value: unquote(kv[2]), items: [] };
+      fields.push(current);
+    }
+  });
+  return fields;
+}
 
 class PropertiesWidget extends WidgetType {
-  constructor(readonly yaml: string) {
+  constructor(
+    readonly yaml: string,
+    /** Absolute doc range of the whole frontmatter block (incl. delimiters). */
+    readonly from: number,
+    readonly to: number,
+  ) {
     super();
   }
 
   override eq(other: PropertiesWidget): boolean {
-    return other.yaml === this.yaml;
+    return other.yaml === this.yaml && other.from === this.from && other.to === this.to;
   }
 
-  override toDOM(): HTMLElement {
+  override toDOM(view: EditorView): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "cm-properties-widget";
     const heading = document.createElement("div");
@@ -101,59 +147,106 @@ class PropertiesWidget extends WidgetType {
     heading.textContent = "Properties";
     wrap.appendChild(heading);
 
-    // Light YAML display parse: top-level `key: value` plus `- item` lists.
+    const lines = this.yaml.split("\n");
+    const commit = (nextLines: string[]) => {
+      view.dispatch({
+        changes: { from: this.from, to: this.to, insert: `---\n${nextLines.join("\n")}\n---` },
+      });
+    };
+
     const grid = document.createElement("div");
     grid.className = "cm-properties-grid";
-    let currentKeyEl: HTMLElement | null = null;
-    let listBuffer: string[] = [];
 
-    const flushList = () => {
-      if (currentKeyEl && listBuffer.length > 0) {
-        const val = document.createElement("div");
-        val.className = "cm-properties-value";
-        for (const item of listBuffer) {
+    for (const field of parseFields(lines)) {
+      const keyEl = document.createElement("div");
+      keyEl.className = "cm-properties-key";
+      keyEl.textContent = field.key;
+      grid.appendChild(keyEl);
+
+      const val = document.createElement("div");
+      val.className = "cm-properties-value";
+
+      if (field.items.length > 0) {
+        // List → removable pills + inline add
+        for (const [lineIdx, item] of field.items) {
           const pill = document.createElement("span");
           pill.className = "cm-properties-pill";
           pill.textContent = item;
+          const rm = document.createElement("button");
+          rm.type = "button";
+          rm.textContent = "×";
+          rm.className = "cm-properties-pill-remove";
+          rm.setAttribute("aria-label", `Remove ${item} from ${field.key}`);
+          rm.onclick = () => {
+            commit(lines.filter((_, i) => i !== lineIdx));
+          };
+          pill.appendChild(rm);
           val.appendChild(pill);
         }
-        grid.appendChild(val);
+        const add = document.createElement("input");
+        add.className = "cm-properties-add";
+        add.placeholder = "+";
+        add.setAttribute("aria-label", `Add to ${field.key}`);
+        const commitAdd = () => {
+          const v = add.value.trim();
+          if (!v) return;
+          const lastItemLine = field.items[field.items.length - 1][0];
+          const next = [...lines];
+          next.splice(lastItemLine + 1, 0, `  - ${v}`);
+          commit(next);
+        };
+        add.onkeydown = (e) => {
+          if (e.key === "Enter") commitAdd();
+        };
+        add.onblur = commitAdd;
+        val.appendChild(add);
+      } else if (field.value === "true" || field.value === "false") {
+        // Boolean → checkbox, committed immediately
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = field.value === "true";
+        box.className = "cm-properties-checkbox";
+        box.setAttribute("aria-label", `${field.key} value`);
+        box.onchange = () => {
+          const next = [...lines];
+          next[field.keyLine] = `${field.key}: ${box.checked ? "true" : "false"}`;
+          commit(next);
+        };
+        val.appendChild(box);
+      } else {
+        // Scalar → text/date input, committed on Enter or blur
+        const input = document.createElement("input");
+        input.type = /^\d{4}-\d{2}-\d{2}$/.test(field.value) ? "date" : "text";
+        input.value = field.value;
+        input.className = "cm-properties-input";
+        input.setAttribute("aria-label", `${field.key} value`);
+        const commitScalar = () => {
+          const v = input.value.trim();
+          if (v === field.value) return;
+          const next = [...lines];
+          next[field.keyLine] = `${field.key}: ${yamlScalar(v)}`;
+          commit(next);
+        };
+        input.onkeydown = (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commitScalar();
+          }
+        };
+        input.onblur = commitScalar;
+        val.appendChild(input);
       }
-      listBuffer = [];
-    };
-
-    for (const rawLine of this.yaml.split("\n")) {
-      const line = rawLine.trimEnd();
-      if (!line.trim()) continue;
-      const listMatch = /^\s+-\s+(.*)$/.exec(line);
-      if (listMatch) {
-        listBuffer.push(listMatch[1].replace(/^["']|["']$/g, ""));
-        continue;
-      }
-      const kv = /^([\w][\w -]*):\s*(.*)$/.exec(line);
-      if (kv) {
-        flushList();
-        const keyEl = document.createElement("div");
-        keyEl.className = "cm-properties-key";
-        keyEl.textContent = kv[1];
-        grid.appendChild(keyEl);
-        currentKeyEl = keyEl;
-        if (kv[2]) {
-          const val = document.createElement("div");
-          val.className = "cm-properties-value";
-          val.textContent = kv[2].replace(/^["']|["']$/g, "");
-          grid.appendChild(val);
-          currentKeyEl = null;
-        }
-      }
+      grid.appendChild(val);
     }
-    flushList();
     wrap.appendChild(grid);
     return wrap;
   }
 
-  override ignoreEvent(): boolean {
-    return false;
+  override ignoreEvent(event: Event): boolean {
+    // Events inside form controls belong to the widget (else CM would treat
+    // the click as cursor placement and reveal the raw YAML mid-edit)
+    const target = event.target as HTMLElement | null;
+    return Boolean(target?.closest?.("input, button"));
   }
 }
 
@@ -270,11 +363,9 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
   // Frontmatter: must start at position 0
   const fm = /^---\n([\s\S]*?)\n(?:---|\.\.\.)(?:\n|$)/.exec(doc);
   if (fm && !selectionTouches(state, 0, fm[0].length)) {
+    const end = fm[0].length - (fm[0].endsWith("\n") ? 1 : 0);
     decorations.push(
-      Decoration.replace({ widget: new PropertiesWidget(fm[1]), block: true }).range(
-        0,
-        fm[0].length - (fm[0].endsWith("\n") ? 1 : 0),
-      ),
+      Decoration.replace({ widget: new PropertiesWidget(fm[1], 0, end), block: true }).range(0, end),
     );
   }
 
