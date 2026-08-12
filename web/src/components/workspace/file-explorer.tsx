@@ -14,6 +14,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { folderApi, noteApi, vaultApi } from "@/lib/api/endpoints";
+import { toastError } from "@/lib/stores/toast-store";
 import type { TreeItem } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -47,27 +48,33 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
       invalidate();
       onOpenNote(note.id, note.title);
     },
+    onError: (err) => toastError(err, "Could not create note."),
   });
   const createFolder = useMutation({
     mutationFn: (v: { name: string; parentId: string | null }) =>
       folderApi.create(vaultId, { name: v.name, parent_id: v.parentId }),
     onSuccess: invalidate,
+    onError: (err) => toastError(err, "Could not create folder."),
   });
   const renameNote = useMutation({
     mutationFn: (v: { id: string; title: string }) => noteApi.rename(vaultId, v.id, { title: v.title }),
     onSuccess: invalidate,
+    onError: (err) => toastError(err, "Could not rename note."),
   });
   const renameFolder = useMutation({
     mutationFn: (v: { id: string; name: string }) => folderApi.rename(vaultId, v.id, v.name),
     onSuccess: invalidate,
+    onError: (err) => toastError(err, "Could not rename folder."),
   });
   const deleteNote = useMutation({
     mutationFn: (id: string) => noteApi.remove(vaultId, id),
     onSuccess: invalidate,
+    onError: (err) => toastError(err, "Could not delete note."),
   });
   const deleteFolder = useMutation({
     mutationFn: (id: string) => folderApi.remove(vaultId, id),
     onSuccess: invalidate,
+    onError: (err) => toastError(err, "Could not delete folder."),
   });
 
   const toggleFolder = (id: string) => {

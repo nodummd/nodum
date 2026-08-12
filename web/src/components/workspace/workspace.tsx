@@ -27,8 +27,10 @@ import { SidebarLeft } from "./sidebar-left";
 import { SidebarRight } from "./sidebar-right";
 import { StatusBar } from "./status-bar";
 import { TabBar } from "./tab-bar";
+import { Toaster } from "./toaster";
 import { noteApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
+import { toastError } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -52,6 +54,22 @@ export function Workspace({ vault }: { vault: Vault }) {
   const openGraph = useCallback(() => {
     openTab({ id: "graph", kind: "graph", title: "Graph view" });
   }, [openTab]);
+
+  const createFromGraph = useCallback(
+    (title: string) => {
+      void (async () => {
+        try {
+          const created = await noteApi.create(vault.id, { title });
+          void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+          void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
+          openNote(created.id, created.title);
+        } catch (err) {
+          toastError(err, "Could not create note.");
+        }
+      })();
+    },
+    [vault.id, queryClient, openNote],
+  );
 
   const newNote = useMutation({
     mutationFn: () => {
@@ -101,18 +119,7 @@ export function Workspace({ vault }: { vault: Vault }) {
           {activeTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
           {activeTab?.kind === "note" && <EditorPane vaultId={vault.id} noteId={activeTab.id} />}
           {activeTab?.kind === "graph" && (
-            <GraphView
-              vaultId={vault.id}
-              onOpenNote={openNote}
-              onCreateNote={(title) => {
-                void (async () => {
-                  const created = await noteApi.create(vault.id, { title });
-                  void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
-                  void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
-                  openNote(created.id, created.title);
-                })();
-              }}
-            />
+            <GraphView vaultId={vault.id} onOpenNote={openNote} onCreateNote={createFromGraph} />
           )}
           <StatusBar vaultId={vault.id} noteId={activeNoteId} />
         </div>
@@ -120,6 +127,7 @@ export function Workspace({ vault }: { vault: Vault }) {
 
       <SidebarRight vaultId={vault.id} noteId={activeNoteId} onOpenNote={openNote} />
       <QuickSwitcher vaultId={vault.id} onOpenNote={openNote} />
+      <Toaster />
     </div>
   );
 }

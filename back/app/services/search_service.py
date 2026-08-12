@@ -92,6 +92,8 @@ async def search_notes(
             func.left(Note.content, 200).label("snippet"),
         ).order_by(Note.updated_at.desc())
 
+    # Window count gives the true total for pagination without a second query.
+    stmt = stmt.add_columns(func.count().over().label("total_count"))
     rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
 
     results = [
@@ -105,7 +107,8 @@ async def search_notes(
         }
         for row in rows
     ]
-    return ServiceResponse.ok({"query": q, "results": results, "total": len(results)})
+    total = int(rows[0].total_count) if rows else 0
+    return ServiceResponse.ok({"query": q, "results": results, "total": total})
 
 
 async def quick_switch(

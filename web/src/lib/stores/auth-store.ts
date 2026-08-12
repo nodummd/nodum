@@ -5,7 +5,7 @@
 import { create } from "zustand";
 
 import { authApi } from "@/lib/api/endpoints";
-import { setAccessToken } from "@/lib/api/client";
+import { onAuthExpired, setAccessToken } from "@/lib/api/client";
 import type { TokenPair, User } from "@/lib/api/types";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
@@ -19,7 +19,13 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set) => {
+  // Hard 401 (refresh failed mid-use) → drop to anonymous; route guards redirect.
+  onAuthExpired(() => {
+    set({ status: "anonymous", user: null });
+  });
+
+  return {
   status: "loading",
   user: null,
 
@@ -48,4 +54,5 @@ export const useAuthStore = create<AuthState>((set) => ({
     setAccessToken(null);
     set({ status: "anonymous", user: null });
   },
-}));
+  };
+});

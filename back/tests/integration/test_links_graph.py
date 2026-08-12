@@ -153,3 +153,34 @@ async def test_graph_cache_invalidation(client: AsyncClient, workspace: dict) ->
 
     g2 = (await client.get(f"{base}/graph", headers=workspace["headers"])).json()["data"]
     assert len(g2["nodes"]) == n_nodes + 1
+
+
+async def test_folder_rename_reresolves_path_links(client: AsyncClient, workspace: dict) -> None:
+    """Path-addressed wikilinks follow Obsidian semantics through folder renames."""
+    base = f"/api/v1/vaults/{workspace['vault_id']}"
+    folder = await client.post(f"{base}/folders", json={"name": "Docs"}, headers=workspace["headers"])
+    folder_id = folder.json()["data"]["id"]
+
+    resp = await client.post(
+        f"{base}/notes",
+        json={"title": "Spec", "folder_id": folder_id},
+        headers=workspace["headers"],
+    )
+    target_id = resp.json()["data"]["id"]
+    await _create(client, workspace, "Pointer note", "See [[Docs/Spec]].")
+
+    back1 = await client.get(f"{base}/notes/{target_id}/backlinks", headers=workspace["headers"])
+    assert [b["title"] for b in back1.json()["data"]["backlinks"]] == ["Pointer note"]
+
+    # Rename the folder: the old path-link unresolves (we never rewrite markdown)
+    renamed = await client.patch(
+        f"{base}/folders/{folder_id}/rename", json={"name": "Archive"}, headers=workspace["headers"]
+    )
+    assert renamed.status_code == 200
+    back2 = await client.get(f"{base}/notes/{target_id}/backlinks", headers=workspace["headers"])
+    assert back2.json()["data"]["backlinks"] == []
+
+    # A link written against the new path resolves immediately
+    await _create(client, workspace, "Fresh pointer", "Now [[Archive/Spec]].")
+    back3 = await client.get(f"{base}/notes/{target_id}/backlinks", headers=workspace["headers"])
+    assert [b["title"] for b in back3.json()["data"]["backlinks"]] == ["Fresh pointer"]
