@@ -4,6 +4,9 @@ import { api, apiJson } from "./client";
 import type {
   AttachmentInfo,
   Backlink,
+  CanvasData,
+  CanvasFull,
+  CanvasMeta,
   FolderInfo,
   Graph,
   Note,
@@ -147,6 +150,22 @@ export const dailyApi = {
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/templates`),
   insertTemplate: (vaultId: string, noteId: string, templateId: string) =>
     apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST"),
+};
+
+// ── Canvases ─────────────────────────────────────────────────────────────────
+
+export const canvasApi = {
+  list: (vaultId: string) => api<CanvasMeta[]>(`/vaults/${vaultId}/canvases`),
+  create: (vaultId: string, name: string) =>
+    apiJson<CanvasFull>(`/vaults/${vaultId}/canvases`, "POST", { name }),
+  get: (vaultId: string, canvasId: string) =>
+    api<CanvasFull>(`/vaults/${vaultId}/canvases/${canvasId}`),
+  updateData: (vaultId: string, canvasId: string, data: CanvasData) =>
+    apiJson<CanvasFull>(`/vaults/${vaultId}/canvases/${canvasId}/data`, "PUT", { data }),
+  rename: (vaultId: string, canvasId: string, name: string) =>
+    apiJson<CanvasFull>(`/vaults/${vaultId}/canvases/${canvasId}/rename`, "PATCH", { name }),
+  remove: (vaultId: string, canvasId: string) =>
+    apiJson<{ message: string }>(`/vaults/${vaultId}/canvases/${canvasId}`, "DELETE"),
 };
 
 // ── Publish ──────────────────────────────────────────────────────────────────

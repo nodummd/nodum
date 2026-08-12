@@ -509,3 +509,10 @@ body {
   z-index: 30;
 }
 .cm-ySelectionCaret:hover > .cm-ySelectionInfo { opacity: 1; }
+
+/* Canvas cards — compact reading view inside cards */
+.nodum-canvas-card-body .nodum-reading { font-size: 12px; }
+.nodum-canvas-card-body .nodum-reading h1 { font-size: 1.25em; }
+.nodum-canvas-card-body .nodum-reading h2 { font-size: 1.15em; }
+[data-canvas-card] { user-select: none; }
+[data-canvas-card] textarea { user-select: text; }

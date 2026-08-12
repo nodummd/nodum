@@ -25,8 +25,8 @@ export type ExplorerSort =
   | "created-asc";
 
 export interface Tab {
-  id: string; // note id, or "graph"
-  kind: "note" | "graph";
+  id: string; // note id, canvas id, or "graph"
+  kind: "note" | "graph" | "canvas";
   title: string;
   /** Pinned tabs sort first, hide their close button, and ⌘W skips them. */
   pinned?: boolean;
