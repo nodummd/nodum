@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 41 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 42 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -160,7 +160,7 @@
   into the active pane.
   *Accept:* e2e: split, open different notes side by side, close pane.
 
-- [ ] **S6.3 Pinned tabs + navigation history** (M)
+- [x] 2026-08-12 **S6.3 Pinned tabs + navigation history** (M)
   *Do:* pin/unpin via tab context menu (pinned tabs sort first, no close
   button, ⌘W skips); per-pane back/forward stacks (⌘[ / ⌘]) recording note
   opens; store-persisted.
