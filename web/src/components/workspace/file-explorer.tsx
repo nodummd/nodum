@@ -8,7 +8,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, FilePlus2, FolderPlus } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronRight, FilePlus2, FolderPlus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
@@ -18,9 +18,17 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { folderApi, noteApi, vaultApi } from "@/lib/api/endpoints";
 import type { TreeItem } from "@/lib/api/types";
 import { toastError } from "@/lib/stores/toast-store";
+import { type ExplorerSort, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 26;
@@ -36,10 +44,41 @@ type FlatRow =
   | { kind: "note"; id: string; title: string; depth: number }
   | { kind: "create-input"; parentId: string | null; createKind: "note" | "folder"; depth: number };
 
+const SORT_LABELS: Record<ExplorerSort, string> = {
+  "title-asc": "File name (A to Z)",
+  "title-desc": "File name (Z to A)",
+  "updated-desc": "Modified time (new to old)",
+  "updated-asc": "Modified time (old to new)",
+  "created-desc": "Created time (new to old)",
+  "created-asc": "Created time (old to new)",
+};
+
+function sortNotes(notes: Extract<TreeItem, { type: "note" }>[], sort: ExplorerSort) {
+  const copy = [...notes];
+  copy.sort((a, b) => {
+    switch (sort) {
+      case "title-desc":
+        return b.title.localeCompare(a.title);
+      case "updated-desc":
+        return b.updated_at.localeCompare(a.updated_at);
+      case "updated-asc":
+        return a.updated_at.localeCompare(b.updated_at);
+      case "created-desc":
+        return b.created_at.localeCompare(a.created_at);
+      case "created-asc":
+        return a.created_at.localeCompare(b.created_at);
+      default:
+        return a.title.localeCompare(b.title);
+    }
+  });
+  return copy;
+}
+
 function flattenTree(
   items: TreeItem[],
   collapsed: Set<string>,
   creating: { kind: "note" | "folder"; parentId: string | null } | null,
+  sort: ExplorerSort,
   depth = 0,
   parentId: string | null = null,
 ): FlatRow[] {
@@ -49,7 +88,7 @@ function flattenTree(
       const isCollapsed = collapsed.has(item.id);
       rows.push({ kind: "folder", id: item.id, name: item.name, depth, collapsed: isCollapsed });
       if (!isCollapsed) {
-        rows.push(...flattenTree(item.children, collapsed, creating, depth + 1, item.id));
+        rows.push(...flattenTree(item.children, collapsed, creating, sort, depth + 1, item.id));
       }
     }
   }
@@ -61,10 +100,9 @@ function flattenTree(
       depth: depth + (parentId ? 1 : 0),
     });
   }
-  for (const item of items) {
-    if (item.type === "note") {
-      rows.push({ kind: "note", id: item.id, title: item.title, depth });
-    }
+  const noteItems = items.filter((i): i is Extract<TreeItem, { type: "note" }> => i.type === "note");
+  for (const item of sortNotes(noteItems, sort)) {
+    rows.push({ kind: "note", id: item.id, title: item.title, depth });
   }
   return rows;
 }
@@ -85,6 +123,8 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     parentId: string | null;
     value: string;
   } | null>(null);
+  const explorerSort = useWorkspaceStore((s) => s.explorerSort);
+  const setExplorerSort = useWorkspaceStore((s) => s.setExplorerSort);
 
   const rows = useMemo(
     () =>
@@ -93,9 +133,10 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
             tree.items,
             collapsed,
             creating ? { kind: creating.kind, parentId: creating.parentId } : null,
+            explorerSort,
           )
         : [],
-    [tree, collapsed, creating],
+    [tree, collapsed, creating, explorerSort],
   );
 
   const virtualizer = useVirtualizer({
@@ -202,6 +243,29 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
         >
           <FolderPlus className="size-4" strokeWidth={1.75} />
         </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Change sort order"
+              className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text"
+            >
+              <ArrowUpDown className="size-4" strokeWidth={1.75} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuRadioGroup
+              value={explorerSort}
+              onValueChange={(v) => setExplorerSort(v as ExplorerSort)}
+            >
+              {(Object.keys(SORT_LABELS) as ExplorerSort[]).map((key) => (
+                <DropdownMenuRadioItem key={key} value={key}>
+                  {SORT_LABELS[key]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-2 pb-4">
