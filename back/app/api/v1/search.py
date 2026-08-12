@@ -18,11 +18,14 @@ async def search(
     user_id: CurrentUserId,
     db: SessionDep,
     q: str = Query(min_length=1, max_length=500),
+    sort: str = Query(default="relevance", pattern="^(relevance|updated|created|title)$"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
-    """Full-text search with operators (path:, file:, tag:, "phrases", -exclusions)."""
-    data = (await search_service.search_notes(db, vault_id, user_id, q=q, limit=limit, offset=offset)).unwrap()
+    """Full-text search with operators (path:, file:, tag:, created:, updated:, "phrases", -exclusions)."""
+    data = (
+        await search_service.search_notes(db, vault_id, user_id, q=q, sort=sort, limit=limit, offset=offset)
+    ).unwrap()
     return {"data": data}
 
 

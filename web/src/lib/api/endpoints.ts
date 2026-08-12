@@ -105,9 +105,9 @@ export const linkApi = {
 // ── Search & tags ────────────────────────────────────────────────────────────
 
 export const searchApi = {
-  search: (vaultId: string, q: string, limit = 20, offset = 0) =>
+  search: (vaultId: string, q: string, sort = "relevance", limit = 20, offset = 0) =>
     api<{ query: string; results: SearchResult[]; total: number }>(
-      `/vaults/${vaultId}/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
+      `/vaults/${vaultId}/search?q=${encodeURIComponent(q)}&sort=${sort}&limit=${limit}&offset=${offset}`,
     ),
   quickSwitch: (vaultId: string, q: string, limit = 10) =>
     api<QuickSwitchResult[]>(`/vaults/${vaultId}/quick-switch?q=${encodeURIComponent(q)}&limit=${limit}`),

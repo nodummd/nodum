@@ -118,7 +118,9 @@ async def get_tree(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceRe
     ).all()
     notes = (
         await db.execute(
-            select(Note.id, Note.folder_id, Note.title, Note.path).where(Note.vault_id == vault_id).order_by(Note.title)
+            select(Note.id, Note.folder_id, Note.title, Note.path, Note.created_at, Note.updated_at)
+            .where(Note.vault_id == vault_id)
+            .order_by(Note.title)
         )
     ).all()
 
@@ -142,7 +144,14 @@ async def get_tree(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceRe
             index[parent_id]["children"].extend(group)
 
     for n in notes:
-        leaf = {"type": "note", "id": str(n.id), "title": n.title, "path": n.path}
+        leaf = {
+            "type": "note",
+            "id": str(n.id),
+            "title": n.title,
+            "path": n.path,
+            "created_at": n.created_at.isoformat(),
+            "updated_at": n.updated_at.isoformat(),
+        }
         folder_key = str(n.folder_id) if n.folder_id else None
         if folder_key and folder_key in index:
             index[folder_key]["children"].append(leaf)
