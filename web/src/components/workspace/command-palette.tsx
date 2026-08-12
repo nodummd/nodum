@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Download,
   FileStack,
+  Settings,
   Upload,
   BookOpen,
   Code2,
@@ -55,6 +56,7 @@ interface CommandPaletteProps {
   onInsertTemplate: () => void;
   onExportVault: () => void;
   onImportVault: () => void;
+  onOpenSettings: () => void;
 }
 
 export function CommandPalette({
@@ -66,6 +68,7 @@ export function CommandPalette({
   onInsertTemplate,
   onExportVault,
   onImportVault,
+  onOpenSettings,
 }: CommandPaletteProps) {
   const router = useRouter();
   const open = useWorkspaceStore((s) => s.paletteOpen);
@@ -88,6 +91,7 @@ export function CommandPalette({
     { id: "insert-template", label: "Insert template…", icon: <FileStack className="size-4" />, run: onInsertTemplate, needsNote: true },
     { id: "export-vault", label: "Export vault as zip", icon: <Download className="size-4" />, run: onExportVault },
     { id: "import-vault", label: "Import notes from zip…", icon: <Upload className="size-4" />, run: onImportVault },
+    { id: "settings", label: "Open settings", hotkey: "⌘,", icon: <Settings className="size-4" />, run: onOpenSettings },
     { id: "mode-live", label: "Editor: Live Preview", icon: <Pencil className="size-4" />, run: () => setMode("live"), needsNote: true },
     { id: "mode-source", label: "Editor: Source mode", icon: <Code2 className="size-4" />, run: () => setMode("source"), needsNote: true },
     { id: "mode-reading", label: "Editor: Reading view", icon: <BookOpen className="size-4" />, run: () => setMode("reading"), needsNote: true },
