@@ -49,9 +49,20 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, onOpenNote, onCrea
   const [hovered, setHovered] = useState<{ title: string; x: number; y: number } | null>(null);
   const [showGhosts, setShowGhosts] = useState(true);
   const [showOrphans, setShowOrphans] = useState(true);
+  // Slider values update instantly for the UI; the WebGL graph only rebuilds
+  // against the debounced copies (300ms idle) — dragging a slider would
+  // otherwise tear down and recreate the simulation on every tick.
   const [centerForce, setCenterForce] = useState(0.55);
   const [repelForce, setRepelForce] = useState(1.1);
   const [linkDistance, setLinkDistance] = useState(12);
+  const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12 });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setApplied({ centerForce, repelForce, linkDistance });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [centerForce, repelForce, linkDistance]);
 
   const { data } = useQuery({
     queryKey: centerNoteId
@@ -122,11 +133,11 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, onOpenNote, onCrea
       hoveredPointCursor: "pointer",
       hoveredPointRingColor: toRgba(accent, 0.9),
       simulationGravity: 0.1,
-      simulationCenter: centerForce,
-      simulationRepulsion: repelForce,
+      simulationCenter: applied.centerForce,
+      simulationRepulsion: applied.repelForce,
       simulationRepulsionTheta: 0.9,
       simulationLinkSpring: 1.1,
-      simulationLinkDistance: linkDistance,
+      simulationLinkDistance: applied.linkDistance,
       simulationFriction: 0.85,
       simulationDecay: 4000,
       simulationCollision: 0.5,
@@ -203,7 +214,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, onOpenNote, onCrea
       graphRef.current = null;
     };
     // Re-create when data or physics sliders change (cosmos re-init is cheap)
-  }, [filtered, centerNoteId, centerForce, repelForce, linkDistance, onOpenNote, onCreateNote]);
+  }, [filtered, centerNoteId, applied, onOpenNote, onCreateNote]);
 
   return (
     <div className="relative h-full w-full bg-ob-bg">

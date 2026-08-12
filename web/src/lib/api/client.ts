@@ -12,6 +12,7 @@ const BASE = "/api/v1";
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<boolean> | null = null;
+let authExpiredHandler: (() => void) | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
@@ -19,6 +20,12 @@ export function setAccessToken(token: string | null): void {
 
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+/** Called once by the auth store: invoked when a 401 retry's refresh fails,
+ * i.e. the session is truly gone — the UI should transition to logged-out. */
+export function onAuthExpired(handler: () => void): void {
+  authExpiredHandler = handler;
 }
 
 export class ApiError extends Error {
@@ -89,6 +96,12 @@ export async function api<T>(
   if (res.status === 401 && retryOn401 && !path.startsWith("/auth/")) {
     if (await tryRefresh()) {
       res = await rawRequest(path, init);
+    } else {
+      // Session is truly gone (refresh cookie expired/invalidated) — tell the
+      // auth store so the app transitions to logged-out instead of silently
+      // erroring on every request.
+      accessToken = null;
+      authExpiredHandler?.();
     }
   }
 
