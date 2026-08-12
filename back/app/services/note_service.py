@@ -106,11 +106,12 @@ async def create_note(
     db.add(note)
     await db.flush()
 
-    from app.services.link_service import resolve_links_for_new_note, sync_note_links
+    from app.services.link_service import resolve_links_for_new_note, sync_note_aliases, sync_note_links
     from app.services.tag_service import sync_note_tags
 
     await sync_note_links(db, note)
     await sync_note_tags(db, note)
+    await sync_note_aliases(db, note)
     await resolve_links_for_new_note(db, note)
     await db.commit()
     await db.refresh(note)
@@ -170,11 +171,12 @@ async def update_content(
     if err := await _apply_content(note, content):
         return ServiceResponse.fail("validation_failed", err)
 
-    from app.services.link_service import sync_note_links
+    from app.services.link_service import sync_note_aliases, sync_note_links
     from app.services.tag_service import sync_note_tags
 
     await sync_note_links(db, note)
     await sync_note_tags(db, note)
+    await sync_note_aliases(db, note)
     await db.commit()
     await db.refresh(note)
     await cache_delete(vault_graph_key(vault_id))
