@@ -6,5 +6,6 @@ the full schema. Add new model modules here as features land.
 
 from app.models.auth import Session, User
 from app.models.base import Base
+from app.models.vaults import Folder, Note, Vault
 
-__all__ = ["Base", "Session", "User"]
+__all__ = ["Base", "Folder", "Note", "Session", "User", "Vault"]
