@@ -84,9 +84,7 @@ async def upload(
     return ServiceResponse.ok(attachment)
 
 
-async def list_attachments(
-    db: AsyncSession, vault_id: UUID, user_id: UUID
-) -> ServiceResponse[list[Attachment]]:
+async def list_attachments(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceResponse[list[Attachment]]:
     if await get_owned_vault(db, vault_id, user_id) is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
     rows = await db.execute(
@@ -100,9 +98,7 @@ async def _get_owned_attachment(
 ) -> Attachment | None:
     if await get_owned_vault(db, vault_id, user_id) is None:
         return None
-    return await db.scalar(
-        select(Attachment).where(Attachment.id == attachment_id, Attachment.vault_id == vault_id)
-    )
+    return await db.scalar(select(Attachment).where(Attachment.id == attachment_id, Attachment.vault_id == vault_id))
 
 
 async def presigned_url(

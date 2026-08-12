@@ -14,25 +14,34 @@ from app.utils.markdown_parse import extract_tags, frontmatter_tags
 
 
 async def sync_note_tags(db: AsyncSession, note: Note) -> None:
-    """Recompute the note's tag set (inline #tags union frontmatter tags). Caller commits."""
+    """Recompute the note's tag set (inline #tags union frontmatter tags). Caller commits.
+
+    Tag creation uses ``ON CONFLICT DO NOTHING`` so two concurrent saves that
+    introduce the same new tag never abort the transaction with a unique
+    violation — the loser simply reads the winner's row.
+    """
+    from uuid_extensions import uuid7
+
     wanted = extract_tags(note.content) | frontmatter_tags(note.properties or {})
 
     await db.execute(delete(NoteTag).where(NoteTag.note_id == note.id))
     if not wanted:
         return
 
-    existing = {
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    insert_stmt = pg_insert(Tag).values(
+        [{"id": uuid7(), "vault_id": note.vault_id, "name": name} for name in sorted(wanted)]
+    )
+    await db.execute(insert_stmt.on_conflict_do_nothing(constraint="uq_tags_vault_name"))
+
+    tag_ids = {
         t.name: t.id
         for t in (await db.execute(select(Tag).where(Tag.vault_id == note.vault_id, Tag.name.in_(wanted)))).scalars()
     }
     for name in wanted:
-        tag_id = existing.get(name)
-        if tag_id is None:
-            tag = Tag(vault_id=note.vault_id, name=name)
-            db.add(tag)
-            await db.flush()
-            tag_id = tag.id
-        db.add(NoteTag(note_id=note.id, tag_id=tag_id))
+        if name in tag_ids:
+            db.add(NoteTag(note_id=note.id, tag_id=tag_ids[name]))
 
 
 async def list_tags(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceResponse[list[dict[str, Any]]]:
