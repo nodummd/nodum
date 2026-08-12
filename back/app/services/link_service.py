@@ -261,21 +261,28 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
     if cached is not None:
         return ServiceResponse.ok(cached)
 
-    note_rows = (
-        await db.execute(select(Note.id, Note.title, Note.path, Note.properties).where(Note.vault_id == vault_id))
-    ).all()
+    note_rows = (await db.execute(select(Note.id, Note.title, Note.path).where(Note.vault_id == vault_id))).all()
     link_rows = (
         await db.execute(
             select(Link.source_note_id, Link.target_note_id, Link.target_title).where(Link.vault_id == vault_id)
         )
     ).all()
 
+    from app.models.tags import NoteTag, Tag
+
+    tag_rows = (
+        await db.execute(
+            select(NoteTag.note_id, Tag.name).join(Tag, Tag.id == NoteTag.tag_id).where(Tag.vault_id == vault_id)
+        )
+    ).all()
+    tags_by_note: dict[str, list[str]] = {}
+    for nid, tag_name in tag_rows:
+        tags_by_note.setdefault(str(nid), []).append(tag_name)
+
     nodes: list[dict[str, Any]] = []
     index_of: dict[str, int] = {}
 
-    from app.utils.markdown_parse import frontmatter_tags
-
-    for note_id, title, path, properties in note_rows:
+    for note_id, title, path in note_rows:
         index_of[str(note_id)] = len(nodes)
         folder = path.rsplit("/", 1)[0] if "/" in path else ""
         nodes.append(
@@ -286,7 +293,7 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
                 "folder": folder,
                 "degree": 0,
                 "unresolved": False,
-                "tags": sorted(frontmatter_tags(properties or {})),
+                "tags": sorted(tags_by_note.get(str(note_id), [])),
             }
         )
 
