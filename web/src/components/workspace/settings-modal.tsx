@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { authApi, vaultApi } from "@/lib/api/endpoints";
+import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 
@@ -49,6 +49,23 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
       toast("Profile saved.", "info");
     },
     onError: (e) => toastError(e, "Could not save profile."),
+  });
+
+  const { data: siteStatus } = useQuery({
+    queryKey: ["site-status", vaultId],
+    queryFn: () => siteApi.status(vaultId),
+    enabled: open,
+  });
+  const siteToggle = useMutation({
+    mutationFn: async (enable: boolean): Promise<void> => {
+      if (enable) await siteApi.publish(vaultId);
+      else await siteApi.unpublish(vaultId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["site-status", vaultId] });
+      toast("Site publishing updated.", "info");
+    },
+    onError: (e) => toastError(e, "Could not update site publishing."),
   });
 
   const saveVault = useMutation({
@@ -162,6 +179,40 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
           <Button size="sm" onClick={() => saveVault.mutate()} disabled={saveVault.isPending}>
             Save vault settings
           </Button>
+        </section>
+
+        <section className="space-y-3 border-t border-ob-border pt-4">
+          <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+            Publish site
+          </h3>
+          {siteStatus?.enabled && siteStatus.slug ? (
+            <div className="space-y-2">
+              <p className="text-[13px] text-ob-muted">
+                Live at{" "}
+                <a
+                  href={`/s/${siteStatus.slug}`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-ob-accent hover:underline"
+                >
+                  /s/{siteStatus.slug}
+                </a>{" "}
+                — notes with <code className="text-ob-faint">publish: false</code> stay private.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => siteToggle.mutate(false)} disabled={siteToggle.isPending}>
+                Unpublish site
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-[13px] text-ob-muted">
+                Publish this vault as a public read-only website.
+              </p>
+              <Button size="sm" onClick={() => siteToggle.mutate(true)} disabled={siteToggle.isPending}>
+                Publish vault site
+              </Button>
+            </div>
+          )}
         </section>
 
         <section className="space-y-3 border-t border-ob-border pt-4">
