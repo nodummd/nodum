@@ -15,6 +15,7 @@ import type { EditorState, Range } from "@codemirror/state";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 
+import { CALLOUT_MARKER_RE, calloutDefaultTitle, calloutIconElement, calloutType } from "./callouts";
 import { parseWikiLinkText } from "./markdown-extensions";
 
 /** Does any selection range touch [from, to]? (touch = reveal raw syntax) */
@@ -61,6 +62,31 @@ class BulletWidget extends WidgetType {
     const el = document.createElement("span");
     el.className = "cm-list-bullet";
     el.textContent = "•";
+    return el;
+  }
+}
+
+class CalloutHeaderWidget extends WidgetType {
+  constructor(
+    readonly type: string,
+    readonly title: string,
+  ) {
+    super();
+  }
+
+  override eq(other: CalloutHeaderWidget): boolean {
+    return other.type === this.type && other.title === this.title;
+  }
+
+  override toDOM(): HTMLElement {
+    const info = calloutType(this.type);
+    const el = document.createElement("span");
+    el.className = "cm-callout-header";
+    el.style.setProperty("--callout-color", info.color);
+    el.appendChild(calloutIconElement(info));
+    const label = document.createElement("span");
+    label.textContent = this.title || calloutDefaultTitle(info.name);
+    el.appendChild(label);
     return el;
   }
 }
@@ -223,10 +249,41 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
-        // ── Blockquotes & code fences: line styling ───────────────────
+        // ── Blockquotes, callouts & code fences: line styling ─────────
         if (name === "Blockquote") {
           const startLine = state.doc.lineAt(node.from);
           const endLine = state.doc.lineAt(node.to);
+
+          // Callout? First line reads `> [!type](+/-) Title`
+          const afterMark = startLine.text.replace(/^\s*>\s?/, "");
+          const callout = CALLOUT_MARKER_RE.exec(afterMark);
+          if (callout) {
+            const [, rawType, , title] = callout;
+            const info = calloutType(rawType);
+            for (let l = startLine.number; l <= endLine.number; l++) {
+              const line = state.doc.line(l);
+              decorations.push(
+                Decoration.line({
+                  class: "cm-callout-line",
+                  attributes: { style: `--callout-color: ${info.color}` },
+                }).range(line.from),
+              );
+            }
+            // Replace the `[!type](+/-)` marker (and title when collapsed
+            // syntax is hidden) with the rendered header
+            if (!selectionTouchesLine(state, startLine.from)) {
+              const markerStart = startLine.from + startLine.text.indexOf("[!");
+              if (markerStart >= startLine.from) {
+                decorations.push(
+                  Decoration.replace({
+                    widget: new CalloutHeaderWidget(rawType, title.trim()),
+                  }).range(markerStart, startLine.to),
+                );
+              }
+            }
+            return;
+          }
+
           for (let l = startLine.number; l <= endLine.number; l++) {
             decorations.push(Decoration.line({ class: "cm-blockquote-line" }).range(state.doc.line(l).from));
           }
