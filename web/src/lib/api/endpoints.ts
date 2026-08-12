@@ -112,6 +112,16 @@ export const searchApi = {
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/tags/${tag}/notes`),
 };
 
+// ── Daily notes & templates ──────────────────────────────────────────────────
+
+export const dailyApi = {
+  openDailyNote: (vaultId: string) => apiJson<Note>(`/vaults/${vaultId}/daily-note`, "POST"),
+  listTemplates: (vaultId: string) =>
+    api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/templates`),
+  insertTemplate: (vaultId: string, noteId: string, templateId: string) =>
+    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST"),
+};
+
 // ── Attachments ──────────────────────────────────────────────────────────────
 
 export const attachmentApi = {

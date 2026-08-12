@@ -90,3 +90,19 @@ test.describe("notes & editor", () => {
     await expect(page.locator("mark").first()).toBeVisible({ timeout: 10_000 });
   });
 });
+
+test.describe("daily notes", () => {
+  test("ribbon button creates and reopens today's daily note", async ({ page }) => {
+    await signupFreshUser(page, "daily-e2e");
+
+    await page.getByRole("button", { name: "Open today's daily note" }).click();
+    const title = page.getByRole("textbox", { name: "Note title" });
+    await expect(title).toBeVisible({ timeout: 10_000 });
+    const value = await title.inputValue();
+    expect(value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // Clicking again reuses the same note (no duplicate)
+    await page.getByRole("button", { name: "Open today's daily note" }).click();
+    await expect(title).toHaveValue(value);
+  });
+});
