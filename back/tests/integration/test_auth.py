@@ -65,7 +65,7 @@ async def test_me_without_token_unauthorized(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-async def test_refresh_rotates_and_blocks_reuse(client: AsyncClient) -> None:
+async def test_refresh_rotates_with_grace_then_blocks_reuse(client: AsyncClient) -> None:
     _, data = await _signup(client)
     old_refresh = data["refresh_token"]
 
@@ -80,13 +80,25 @@ async def test_refresh_rotates_and_blocks_reuse(client: AsyncClient) -> None:
     me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_pair['access_token']}"})
     assert me.status_code == 200
 
-    # Reusing the spent refresh token is rejected and kills the session family
+    # Immediate reuse of the just-spent token is a benign duplicate (grace
+    # window): racing tabs get fresh tokens instead of a killed session.
     r2 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
-    assert r2.status_code == 401
+    assert r2.status_code == 200, r2.text
+    client.cookies.clear()
+    graced_pair = r2.json()["data"]
 
-    # The rotated (newest) token was invalidated by the reuse defense too
-    r3 = await client.post("/api/v1/auth/refresh", json={"refresh_token": new_pair["refresh_token"]})
+    # Simulate grace expiry, then reuse of a long-spent token must trip the
+    # stolen-token defense and kill the whole session family.
+    from app.core.redis import redis_client
+
+    async for key in redis_client.scan_iter("refresh_grace:*"):
+        await redis_client.delete(key)
+
+    r3 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
     assert r3.status_code == 401
+
+    r4 = await client.post("/api/v1/auth/refresh", json={"refresh_token": graced_pair["refresh_token"]})
+    assert r4.status_code == 401
 
 
 async def test_logout_invalidates_session(client: AsyncClient) -> None:

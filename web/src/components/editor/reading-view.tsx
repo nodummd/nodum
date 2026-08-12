@@ -16,15 +16,26 @@ interface ReadingViewProps {
   onNavigate: (target: string) => void;
 }
 
-/** Convert [[wikilinks]] to markdown links with a nodum: scheme we intercept. */
+/**
+ * Convert [[wikilinks]] to markdown links with a nodum: scheme we intercept.
+ * Code fences and inline code spans are left untouched — a [[link]] inside
+ * code is literal text, not a link.
+ */
 function preprocessWikilinks(md: string): string {
-  return md.replace(/(!?)\[\[([^\][\n]+?)\]\]/g, (_m, embed: string, inner: string) => {
-    const [body, alias] = inner.split("|");
-    const target = body.split("#")[0].trim();
-    const label = (alias ?? body).trim();
-    if (embed === "!") return `![${label}](nodum-embed:${encodeURIComponent(target)})`;
-    return `[${label}](nodum:${encodeURIComponent(target)})`;
-  });
+  const CODE_SPLIT = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g;
+  return md
+    .split(CODE_SPLIT)
+    .map((chunk, i) => {
+      if (i % 2 === 1) return chunk; // code segment — leave verbatim
+      return chunk.replace(/(!?)\[\[([^\][\n]+?)\]\]/g, (_m, embed: string, inner: string) => {
+        const [body, alias] = inner.split("|");
+        const target = body.split("#")[0].trim();
+        const label = (alias ?? body).trim();
+        if (embed === "!") return `![${label}](nodum-embed:${encodeURIComponent(target)})`;
+        return `[${label}](nodum:${encodeURIComponent(target)})`;
+      });
+    })
+    .join("");
 }
 
 export function ReadingView({ content, onNavigate }: ReadingViewProps) {
