@@ -12,6 +12,7 @@ import { useEffect, useRef } from "react";
 
 import { tagCompletion, wikiLinkCompletion } from "@/lib/editor/autocomplete";
 import { insertLink, toggleBold, toggleHighlightCmd, toggleItalic } from "@/lib/editor/format-commands";
+import { blockWidgets } from "@/lib/editor/block-widgets";
 import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
 import { nodumEditorTheme } from "@/lib/editor/theme";
@@ -75,6 +76,7 @@ export function MarkdownEditor({
 
     if (mode === "live") {
       extensions.push(livePreview({ onNavigate: (t) => onNavigateRef.current(t), vaultId }));
+      extensions.push(blockWidgets());
     }
 
     const view = new EditorView({
