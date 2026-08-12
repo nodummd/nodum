@@ -38,6 +38,7 @@ dependencies = [
     # Utilities
     "python-slugify>=8.0.4",
     "uuid7>=0.1.0",
+    "pgvector>=0.5.0",
 ]
 
 [dependency-groups]

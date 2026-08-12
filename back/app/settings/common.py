@@ -132,5 +132,10 @@ class CommonSettings(BaseSettings):
     # ── Monitoring ────────────────────────────────────────────────────────────
     SENTRY_DSN: str = ""
 
+    # ── Semantic search ───────────────────────────────────────────────────────
+    # hash (default, offline) | openai (needs OPENAI_API_KEY; same 384-dim column)
+    EMBEDDINGS_PROVIDER: str = "hash"
+    OPENAI_API_KEY: str = ""
+
     # ── Development mode ──────────────────────────────────────────────────────
     UNDER_DEVELOPMENT: bool = False

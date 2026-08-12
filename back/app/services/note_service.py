@@ -57,6 +57,10 @@ async def _apply_content(note: Note, content: str) -> str | None:
     note.content = content
     note.word_count = count_words(content)
     note.properties = parse_properties(content)
+
+    from app.services.embedding_service import embed_text
+
+    note.embedding = await embed_text(f"{note.title}\n{content}")
     return None
 
 

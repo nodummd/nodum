@@ -9,7 +9,9 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false, // scenarios share a fresh-user flow; keep ordered within files
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // One retry everywhere: the suite drives a live dev server where first-hit
+  // route compiles can push a single navigation past its timeout.
+  retries: 1,
   workers: 1,
   reporter: process.env.CI ? "github" : [["list"]],
   timeout: 30_000,

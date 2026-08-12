@@ -81,11 +81,13 @@ async def test_refresh_rotates_with_grace_then_blocks_reuse(client: AsyncClient)
     assert me.status_code == 200
 
     # Immediate reuse of the just-spent token is a benign duplicate (grace
-    # window): racing tabs get fresh tokens instead of a killed session.
+    # window) and CONVERGES: the racer receives the session's current JTI so
+    # response ordering can never strand a tab with a doomed token.
     r2 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
     assert r2.status_code == 200, r2.text
     client.cookies.clear()
     graced_pair = r2.json()["data"]
+    assert graced_pair["refresh_token"] == new_pair["refresh_token"]
 
     # Simulate grace expiry, then reuse of a long-spent token must trip the
     # stolen-token defense and kill the whole session family.
@@ -97,7 +99,8 @@ async def test_refresh_rotates_with_grace_then_blocks_reuse(client: AsyncClient)
     r3 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
     assert r3.status_code == 401
 
-    r4 = await client.post("/api/v1/auth/refresh", json={"refresh_token": graced_pair["refresh_token"]})
+    # The current token was invalidated by the family nuke too
+    r4 = await client.post("/api/v1/auth/refresh", json={"refresh_token": new_pair["refresh_token"]})
     assert r4.status_code == 401
 
 

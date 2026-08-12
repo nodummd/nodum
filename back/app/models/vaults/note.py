@@ -3,7 +3,8 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Computed, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Computed, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -40,6 +41,8 @@ class Note(UUIDMixin, TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     word_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     properties: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # Semantic embedding (pluggable provider, 384 dims) — deferred like tsv
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True, deferred=True)
     # Full-text search vector — DB-generated (title weighted A, body B),
     # deferred so the ORM never fetches it into note payloads.
     content_tsv: Mapped[str | None] = mapped_column(
@@ -66,6 +69,9 @@ class Note(UUIDMixin, TimestampMixin, Base):
             postgresql_using="gin",
             postgresql_ops={"title": "gin_trgm_ops"},
         ),
+        # Expression indexes backing case-insensitive wikilink resolution
+        Index("ix_notes_vault_lower_title", "vault_id", text("lower(title)")),
+        Index("ix_notes_vault_lower_path", "vault_id", text("lower(path)")),
     )
 
     def __repr__(self) -> str:
