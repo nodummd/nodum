@@ -6,7 +6,8 @@
 > Suites must stay green: currently **68 backend + 39 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
-> Created 2026-08-12 · supersedes the stale "queued" table in
+> ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
+> ideas live in the Icebox. Created 2026-08-12 · supersedes the stale "queued" table in
 > `nodum-audit-and-roadmap.md` (kept for history/context).
 
 **Status legend:** `[ ]` todo · `[x] YYYY-MM-DD` done · `[~]` in progress
@@ -136,7 +137,7 @@
   *Accept (all):* two browser contexts edit one note live; both see each
   other's cursors; refresh keeps content; non-collab clients unaffected.
 
-🏁 **Release v2.0.0** after Sprint 5.
+🏁 ~~**Release v2.0.0**~~ ✅ 2026-08-12 — dev→main merged, tagged v2.0.0, prod-compose smoke passed (signup, collab websocket seed+sync, graph, search; web container healthcheck green).
 
 ## Icebox (unscoped / later)
 - Block references `[[Note^block]]` end-to-end (L)
