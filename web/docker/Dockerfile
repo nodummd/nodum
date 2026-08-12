@@ -21,7 +21,11 @@ CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
 # ── Build ─────────────────────────────────────────────────
 FROM base AS build
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+# Rewrites are inlined into the routes manifest AT BUILD TIME — the proxy
+# target must be a build arg (compose default: the api service).
+ARG API_PROXY_URL=http://api:8000
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV API_PROXY_URL=$API_PROXY_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

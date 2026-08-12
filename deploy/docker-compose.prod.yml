@@ -76,7 +76,7 @@ services:
     networks:
       - app_network
     entrypoint: []
-    command: uv run celery -A app.core.celery:celery_app worker --loglevel=INFO --concurrency=4
+    command: uv run celery -A app.core.celery:celery_app worker -B --loglevel=INFO --concurrency=4
 
   web:
     build:
@@ -85,10 +85,12 @@ services:
       target: production
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?set in deploy/.env}
+        API_PROXY_URL: http://api:8000
     container_name: nodum-web
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+      - API_PROXY_URL=http://api:8000
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

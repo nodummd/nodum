@@ -42,7 +42,10 @@ FROM base AS production
 
 COPY . .
 
-# Non-root user
+# Non-root user (no home dir) — uv must not try to sync or write caches
+ENV UV_NO_SYNC=1 \
+    UV_CACHE_DIR=/tmp/uv-cache
+
 RUN groupadd -r nodum && useradd -r -g nodum nodum \
     && chown -R nodum:nodum /app \
     && chmod +x ./scripts/pre-start.sh
