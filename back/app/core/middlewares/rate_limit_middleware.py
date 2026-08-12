@@ -31,6 +31,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         settings = get_settings()
+        if settings.ENVIRONMENT == "test":
+            return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
 
         if path.startswith(AUTH_PREFIX) and request.method == "POST":
