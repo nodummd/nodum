@@ -1,5 +1,5 @@
 """Publication models."""
 
-from app.models.publications.publication import Publication
+from app.models.publications.publication import Publication, VaultPublication
 
-__all__ = ["Publication"]
+__all__ = ["Publication", "VaultPublication"]
