@@ -34,8 +34,11 @@ def _token_payload(bundle: auth_service.TokenBundle) -> TokenPairOut:
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(body: SignupRequest, request: Request, response: Response, db: SessionDep) -> dict[str, Any]:
-    """Create an account, then log the new user straight in."""
-    (await auth_service.signup(db, email=body.email, password=body.password, name=body.name)).unwrap()
+    """Create an account with its onboarding vault, then log the new user straight in."""
+    from app.services import vault_service
+
+    user = (await auth_service.signup(db, email=body.email, password=body.password, name=body.name)).unwrap()
+    await vault_service.create_default_vault(db, user.id)
     bundle = (
         await auth_service.login(
             db,
