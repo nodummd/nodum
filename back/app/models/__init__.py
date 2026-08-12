@@ -13,4 +13,17 @@ from app.models.publications import Publication
 from app.models.tags import NoteTag, Tag
 from app.models.vaults import Folder, Note, Vault
 
-__all__ = ["Attachment", "Base", "Bookmark", "Folder", "Link", "Note", "NoteTag", "Publication", "Session", "Tag", "User", "Vault"]
+__all__ = [
+    "Attachment",
+    "Base",
+    "Bookmark",
+    "Folder",
+    "Link",
+    "Note",
+    "NoteTag",
+    "Publication",
+    "Session",
+    "Tag",
+    "User",
+    "Vault",
+]
