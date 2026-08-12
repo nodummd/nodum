@@ -238,7 +238,7 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
           const open = node.from + (isEmbed ? 3 : 2);
           const close = node.to - 2;
           const inner = state.doc.sliceString(open, close);
-          const { target, alias } = parseWikiLinkText(inner);
+          const { target, heading, alias } = parseWikiLinkText(inner);
           const touched = selectionTouches(state, node.from, node.to);
 
           // Image embeds render inline: ![[img.png]] / ![[img.png|320]]
@@ -256,7 +256,10 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
           decorations.push(
             Decoration.mark({
               class: "cm-wikilink",
-              attributes: { "data-wikilink-target": target },
+              attributes: {
+                "data-wikilink-target": target,
+                ...(heading ? { "data-wikilink-fragment": heading } : {}),
+              },
             }).range(node.from, node.to),
           );
 

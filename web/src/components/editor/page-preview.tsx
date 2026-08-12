@@ -11,10 +11,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { noteApi, searchApi } from "@/lib/api/endpoints";
+import { sliceFragment } from "@/lib/editor/block-slice";
 import { ReadingView } from "./reading-view";
 
 export interface PreviewAnchor {
   target: string;
+  /** `^block-id` or heading — the popover shows just that slice. */
+  fragment: string | null;
   x: number;
   y: number;
 }
@@ -36,7 +39,8 @@ export function usePagePreview() {
       if (!e.metaKey && !e.ctrlKey) return;
       const el = (e.target as HTMLElement).closest?.("[data-wikilink-target]");
       const target = el?.getAttribute("data-wikilink-target");
-      if (target) setAnchor({ target, x: e.clientX, y: e.clientY });
+      const fragment = el?.getAttribute("data-wikilink-fragment") ?? null;
+      if (target) setAnchor({ target, fragment, x: e.clientX, y: e.clientY });
     },
     onMouseOut: (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest?.("[data-wikilink-target]")) setAnchor(null);
@@ -84,10 +88,16 @@ export function PagePreview({ vaultId, anchor }: { vaultId: string; anchor: Prev
         </p>
       ) : note ? (
         <>
-          <p className="mb-1 truncate text-[13px] font-semibold text-ob-text">{note.title}</p>
+          <p className="mb-1 truncate text-[13px] font-semibold text-ob-text">
+            {note.title}
+            {anchor.fragment ? <span className="text-ob-faint"> #{anchor.fragment}</span> : null}
+          </p>
           <div className="nodum-preview-body text-[13px]">
             <ReadingView
-              content={excerpt(note.content)}
+              content={excerpt(
+                (anchor.fragment ? sliceFragment(note.content, anchor.fragment) : null) ??
+                  note.content,
+              )}
               vaultId={vaultId}
               onNavigate={() => undefined}
               depth={2}

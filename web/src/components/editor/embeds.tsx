@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { noteApi, searchApi } from "@/lib/api/endpoints";
 import { resolveAttachmentUrl } from "@/lib/editor/attachment-urls";
+import { sliceFragment } from "@/lib/editor/block-slice";
 
 export function AttachmentImage({
   vaultId,
@@ -50,13 +51,22 @@ export function AttachmentImage({
 interface NoteEmbedProps {
   vaultId: string;
   target: string;
+  /** `^block-id` or heading text — embeds just that slice of the note. */
+  fragment?: string | null;
   onNavigate: (target: string) => void;
   /** Transclusion nesting guard. */
   depth?: number;
   renderContent: (content: string, depth: number) => React.ReactNode;
 }
 
-export function NoteEmbed({ vaultId, target, onNavigate, depth = 0, renderContent }: NoteEmbedProps) {
+export function NoteEmbed({
+  vaultId,
+  target,
+  fragment = null,
+  onNavigate,
+  depth = 0,
+  renderContent,
+}: NoteEmbedProps) {
   const { data: note, isError } = useQuery({
     queryKey: ["embed", vaultId, target],
     queryFn: async () => {
@@ -88,6 +98,15 @@ export function NoteEmbed({ vaultId, target, onNavigate, depth = 0, renderConten
     );
   }
 
+  const sliced = fragment ? sliceFragment(note.content, fragment) : null;
+  if (fragment && sliced === null) {
+    return (
+      <span className="nodum-embed-placeholder">
+        ![[{target}#{fragment}]] <em>(block not found)</em>
+      </span>
+    );
+  }
+
   return (
     <div className="nodum-note-embed">
       <button
@@ -97,8 +116,11 @@ export function NoteEmbed({ vaultId, target, onNavigate, depth = 0, renderConten
         title={`Open ${note.title}`}
       >
         {note.title}
+        {fragment ? <span className="text-ob-faint"> #{fragment}</span> : null}
       </button>
-      <div className="nodum-note-embed-body">{renderContent(note.content, depth + 1)}</div>
+      <div className="nodum-note-embed-body">
+        {renderContent(sliced ?? note.content, depth + 1)}
+      </div>
     </div>
   );
 }
