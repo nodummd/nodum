@@ -3,7 +3,8 @@
 /** Right sidebar — Backlinks / Outgoing / Tags / Outline panes (Obsidian style). */
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Hash, Link2, List } from "lucide-react";
+import { ArrowRight, GitFork, Hash, Link2, List } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useRef, useState } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,7 +12,13 @@ import { linkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
-type PaneKind = "backlinks" | "outgoing" | "tags" | "outline";
+type PaneKind = "backlinks" | "outgoing" | "tags" | "outline" | "local-graph";
+
+// Code-split — cosmos.gl must never enter the shared bundle
+const GraphView = dynamic(
+  () => import("@/components/graph/graph-view").then((m) => m.GraphView),
+  { ssr: false, loading: () => <EmptyHint>Loading graph…</EmptyHint> },
+);
 
 export function SidebarRight({
   vaultId,
@@ -54,6 +61,7 @@ export function SidebarRight({
     { kind: "outgoing", label: "Outgoing links", icon: <ArrowRight className="size-4" strokeWidth={1.75} /> },
     { kind: "tags", label: "Tags", icon: <Hash className="size-4" strokeWidth={1.75} /> },
     { kind: "outline", label: "Outline", icon: <List className="size-4" strokeWidth={1.75} /> },
+    { kind: "local-graph", label: "Local graph", icon: <GitFork className="size-4 rotate-90" strokeWidth={1.75} /> },
   ];
 
   return (
@@ -82,11 +90,12 @@ export function SidebarRight({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className={pane === "local-graph" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto p-2"}>
         {pane === "backlinks" && <BacklinksPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
         {pane === "outgoing" && <OutgoingPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
         {pane === "tags" && <TagsPane vaultId={vaultId} />}
         {pane === "outline" && <OutlinePane vaultId={vaultId} noteId={noteId} />}
+        {pane === "local-graph" && <LocalGraphPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
       </div>
 
       <div
@@ -267,6 +276,50 @@ function OutlinePane({ vaultId, noteId }: { vaultId: string; noteId: string | nu
           {h.text}
         </p>
       ))}
+    </div>
+  );
+}
+
+
+function LocalGraphPane({
+  vaultId,
+  noteId,
+  onOpenNote,
+}: {
+  vaultId: string;
+  noteId: string | null;
+  onOpenNote: (noteId: string, title: string) => void;
+}) {
+  const [depth, setDepth] = useState(1);
+
+  if (!noteId) return <div className="p-2"><EmptyHint>Open a note to see its local graph.</EmptyHint></div>;
+
+  return (
+    <div className="flex h-full flex-col">
+      <label className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-ob-muted">
+        Depth
+        <input
+          type="range"
+          min={1}
+          max={5}
+          step={1}
+          value={depth}
+          onChange={(e) => setDepth(Number(e.target.value))}
+          className="flex-1 accent-[var(--ob-interactive-accent)]"
+        />
+        <span className="text-ob-faint">{depth}</span>
+      </label>
+      <div className="min-h-0 flex-1">
+        <GraphView
+          key={`${noteId}-${String(depth)}`}
+          vaultId={vaultId}
+          centerNoteId={noteId}
+          depth={depth}
+          compact
+          onOpenNote={onOpenNote}
+          onCreateNote={() => undefined}
+        />
+      </div>
     </div>
   );
 }

@@ -20,6 +20,8 @@ interface GraphViewProps {
   /** When set, renders the local graph around this note. */
   centerNoteId?: string;
   depth?: number;
+  /** Side-panel mode: hides the filters/forces card. */
+  compact?: boolean;
   onOpenNote: (noteId: string, title: string) => void;
   onCreateNote: (title: string) => void;
 }
@@ -42,7 +44,7 @@ function toRgba(color: string, alpha: number): [number, number, number, number] 
   return [r / 255, g / 255, b / 255, alpha];
 }
 
-export function GraphView({ vaultId, centerNoteId, depth = 1, onOpenNote, onCreateNote }: GraphViewProps) {
+export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, onOpenNote, onCreateNote }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<CosmosGraph | null>(null);
   const rafRef = useRef<number>(0);
@@ -230,6 +232,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, onOpenNote, onCrea
       )}
 
       {/* Controls — Obsidian's graph settings card */}
+      {!compact && (
       <div className="absolute top-3 right-3 z-10 w-52 rounded-lg border border-ob-border bg-ob-sidebar/95 p-3 text-[12px] backdrop-blur">
         <p className="pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Filters</p>
         <label className="flex items-center justify-between py-0.5 text-ob-muted">
@@ -262,6 +265,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, onOpenNote, onCrea
           </p>
         )}
       </div>
+      )}
     </div>
   );
 }
