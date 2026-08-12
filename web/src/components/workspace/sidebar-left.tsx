@@ -3,7 +3,7 @@
 /** Left sidebar — Files / Search tab strip + resize handle (Obsidian style). */
 
 import { Bookmark, Files, Search } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 
 import { BookmarksPane } from "./bookmarks-pane";
 import { FileExplorer } from "./file-explorer";
@@ -11,8 +11,6 @@ import { SearchPane } from "./search-pane";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
-
-type PaneKind = "files" | "search" | "bookmarks";
 
 export function SidebarLeft({
   vaultId,
