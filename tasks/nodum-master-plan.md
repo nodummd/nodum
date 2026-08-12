@@ -190,11 +190,11 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 
 | # | Branch | Scope | Status |
 |---|--------|-------|--------|
-| 0 | (main) | repo init, README, LICENSE, .gitignore, this plan | 🔨 |
-| 1 | feature/scaffold | back/ + web/ + deploy/ skeletons, Dockerfiles, compose files, compose.sh, Makefile, .env.example, CI stubs | ⬜ |
-| 2 | feature/backend-foundation | settings, db, redis, logging, middlewares (cors, security-headers, request-id, rate-limit), exceptions, health, alembic 0001 | ⬜ |
-| 3 | feature/auth | users+sessions models, signup/login/refresh/logout/me, JWT rotation, tests | ⬜ |
-| 4 | feature/vaults-notes | vaults/folders/notes CRUD, tree endpoint, default-vault onboarding seed, tests | ⬜ |
+| 0 | (main) | repo init, README, LICENSE, .gitignore, this plan | ✅ |
+| 1 | feature/scaffold | back/ + web/ + deploy/ skeletons, Dockerfiles, compose files, compose.sh, Makefile, .env.example, CI stubs | ✅ |
+| 2 | feature/backend-foundation | (folded into scaffold) settings, db, redis, logging, middlewares, exceptions, health | ✅ |
+| 3 | feature/auth | users+sessions models, signup/login/refresh/logout/me, JWT rotation, tests | ✅ |
+| 4 | feature/vaults-notes | vaults/folders/notes CRUD, tree endpoint, default-vault onboarding seed, tests | ✅ |
 | 5 | feature/links-graph | link parser, links table sync on save, backlinks/outgoing endpoints, graph endpoint + Redis cache, tests | ⬜ |
 | 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ⬜ |
 | 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ⬜ |
@@ -224,6 +224,17 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
 - **2026-08-12**: Project started. Analyzed hourly reference (backend layering,
   compose patterns, Dockerfile.api). Wrote this plan. Next: git init + push,
   research workflow (Obsidian deep-dive + library validation), then feature/scaffold.
+- **2026-08-12 (b)**: Scaffold + auth + vaults/notes shipped to dev. Research
+  workflow finished → `docs/research/` (6 specs + DECISIONS.md). Key library
+  decisions: CM6 with in-repo live-preview decorations (SilverBullet patterns);
+  reading view react-markdown + @portaljs/remark-wiki-link + rehype-callouts +
+  katex + client-side mermaid + shiki; graph = @cosmos.gl/graph 3.4.0 (NEVER
+  @cosmograph/* — CC-BY-NC license); Next 16.3 already generated (read
+  node_modules/next/dist/docs before frontend work); auth pattern = Next
+  rewrites /api/* → FastAPI so refresh cookie is first-party.
+  Infra note: nodum dev ports remapped (pg 15432, redis 16379, minio 19000/1)
+  to coexist with the hourly stack. Tests: 13 passing (auth 8, vaults 5).
+  Next: feature/links-graph (link extraction, backlinks, graph endpoint).
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
