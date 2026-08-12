@@ -3,9 +3,24 @@
 /** Workspace — the Obsidian-style application frame. */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect } from "react";
 
 import { EditorPane } from "./editor-pane";
+
+// WebGL2 + 144kB gz — never in the shared bundle, never SSR'd.
+const GraphView = dynamic(
+  () => import("@/components/graph/graph-view").then((m) => m.GraphView),
+  { ssr: false, loading: () => <GraphLoading /> },
+);
+
+function GraphLoading() {
+  return (
+    <div className="flex h-full items-center justify-center text-[13px] text-ob-faint">
+      Loading graph…
+    </div>
+  );
+}
 import { QuickSwitcher } from "./quick-switcher";
 import { Ribbon } from "./ribbon";
 import { SidebarLeft } from "./sidebar-left";
@@ -86,9 +101,18 @@ export function Workspace({ vault }: { vault: Vault }) {
           {activeTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
           {activeTab?.kind === "note" && <EditorPane vaultId={vault.id} noteId={activeTab.id} />}
           {activeTab?.kind === "graph" && (
-            <div className="flex h-full items-center justify-center text-[13px] text-ob-faint">
-              Graph view arrives in the next feature branch.
-            </div>
+            <GraphView
+              vaultId={vault.id}
+              onOpenNote={openNote}
+              onCreateNote={(title) => {
+                void (async () => {
+                  const created = await noteApi.create(vault.id, { title });
+                  void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+                  void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
+                  openNote(created.id, created.title);
+                })();
+              }}
+            />
           )}
           <StatusBar vaultId={vault.id} noteId={activeNoteId} />
         </div>
