@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeftRight,
   CalendarDays,
+  Download,
   FileStack,
+  Upload,
   BookOpen,
   Code2,
   FilePlus2,
@@ -51,6 +53,8 @@ interface CommandPaletteProps {
   onCloseActiveTab: () => void;
   onOpenDailyNote: () => void;
   onInsertTemplate: () => void;
+  onExportVault: () => void;
+  onImportVault: () => void;
 }
 
 export function CommandPalette({
@@ -60,6 +64,8 @@ export function CommandPalette({
   onCloseActiveTab,
   onOpenDailyNote,
   onInsertTemplate,
+  onExportVault,
+  onImportVault,
 }: CommandPaletteProps) {
   const router = useRouter();
   const open = useWorkspaceStore((s) => s.paletteOpen);
@@ -80,6 +86,8 @@ export function CommandPalette({
     { id: "graph", label: "Open graph view", hotkey: "⌘G", icon: <GitFork className="size-4 rotate-90" />, run: onOpenGraph },
     { id: "daily-note", label: "Open today's daily note", icon: <CalendarDays className="size-4" />, run: onOpenDailyNote },
     { id: "insert-template", label: "Insert template…", icon: <FileStack className="size-4" />, run: onInsertTemplate, needsNote: true },
+    { id: "export-vault", label: "Export vault as zip", icon: <Download className="size-4" />, run: onExportVault },
+    { id: "import-vault", label: "Import notes from zip…", icon: <Upload className="size-4" />, run: onImportVault },
     { id: "mode-live", label: "Editor: Live Preview", icon: <Pencil className="size-4" />, run: () => setMode("live"), needsNote: true },
     { id: "mode-source", label: "Editor: Source mode", icon: <Code2 className="size-4" />, run: () => setMode("source"), needsNote: true },
     { id: "mode-reading", label: "Editor: Reading view", icon: <BookOpen className="size-4" />, run: () => setMode("reading"), needsNote: true },
