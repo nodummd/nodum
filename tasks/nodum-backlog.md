@@ -84,7 +84,7 @@
   a match; ⌘Enter opens in background (no tab switch).
   *Accept:* e2e covers both.
 
-🏁 **Release v1.2.0** after Sprint 2 (merge dev→main, tag, prod-compose smoke).
+🏁 ~~**Release v1.2.0**~~ ✅ 2026-08-12 — dev→main merged, tagged v1.2.0, prod-compose smoke passed (signup, alias switcher + backlink, version restore, search on the verify stack; migration 0010 applied).
 
 ## Sprint 3 — Parity polish
 
