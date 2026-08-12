@@ -117,7 +117,7 @@
   if index too heavy, cap scan with `LIMIT` + `statement_timeout`.
 - [x] 2026-08-12 **S4.3 Redis separation** — cache blobs vs rate-limit counters in
   different logical DBs; raise prod maxmemory guidance in compose comments.
-- [ ] **S4.4 Web observability** — wire Sentry (env-gated) in web; add web
+- [x] 2026-08-12 **S4.4 Web observability** — wire Sentry (env-gated) in web; add web
   container healthcheck + `depends_on: condition: service_healthy` in prod
   compose.
 - [ ] **S4.5 Deploy & backup docs** — `docs/deploy.md`: Caddy reference
