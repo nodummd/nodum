@@ -202,17 +202,25 @@ async def create_default_vault(db: AsyncSession, user_id: UUID) -> Vault:
     vault = Vault(user_id=user_id, name="My Vault")
     db.add(vault)
     await db.flush()
+    seeded: list[Note] = []
     for title, content in _WELCOME_NOTES:
-        db.add(
-            Note(
-                vault_id=vault.id,
-                folder_id=None,
-                title=title,
-                path=title,
-                content=content,
-                word_count=count_words(content),
-            )
+        note = Note(
+            vault_id=vault.id,
+            folder_id=None,
+            title=title,
+            path=title,
+            content=content,
+            word_count=count_words(content),
         )
+        db.add(note)
+        seeded.append(note)
+    await db.flush()
+
+    # Extract wikilinks after all notes exist so cross-references resolve.
+    from app.services.link_service import sync_note_links
+
+    for note in seeded:
+        await sync_note_links(db, note)
     await db.commit()
     logger.info("default_vault_created", user_id=str(user_id), vault_id=str(vault.id))
     return vault
