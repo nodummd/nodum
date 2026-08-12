@@ -101,7 +101,10 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     jti = str(payload.get("jti", ""))
     user_id = UUID(str(payload["sub"]))
 
-    session = await db.scalar(select(Session).where(Session.refresh_token_jti == jti))
+    # FOR UPDATE serializes concurrent rotations of the same session across
+    # workers — without it, two racing refreshes both rotate and the loser's
+    # JTI lands nowhere, tripping the reuse defense later.
+    session = await db.scalar(select(Session).where(Session.refresh_token_jti == jti).with_for_update())
     if session is None:
         # Recently-rotated JTI? Benign duplicate (second tab, racing reload).
         graced_session_id: str | None = None
@@ -110,7 +113,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
         except Exception:
             logger.warning("refresh_grace_redis_unavailable")
         if graced_session_id:
-            session = await db.get(Session, UUID(graced_session_id))
+            session = await db.scalar(select(Session).where(Session.id == UUID(graced_session_id)).with_for_update())
 
     if session is None:
         # JTI unknown and not in grace: forged or genuinely stolen-and-reused.

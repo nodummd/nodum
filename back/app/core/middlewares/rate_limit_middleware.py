@@ -34,7 +34,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Rate limiting is a production concern; dev/test iterate too fast for it.
         if settings.ENVIRONMENT in ("dev", "test"):
             return await call_next(request)
+
         client_ip = request.client.host if request.client else "unknown"
+        if settings.TRUST_PROXY_HEADERS:
+            forwarded = request.headers.get("X-Forwarded-For", "")
+            if forwarded:
+                client_ip = forwarded.split(",")[0].strip() or client_ip
 
         if path.startswith(AUTH_PREFIX) and request.method == "POST":
             key = f"rl:auth:{client_ip}"

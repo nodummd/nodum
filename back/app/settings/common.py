@@ -59,8 +59,10 @@ class CommonSettings(BaseSettings):
     POSTGRES_PASSWORD: str = "nodum"
     POSTGRES_DB: str = "nodum"
     DATABASE_ECHO: bool = False
-    DATABASE_POOL_SIZE: int = 20
-    DATABASE_MAX_OVERFLOW: int = 10
+    # Per-worker pool: 4 uvicorn workers x (10 + 5) = 60 connections, safely
+    # under stock Postgres max_connections=100 (leaves room for celery + psql).
+    DATABASE_POOL_SIZE: int = 10
+    DATABASE_MAX_OVERFLOW: int = 5
 
     @computed_field
     @property
@@ -122,6 +124,10 @@ class CommonSettings(BaseSettings):
     RATE_LIMIT_AUTH_WINDOW_SECONDS: int = 60
     USER_RATE_LIMIT_REQUESTS_PER_MINUTE: int = 300
     USER_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    # True when the API sits behind a trusted reverse proxy (prod compose):
+    # rate limiting then keys on the first X-Forwarded-For hop instead of the
+    # proxy's socket IP (which would put every user in one shared bucket).
+    TRUST_PROXY_HEADERS: bool = False
 
     # ── Monitoring ────────────────────────────────────────────────────────────
     SENTRY_DSN: str = ""
