@@ -139,14 +139,103 @@
 
 🏁 ~~**Release v2.0.0**~~ ✅ 2026-08-12 — dev→main merged, tagged v2.0.0, prod-compose smoke passed (signup, collab websocket seed+sync, graph, search; web container healthcheck green).
 
-## Icebox (unscoped / later)
-- Block references `[[Note^block]]` end-to-end (L)
-- Canvas (XL) · split panes / pinned tabs / nav history (M)
-- Obsidian importer niceties: attachment files from zips, .obsidian config mapping
-- Web clipper / PWA share-target · graph time-travel replay
-- Mobile-responsive workspace layout
-- Google OAuth (hourly's oauth_connection pattern)
-- Public vault publishing (whole-vault sites with nav, not just single notes)
+## Sprint 6 — Parity core leftovers (Phase D)
+
+- [ ] **S6.1 Block references** (L) — `[[Note#^id]]` / `![[Note#^id]]`
+  end-to-end (also accept the loose `[[Note^id]]` form).
+  *Do:* backend already resolves the note (target splits on `#`); add block
+  slicing: shared block extractor (paragraph/list-item/blockquote ending in
+  ` ^id`); embeds.tsx renders just the sliced block for `#^id` targets
+  (heading embeds `#Heading` slice their section too); live-preview embed
+  widget + reading view + page-preview popover all use the slicer; wikilink
+  autocomplete offers `^ids` after typing `#^` in a resolved note.
+  *Accept:* backend test: extractor slices blocks + heading sections; e2e:
+  ![[A#^id]] shows only the marked paragraph in live+reading; [[A#^id]]
+  navigates to A.
+
+- [ ] **S6.2 Split panes** (M) — two side-by-side editor groups.
+  *Do:* workspace store: panes: [{tabs, activeTabId}] (max 2), activePane;
+  "Split right" (⌘\ + palette + tab context menu); drag tab between panes
+  skipped (icebox); close pane when last tab closes; explorer/switcher open
+  into the active pane.
+  *Accept:* e2e: split, open different notes side by side, close pane.
+
+- [ ] **S6.3 Pinned tabs + navigation history** (M)
+  *Do:* pin/unpin via tab context menu (pinned tabs sort first, no close
+  button, ⌘W skips); per-pane back/forward stacks (⌘[ / ⌘]) recording note
+  opens; store-persisted.
+  *Accept:* e2e: pin blocks close; back/forward walks history.
+
+🏁 **Release v2.1.0** after Sprint 6.
+
+## Sprint 7 — Reach: mobile + PWA (Phase D)
+
+- [ ] **S7.1 Mobile-responsive workspace** (M–L)
+  *Do:* < 768px: left/right sidebars become overlay drawers (hamburger +
+  panel toggles), tab bar scrolls, editor padding tightens, graph controls
+  collapse behind a gear button; touch-friendly hit areas (min 40px).
+  *Accept:* e2e with mobile viewport: drawers open/close, note editable,
+  no horizontal scroll.
+
+- [ ] **S7.2 PWA + share-target web clipper** (M)
+  *Do:* manifest.json + icons + service worker (app-shell cache only, no
+  offline vault promises); share_target POST route `/clip` that creates a
+  note from shared title/text/url into a "Clippings" folder; a /clip page
+  as manual fallback (paste URL/text → note).
+  *Accept:* manifest served + installable (lighthouse-ish check via
+  headers), e2e: POST to share-target creates the clipping note.
+
+🏁 **Release v2.2.0** after Sprint 7.
+
+## Sprint 8 — Accounts & publishing (Phase D)
+
+- [ ] **S8.1 Google OAuth** (M) — hourly's oauth_connection pattern.
+  *Do:* oauth_connections table (migration), /auth/google/start (state in
+  Redis) + /auth/google/callback (code→token→userinfo, link-or-create user,
+  set refresh cookie, redirect to app); frontend "Continue with Google"
+  buttons on login/signup; account settings shows linked provider.
+  Env-gated: GOOGLE_CLIENT_ID/SECRET (buttons hidden when unset).
+  *Accept:* backend tests with mocked Google endpoints: new-user create,
+  existing-email link, state mismatch 400; UI button renders when enabled.
+
+- [ ] **S8.2 Whole-vault publishing** (L)
+  *Do:* vault_publications table (slug, vault_id, enabled); publish toggle
+  in settings; public site at /s/{slug} (SSR): note list nav + rendered
+  notes at /s/{slug}/{note-path}, wikilinks rewritten to site links,
+  private notes excluded via frontmatter `publish: false`.
+  *Accept:* backend: publish vault → public endpoints list/serve notes
+  without auth, unpublish 404s; e2e: browse published site nav.
+
+🏁 **Release v2.3.0** after Sprint 8.
+
+## Sprint 9 — Canvas & long tail (Phase D)
+
+- [ ] **S9.1 Canvas MVP** (XL) — Obsidian-compatible .canvas boards.
+  *Do:* canvases table (vault_id, name, data JSONB in Obsidian's
+  JSON Canvas format: nodes[text|file|link], edges); CRUD API; canvas tab
+  kind in workspace; renderer: pan/zoom stage (CSS transform), draggable/
+  resizable cards, text cards (markdown), file cards (note embeds), edge
+  drawing between card sides, JSON Canvas import/export.
+  *Accept:* backend CRUD tests; e2e: create canvas, add text card + note
+  card, connect edge, reload persists.
+
+- [ ] **S9.2 Graph time-travel replay** (S–M) — time slider on the graph
+  filtering nodes by note created_at (play button animates the vault
+  growing).
+  *Accept:* e2e: slider hides newer notes; play reaches full graph.
+
+- [ ] **S9.3 Importer niceties** (S–M) — zip import: extract binary files
+  into attachments (wire into vault_io), map .obsidian/app.json basics
+  (daily-note format/folder) into vault settings when present.
+  *Accept:* backend test: zip with png + .obsidian config → attachment
+  exists, settings mapped.
+
+🏁 **Release v3.0.0** after Sprint 9.
+
+## Icebox (still later)
+- Cross-pane tab drag & drop · graph clustering by folder
+- Real-time multi-user share links (collab across accounts)
+- E2E encryption at rest
 
 ## Done log
 _(move checked items here with dates during long sprints to keep the top clean)_
