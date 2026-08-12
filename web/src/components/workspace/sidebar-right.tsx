@@ -162,6 +162,7 @@ function BacklinksPane({
           </button>
         ))}
       </div>
+      <RelatedSection vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />
       <div>
         <SectionLabel>Unlinked mentions {mentions ? `(${mentions.unlinked_mentions.length})` : ""}</SectionLabel>
         {mentions && mentions.unlinked_mentions.length === 0 && <EmptyHint>None found.</EmptyHint>}
@@ -320,6 +321,44 @@ function LocalGraphPane({
           onCreateNote={() => undefined}
         />
       </div>
+    </div>
+  );
+}
+
+
+function RelatedSection({
+  vaultId,
+  noteId,
+  onOpenNote,
+}: {
+  vaultId: string;
+  noteId: string;
+  onOpenNote: (noteId: string, title: string) => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ["related", vaultId, noteId],
+    queryFn: () => linkApi.related(vaultId, noteId),
+    staleTime: 60_000,
+  });
+
+  if (!data || data.related.length === 0) return null;
+
+  return (
+    <div>
+      <SectionLabel>Related notes</SectionLabel>
+      {data.related.map((r) => (
+        <button
+          key={r.id}
+          type="button"
+          onClick={() => onOpenNote(r.id, r.title)}
+          className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left hover:bg-ob-hover"
+        >
+          <span className="truncate text-[13px] text-ob-text">{r.title}</span>
+          <span className="shrink-0 text-[10px] text-ob-faint">
+            {Math.round(r.similarity * 100)}%
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

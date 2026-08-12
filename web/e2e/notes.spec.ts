@@ -205,3 +205,34 @@ test.describe("block widgets (StateField)", () => {
     await expect(editorSurface(page)).toContainText("status: active");
   });
 });
+
+test.describe("semantic related notes", () => {
+  test("Related notes section surfaces semantically similar notes", async ({ page }) => {
+    await signupFreshUser(page, "related-e2e");
+
+    // Two similar notes via API for determinism
+    await page.evaluate(async () => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const vaults = await (
+        await fetch("/api/v1/vaults", { headers: { Authorization: `Bearer ${token}` } })
+      ).json();
+      const vaultId = vaults.data[0].id;
+      const mk = (title: string, content: string) =>
+        fetch(`/api/v1/vaults/${vaultId}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ title, content }),
+        });
+      await mk("Sourdough starter", "Feed the sourdough starter daily with flour and water for active fermentation.");
+      await mk("Baking schedule", "Sourdough fermentation and proofing schedule: feed starter, autolyse flour, bulk ferment.");
+    });
+    await page.reload();
+    await openNoteFromExplorer(page, "Sourdough starter");
+
+    await expect(page.getByText("Related notes")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole("button", { name: /Baking schedule/ }).first(),
+    ).toBeVisible({ timeout: 10_000 });
+  });
+});
