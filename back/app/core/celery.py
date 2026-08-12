@@ -10,7 +10,7 @@ celery_app = Celery(
     "nodum",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks.vault_io"],
+    include=["app.tasks.vault_io", "app.tasks.maintenance"],
 )
 
 celery_app.conf.update(
@@ -22,4 +22,11 @@ celery_app.conf.update(
     task_time_limit=300,
     task_soft_time_limit=240,
     worker_prefetch_multiplier=1,
+    # Beat schedule (worker runs with -B): nightly session pruning
+    beat_schedule={
+        "prune-sessions-nightly": {
+            "task": "tasks.prune_sessions",
+            "schedule": 24 * 60 * 60.0,
+        },
+    },
 )
