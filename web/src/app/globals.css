@@ -216,3 +216,15 @@ body {
   border: 1px dashed var(--ob-background-modifier-border);
   border-radius: 6px; padding: 2px 8px;
 }
+
+/* Graph view labels */
+.nodum-graph-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 11px;
+  color: var(--ob-text-muted);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
