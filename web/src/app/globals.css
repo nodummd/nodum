@@ -425,3 +425,9 @@ body {
 
 /* %%comments%% — faint while editing, stripped in reading view */
 .cm-comment { color: var(--ob-text-faint); font-style: italic; }
+
+/* Page preview popover (Cmd/Ctrl+hover on wikilinks) */
+.nodum-page-preview .nodum-reading { font-size: 13px; }
+.nodum-page-preview .nodum-reading h1 { font-size: 1.3em; }
+.nodum-page-preview .nodum-reading h2 { font-size: 1.2em; }
+.nodum-page-preview .nodum-reading h3 { font-size: 1.1em; }
