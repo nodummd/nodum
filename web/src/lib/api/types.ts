@@ -120,6 +120,8 @@ export interface QuickSwitchResult {
   title: string;
   path: string;
   score: number;
+  /** Present when the match came through a frontmatter alias. */
+  alias?: string;
 }
 
 export interface TagCount {
