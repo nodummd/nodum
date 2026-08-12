@@ -218,7 +218,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
-        <div className="mx-auto min-h-full max-w-[44rem] px-8 pt-4 pb-24">
+        <div className="mx-auto min-h-full max-w-[44rem] px-4 pt-4 pb-24 md:px-8">
           <input
             value={title}
             aria-label="Note title"

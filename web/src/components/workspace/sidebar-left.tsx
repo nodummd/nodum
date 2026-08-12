@@ -17,11 +17,14 @@ export function SidebarLeft({
   vaultName,
   activeNoteId,
   onOpenNote,
+  drawer = false,
 }: {
   vaultId: string;
   vaultName: string;
   activeNoteId: string | null;
   onOpenNote: (noteId: string, title: string) => void;
+  /** Drawer mode (mobile): fill the parent, no resize handle, ignore open flag. */
+  drawer?: boolean;
 }) {
   const open = useWorkspaceStore((s) => s.leftSidebarOpen);
   const width = useWorkspaceStore((s) => s.leftWidth);
@@ -50,10 +53,13 @@ export function SidebarLeft({
     [width, setWidth],
   );
 
-  if (!open) return null;
+  if (!drawer && !open) return null;
 
   return (
-    <div className="relative flex shrink-0 flex-col bg-ob-sidebar" style={{ width }}>
+    <div
+      className="relative flex shrink-0 flex-col bg-ob-sidebar"
+      style={drawer ? { width: "100%", height: "100%" } : { width }}
+    >
       <div className="flex items-center gap-0.5 border-b border-ob-border px-2 py-1">
         <PaneTab
           label="Files"
