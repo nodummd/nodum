@@ -166,7 +166,7 @@
   opens; store-persisted.
   *Accept:* e2e: pin blocks close; back/forward walks history.
 
-🏁 **Release v2.1.0** after Sprint 6.
+🏁 ~~**Release v2.1.0**~~ ✅ 2026-08-12 — dev→main merged, tagged, prod smoke passed (signup, block-ref backlinks, search, web healthcheck).
 
 ## Sprint 7 — Reach: mobile + PWA (Phase D)
 
