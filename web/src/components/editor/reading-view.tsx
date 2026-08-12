@@ -1,6 +1,6 @@
 "use client";
 
-/** Reading view — rendered markdown (gfm + math + wikilinks + tags). */
+/** Reading view — rendered markdown (gfm + math + callouts + wikilinks + embeds). */
 
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
@@ -10,13 +10,18 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 import { CalloutBox } from "./callout-box";
+import { AttachmentImage, NoteEmbed } from "./embeds";
+import { isImageTarget } from "@/lib/editor/markdown-extensions";
 import { remarkCallouts } from "@/lib/editor/remark-callouts";
 
 import "katex/dist/katex.min.css";
 
 interface ReadingViewProps {
   content: string;
+  vaultId: string;
   onNavigate: (target: string) => void;
+  /** Transclusion nesting depth (embeds render embeds up to depth 2). */
+  depth?: number;
 }
 
 /**
@@ -41,7 +46,7 @@ function preprocessWikilinks(md: string): string {
     .join("");
 }
 
-export function ReadingView({ content, onNavigate }: ReadingViewProps) {
+export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: ReadingViewProps) {
   const processed = useMemo(() => preprocessWikilinks(content), [content]);
 
   return (
@@ -78,10 +83,25 @@ export function ReadingView({ content, onNavigate }: ReadingViewProps) {
           img({ src, alt, ...props }) {
             if (typeof src === "string" && src.startsWith("nodum-embed:")) {
               const target = decodeURIComponent(src.slice("nodum-embed:".length));
+              if (isImageTarget(target)) {
+                const width = alt && /^\d+$/.test(alt) ? Number(alt) : null;
+                return <AttachmentImage vaultId={vaultId} filename={target} width={width} />;
+              }
               return (
-                <span className="nodum-embed-placeholder">
-                  ![[{target}]] <em>(embed)</em>
-                </span>
+                <NoteEmbed
+                  vaultId={vaultId}
+                  target={target}
+                  onNavigate={onNavigate}
+                  depth={depth}
+                  renderContent={(embedContent, nextDepth) => (
+                    <ReadingView
+                      content={embedContent}
+                      vaultId={vaultId}
+                      onNavigate={onNavigate}
+                      depth={nextDepth}
+                    />
+                  )}
+                />
               );
             }
             // eslint-disable-next-line @next/next/no-img-element
