@@ -24,6 +24,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const bootstrap = useAuthStore((s) => s.bootstrap);
   useEffect(() => {
     void bootstrap();
+    // PWA app-shell service worker — production only (caching fights next dev)
+    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js");
+    }
   }, [bootstrap]);
 
   return (
