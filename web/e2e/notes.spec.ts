@@ -117,3 +117,36 @@ test.describe("live preview math", () => {
     await expect(page.locator(".cm-math-block .katex").first()).toBeVisible({ timeout: 10_000 });
   });
 });
+
+test.describe("formatting hotkeys", () => {
+  test("⌘B wraps the selection in bold markers", async ({ page }) => {
+    await signupFreshUser(page, "hotkey-bold");
+
+    await page.keyboard.press("ControlOrMeta+o");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder(/find or create/i).fill("Hotkey note");
+    await dialog.getByText(/Create\s+“Hotkey note”/).click();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Hotkey note", {
+      timeout: 10_000,
+    });
+
+    await editorSurface(page).click();
+    await page.keyboard.type("emphasis here");
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("ControlOrMeta+b");
+
+    await expect(editorSurface(page)).toContainText("**emphasis here**", { timeout: 5_000 });
+  });
+});
+
+test.describe("local graph panel", () => {
+  test("right sidebar local graph renders for the active note", async ({ page }) => {
+    await signupFreshUser(page, "localgraph");
+    await openNoteFromExplorer(page, "Linking your thinking");
+
+    await page.getByRole("button", { name: "Local graph" }).click();
+    await expect(page.getByText("Depth")).toBeVisible({ timeout: 10_000 });
+    // compact graph canvas mounts inside the panel
+    await expect(page.locator("aside ~ * canvas, div canvas").last()).toBeVisible({ timeout: 15_000 });
+  });
+});
