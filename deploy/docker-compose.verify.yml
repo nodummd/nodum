@@ -1,0 +1,28 @@
+# Local prod-boot verification override — remaps host ports and container
+# names so the prod stack can run alongside the dev stack. Used by:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.verify.yml --project-name nodum-verify up
+services:
+  postgres:
+    container_name: nodum-verify-postgres
+    ports: !override
+      - "127.0.0.1:25432:5432"
+  redis:
+    container_name: nodum-verify-redis
+    ports: !override
+      - "127.0.0.1:26379:6379"
+  minio:
+    container_name: nodum-verify-minio
+    ports: !override
+      - "127.0.0.1:29000:9000"
+      - "127.0.0.1:29001:9001"
+  api:
+    container_name: nodum-verify-api
+    ports: !override
+      - "127.0.0.1:18000:8000"
+  celery-worker:
+    container_name: nodum-verify-celery
+  web:
+    container_name: nodum-verify-web
+    ports: !override
+      - "127.0.0.1:13000:3000"

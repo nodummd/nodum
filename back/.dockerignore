@@ -1,0 +1,10 @@
+# Never bake local state or secrets into images
+.venv/
+.env
+.env.*
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

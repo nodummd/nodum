@@ -1,0 +1,99 @@
+# ============================================================
+# Production Overrides
+# ============================================================
+# Usage: ./compose.sh prod up -d
+# Requires a fully configured deploy/.env (no default secrets!).
+# Put a reverse proxy (caddy/nginx/traefik) in front of api:8000 and web:3000.
+# ============================================================
+
+services:
+  api:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: production
+    container_name: nodum-api
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:?set in deploy/.env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set in deploy/.env}
+      - POSTGRES_DB=${POSTGRES_DB:?set in deploy/.env}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_PUBLIC_URL=${S3_PUBLIC_URL:?set in deploy/.env}
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:?set in deploy/.env}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?set in deploy/.env}
+      - SECRET_KEY=${SECRET_KEY:?set in deploy/.env}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set in deploy/.env}
+      - BACKEND_BASE_URL=${BACKEND_BASE_URL:?set in deploy/.env}
+      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:?set in deploy/.env}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:?set in deploy/.env}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  celery-worker:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: production
+    container_name: nodum-celery
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_USER=${POSTGRES_USER:?set in deploy/.env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set in deploy/.env}
+      - POSTGRES_DB=${POSTGRES_DB:?set in deploy/.env}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:?set in deploy/.env}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?set in deploy/.env}
+      - SECRET_KEY=${SECRET_KEY:?set in deploy/.env}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set in deploy/.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+    entrypoint: []
+    command: uv run celery -A app.core.celery:celery_app worker -B --loglevel=INFO --concurrency=4
+
+  web:
+    build:
+      context: ../web
+      dockerfile: docker/Dockerfile
+      target: production
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?set in deploy/.env}
+        API_PROXY_URL: http://api:8000
+    container_name: nodum-web
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - API_PROXY_URL=http://api:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - api
+    networks:
+      - app_network

@@ -48,3 +48,11 @@ minio-data/
 
 # ── Claude local state ─────────────────────────────────────
 .claude/settings.local.json
+
+# ── Vendored third-party Claude skills (local dev tooling, not product code) ──
+.claude/skills/frontend-design/
+.claude/skills/web-design-guidelines/
+.claude/skills/composition-patterns/
+.claude/skills/react-best-practices/
+.claude/skills/ui-ux-pro-max/
+.claude/skills/ui-styling/
