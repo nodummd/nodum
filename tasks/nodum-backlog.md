@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 42 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 45 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -166,18 +166,18 @@
   opens; store-persisted.
   *Accept:* e2e: pin blocks close; back/forward walks history.
 
-🏁 **Release v2.1.0** after Sprint 6.
+🏁 ~~**Release v2.1.0**~~ ✅ 2026-08-12 — dev→main merged, tagged, prod smoke passed (signup, block-ref backlinks, search, web healthcheck).
 
 ## Sprint 7 — Reach: mobile + PWA (Phase D)
 
-- [ ] **S7.1 Mobile-responsive workspace** (M–L)
+- [x] 2026-08-12 **S7.1 Mobile-responsive workspace** (M–L)
   *Do:* < 768px: left/right sidebars become overlay drawers (hamburger +
   panel toggles), tab bar scrolls, editor padding tightens, graph controls
   collapse behind a gear button; touch-friendly hit areas (min 40px).
   *Accept:* e2e with mobile viewport: drawers open/close, note editable,
   no horizontal scroll.
 
-- [ ] **S7.2 PWA + share-target web clipper** (M)
+- [x] 2026-08-13 **S7.2 PWA + share-target web clipper** (share_target uses GET per web-share spec; /clip handles params + manual paste) (M)
   *Do:* manifest.json + icons + service worker (app-shell cache only, no
   offline vault promises); share_target POST route `/clip` that creates a
   note from shared title/text/url into a "Clippings" folder; a /clip page
