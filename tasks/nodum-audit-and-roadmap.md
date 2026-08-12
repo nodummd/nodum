@@ -52,7 +52,7 @@ Full detail: workflow `wf_cfded3bb-7d0` output (session artifacts).
 | P2 | Save-flush missing on unmount (≤700ms typing lost) + stale tabs stuck on Loading | flush-on-unmount + tab pruning on 404 |
 | P2 | Reading view rewrote `[[links]]` inside code spans | code-segment-aware preprocessing |
 
-### ⏳ Confirmed, queued (next fixes — Phase A)
+### ✅ Formerly queued — ALL RESOLVED (see tasks/nodum-backlog.md for live status)
 | Sev | Finding | Notes |
 |-----|---------|-------|
 | P2 | Path-based wikilinks don't re-resolve after folder rename/move | needs link retarget pass in `_recompute_subtree_paths` |

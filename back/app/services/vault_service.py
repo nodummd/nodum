@@ -236,6 +236,7 @@ async def create_default_vault(db: AsyncSession, user_id: UUID) -> Vault:
         note.embedding = await embed_text(f"{note.title}\n{note.content}")
         await sync_note_links(db, note)
         await sync_note_tags(db, note)
-    await db.commit()
+    # No commit here — the caller owns the transaction (signup commits user +
+    # vault + notes atomically so a crash can't strand a vaultless account).
     logger.info("default_vault_created", user_id=str(user_id), vault_id=str(vault.id))
     return vault

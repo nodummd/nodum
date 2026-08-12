@@ -31,10 +31,21 @@ def _create_token(sub: UUID, jti: str, token_type: str, expires_delta: timedelta
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_access_token(user_id: UUID) -> str:
-    """Short-lived stateless access token."""
+def create_access_token(user_id: UUID, session_id: UUID | None = None) -> str:
+    """Short-lived stateless access token, tied to its session via ``sid``
+    so a single-device logout can revoke it instantly."""
     settings = get_settings()
-    return _create_token(user_id, new_jti(), "access", timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(user_id),
+        "jti": new_jti(),
+        "type": "access",
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    if session_id is not None:
+        payload["sid"] = str(session_id)
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
 def create_refresh_token(user_id: UUID, jti: str) -> str:
