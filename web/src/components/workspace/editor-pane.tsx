@@ -10,6 +10,7 @@ import { Bookmark, BookOpen, Code2, Pencil } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
+import { PagePreview, usePagePreview } from "@/components/editor/page-preview";
 import { ShareButton } from "./share-button";
 import { VersionHistoryDialog } from "./version-history";
 import { ReadingView } from "@/components/editor/reading-view";
@@ -54,6 +55,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
 
   const versionsOpen = useWorkspaceStore((s) => s.versionsOpen);
   const setVersionsOpen = useWorkspaceStore((s) => s.setVersionsOpen);
+  const preview = usePagePreview();
 
   const [title, setTitle] = useState(note.title);
   // draft lives in state (render-safe) and a ref (event-safe for save callbacks)
@@ -174,7 +176,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
         />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
         <div className="mx-auto min-h-full max-w-[44rem] px-8 pt-4 pb-24">
           <input
             value={title}
@@ -204,6 +206,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           )}
         </div>
       </div>
+      {preview.anchor && <PagePreview vaultId={vaultId} anchor={preview.anchor} />}
       <VersionHistoryDialog
         vaultId={vaultId}
         noteId={note.id}

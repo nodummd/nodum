@@ -81,6 +81,7 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
                   {...props}
                   href="#"
                   className="internal-link"
+                  data-wikilink-target={target}
                   onClick={(e) => {
                     e.preventDefault();
                     onNavigate(target);
