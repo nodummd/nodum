@@ -129,11 +129,16 @@ Full detail: workflow `wf_cfded3bb-7d0` output (session artifacts).
    callbacks, search window-count total)
 2. ~~Command palette with real commands~~ ✅ (13 commands, ⌘P/⌘W/⌘E hotkeys,
    2 e2e tests — suite now 36 backend + 15 e2e)
-3. Callouts full rendering (parity #2) ← NEXT
-4. Daily notes + templates (parity #3+#7)
-5. Obsidian vault import/export (parity #15)
-6. Prod compose verification + CI e2e + session pruning
-7. README/docs polish + `.claude/skills/nodum-*` project skills
+3. ~~Callouts full rendering~~ ✅ (13 types+aliases, both surfaces, folding)
+4. ~~Daily notes + templates~~ ✅ (moment tokens, folders, {{vars}}, picker)
+5. ~~Obsidian vault import/export~~ ✅ (zip round-trip, link resolution,
+   collision suffixes, palette commands — 42 backend tests)
+6. ~~Prod compose verification + CI e2e + session pruning~~ ✅ (full stack
+   booted & product-path verified through the prod proxy; caught+fixed:
+   missing .dockerignore [.env WAS being baked into images], non-root uv,
+   Next build-time rewrite inlining; celery beat prunes sessions nightly;
+   ci-e2e.yml runs the Playwright suite on a real stack)
+7. README/docs polish + `.claude/skills/nodum-*` project skills ← LAST ITEM
 
 **Phase B — "v1.1 polish"**: embeds inline, properties UI, live-preview math,
 local graph panel, settings modal, hotkeys, bookmarks, virtualization.
