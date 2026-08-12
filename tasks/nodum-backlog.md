@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 40 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 41 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -153,7 +153,7 @@
   ![[A#^id]] shows only the marked paragraph in live+reading; [[A#^id]]
   navigates to A.
 
-- [ ] **S6.2 Split panes** (M) — two side-by-side editor groups.
+- [x] 2026-08-12 **S6.2 Split panes** (M) — two side-by-side editor groups.
   *Do:* workspace store: panes: [{tabs, activeTabId}] (max 2), activePane;
   "Split right" (⌘\ + palette + tab context menu); drag tab between panes
   skipped (icebox); close pane when last tab closes; explorer/switcher open

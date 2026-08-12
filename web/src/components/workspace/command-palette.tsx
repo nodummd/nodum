@@ -8,6 +8,7 @@ import {
   BookOpen,
   CalendarDays,
   Code2,
+  Columns2,
   Download,
   FilePlus2,
   FileStack,
@@ -79,8 +80,10 @@ export function CommandPalette({
   const setMode = useWorkspaceStore((s) => s.setEditorMode);
   const toggleLeft = useWorkspaceStore((s) => s.toggleLeftSidebar);
   const toggleRight = useWorkspaceStore((s) => s.toggleRightSidebar);
-  const tabs = useWorkspaceStore((s) => s.tabs);
-  const activeTabId = useWorkspaceStore((s) => s.activeTabId);
+  const panes = useWorkspaceStore((s) => s.panes);
+  const activePane = useWorkspaceStore((s) => s.activePane);
+  const tabs = panes[activePane]?.tabs ?? [];
+  const activeTabId = panes[activePane]?.activeTabId ?? null;
   const logout = useAuthStore((s) => s.logout);
 
   const hasActiveNote = tabs.some((t) => t.id === activeTabId && t.kind === "note");
@@ -92,6 +95,7 @@ export function CommandPalette({
     { id: "daily-note", label: "Open today's daily note", icon: <CalendarDays className="size-4" />, run: onOpenDailyNote },
     { id: "insert-template", label: "Insert template…", icon: <FileStack className="size-4" />, run: onInsertTemplate, needsNote: true },
     { id: "version-history", label: "Version history", icon: <History className="size-4" />, run: () => setVersionsOpen(true), needsNote: true },
+    { id: "split-right", label: "Split right", hotkey: "⌘\\", icon: <Columns2 className="size-4" />, run: () => useWorkspaceStore.getState().splitRight(), needsNote: true },
     { id: "export-vault", label: "Export vault as zip", icon: <Download className="size-4" />, run: onExportVault },
     { id: "import-vault", label: "Import notes from zip…", icon: <Upload className="size-4" />, run: onImportVault },
     { id: "settings", label: "Open settings", hotkey: "⌘,", icon: <Settings className="size-4" />, run: onOpenSettings },
