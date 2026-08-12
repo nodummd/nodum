@@ -9,7 +9,7 @@ from app.models.auth import OAuthConnection, Session, User
 from app.models.base import Base
 from app.models.bookmarks import Bookmark
 from app.models.links import Link
-from app.models.publications import Publication
+from app.models.publications import Publication, VaultPublication
 from app.models.tags import NoteTag, Tag
 from app.models.vaults import Folder, Note, NoteAlias, NoteVersion, Vault
 
@@ -29,4 +29,5 @@ __all__ = [
     "Tag",
     "User",
     "Vault",
+    "VaultPublication",
 ]

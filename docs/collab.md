@@ -31,9 +31,13 @@ note runs a Yjs session; otherwise the editor is completely unchanged.
   Don't mix modes on the same note simultaneously — the UI never does.
 - **Session end**: the final persist snapshots through version history, so
   pre-session content remains recoverable.
-- **Offline/disconnect**: `y-websocket` reconnects with backoff and replays
-  local pending updates on resync. A client whose access token expired
-  (15min) must reopen the note to mint a fresh session.
+- **Offline/disconnect**: when the socket drops after a successful sync the
+  client deliberately REBUILDS its session with a fresh doc instead of
+  re-syncing the old one — a restarted server re-seeds rooms with new CRDT
+  operation ids, and merging the stale doc against that would duplicate the
+  whole note. Unsent keystrokes from the moment of disconnect are lost; the
+  periodic server persist (3s) keeps that window small. A client whose
+  access token expired (15min) must reopen the note for a fresh session.
 
 ## Operations
 
