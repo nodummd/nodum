@@ -2,16 +2,17 @@
 
 /** Left sidebar — Files / Search tab strip + resize handle (Obsidian style). */
 
-import { Files, Search } from "lucide-react";
+import { Bookmark, Files, Search } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
+import { BookmarksPane } from "./bookmarks-pane";
 import { FileExplorer } from "./file-explorer";
 import { SearchPane } from "./search-pane";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
-type PaneKind = "files" | "search";
+type PaneKind = "files" | "search" | "bookmarks";
 
 export function SidebarLeft({
   vaultId,
@@ -66,17 +67,23 @@ export function SidebarLeft({
           onClick={() => setPane("search")}
           icon={<Search className="size-4" strokeWidth={1.75} />}
         />
+        <PaneTab
+          label="Bookmarks"
+          active={pane === "bookmarks"}
+          onClick={() => setPane("bookmarks")}
+          icon={<Bookmark className="size-4" strokeWidth={1.75} />}
+        />
         <span className="ml-auto truncate pr-1 text-[11px] font-medium tracking-wide text-ob-faint uppercase">
           {vaultName}
         </span>
       </div>
 
       <div className="min-h-0 flex-1">
-        {pane === "files" ? (
+        {pane === "files" && (
           <FileExplorer vaultId={vaultId} activeNoteId={activeNoteId} onOpenNote={onOpenNote} />
-        ) : (
-          <SearchPane vaultId={vaultId} onOpenNote={onOpenNote} />
         )}
+        {pane === "search" && <SearchPane vaultId={vaultId} onOpenNote={onOpenNote} />}
+        {pane === "bookmarks" && <BookmarksPane vaultId={vaultId} onOpenNote={onOpenNote} />}
       </div>
 
       <div
