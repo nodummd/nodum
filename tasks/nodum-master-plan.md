@@ -199,7 +199,7 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 | 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ✅ |
 | 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ✅ |
 | 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ✅ |
-| 9 | feature/web-vault-ui | file explorer tree, tabs, workspace layout, panels, settings modal, themes | ⬜ |
+| 9 | feature/web-obsidian-ui | REWRITE (user feedback): pixel-faithful Obsidian workspace — ribbon, explorer, tabs, panels, switcher, status bar | ✅ |
 | 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ⬜ |
 | 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ⬜ |
 | 12 | feature/web-search-palette | search UI, quick switcher, command palette, backlinks/outline/tags panes | ⬜ |
@@ -256,6 +256,23 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
   by unrelated process). NEXT: feature/web-vault-ui (Obsidian layout: file
   explorer + tabs + panels + settings + themes) then feature/web-editor
   (CM6 live preview per docs/research/editor-stack.md), then graph.
+- **2026-08-12 (e)**: USER FEEDBACK: disliked first UI. Installed design
+  skills (.claude/skills/: frontend-design, web-design-guidelines,
+  composition-patterns, react-best-practices, ui-ux-pro-max, ui-styling —
+  gitignored as vendored). COMPLETE UI REWRITE → feature/web-obsidian-ui:
+  exact Obsidian dark palette (base-scale vars, purple accent), ribbon,
+  explorer w/ context menus, tabs, editor pane w/ autosave, right panels
+  (backlinks/outgoing/tags/outline), search pane, ⌘O switcher (async-safe
+  cmdk highlight — NOTE: cmdk Enter needed manual onKeyDown handler),
+  status bar. Browser-verified end to end. Dev rate limiting disabled
+  (dev/test envs) after 429s from per-keystroke queries.
+  KNOWN ISSUE (P2): rapid concurrent refreshes can trip the token-reuse
+  defense and kill sessions — add ~30s grace for the previous refresh JTI.
+  UI RULE GOING FORWARD: match Obsidian exactly; Lucide icons only (no
+  emoji); tokens from globals.css only (no raw hex in components).
+  NEXT: feature/web-editor — CM6 live preview (this makes note content
+  render like Obsidian: hidden syntax, wikilink pills, checkboxes, callouts);
+  then feature/web-graph (@cosmos.gl/graph).
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
