@@ -64,7 +64,7 @@ export function MarkdownEditor({
     ];
 
     if (mode === "live") {
-      extensions.push(livePreview({ onNavigate: (t) => onNavigateRef.current(t) }));
+      extensions.push(livePreview({ onNavigate: (t) => onNavigateRef.current(t), vaultId }));
     }
 
     const view = new EditorView({

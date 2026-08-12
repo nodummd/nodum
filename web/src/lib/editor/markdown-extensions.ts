@@ -92,6 +92,32 @@ export const HashtagExtension: MarkdownConfig = {
   ],
 };
 
+const CH_DOLLAR = 36;
+
+export const InlineMathExtension: MarkdownConfig = {
+  defineNodes: [{ name: "InlineMath", style: t.special(t.number) }],
+  parseInline: [
+    {
+      name: "InlineMath",
+      before: "Emphasis",
+      parse(cx, next, pos) {
+        // $formula$ — single dollar, no leading/trailing space inside,
+        // not $$ (block math is handled by the live-preview line scanner)
+        if (next !== CH_DOLLAR || cx.char(pos + 1) === CH_DOLLAR) return -1;
+        for (let i = pos + 1; i < cx.end; i++) {
+          const ch = cx.char(i);
+          if (ch === CH.newline) return -1;
+          if (ch === CH_DOLLAR) {
+            if (i === pos + 1) return -1; // empty $$
+            return cx.addElement(cx.elt("InlineMath", pos, i + 1));
+          }
+        }
+        return -1;
+      },
+    },
+  ],
+};
+
 export const HighlightExtension: MarkdownConfig = {
   defineNodes: [{ name: "HighlightInline", style: t.special(t.string) }],
   parseInline: [
@@ -113,7 +139,19 @@ export const HighlightExtension: MarkdownConfig = {
   ],
 };
 
-export const nodumMarkdownExtensions = [WikiLinkExtension, HashtagExtension, HighlightExtension];
+export const nodumMarkdownExtensions = [
+  WikiLinkExtension,
+  HashtagExtension,
+  HighlightExtension,
+  InlineMathExtension,
+];
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+
+/** Is a wikilink/embed target an image attachment filename? */
+export function isImageTarget(target: string): boolean {
+  return IMAGE_EXT_RE.test(target.trim());
+}
 
 /** Parse the inner text of a [[wikilink]] into its parts. */
 export function parseWikiLinkText(inner: string): {
