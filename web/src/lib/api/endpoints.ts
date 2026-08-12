@@ -133,6 +133,21 @@ export const dailyApi = {
     apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST"),
 };
 
+// ── Publish ──────────────────────────────────────────────────────────────────
+
+export const publishApi = {
+  publish: (vaultId: string, noteId: string) =>
+    apiJson<{ token: string; published: boolean }>(`/vaults/${vaultId}/notes/${noteId}/publish`, "POST"),
+  status: (vaultId: string, noteId: string) =>
+    api<{ published: boolean; token: string | null }>(`/vaults/${vaultId}/notes/${noteId}/publish`),
+  unpublish: (vaultId: string, noteId: string) =>
+    apiJson<{ published: boolean }>(`/vaults/${vaultId}/notes/${noteId}/publish`, "DELETE"),
+  readPublic: (token: string) =>
+    api<{ title: string; content: string; updated_at: string; published_at: string }>(
+      `/public/${token}`,
+    ),
+};
+
 // ── Attachments ──────────────────────────────────────────────────────────────
 
 export const attachmentApi = {

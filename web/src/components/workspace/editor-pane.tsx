@@ -10,6 +10,7 @@ import { Bookmark, BookOpen, Code2, Pencil } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
+import { ShareButton } from "./share-button";
 import { ReadingView } from "@/components/editor/reading-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api/client";
@@ -145,6 +146,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-0.5 px-3 pt-1.5">
         <BookmarkButton vaultId={vaultId} noteId={note.id} />
+        <ShareButton vaultId={vaultId} noteId={note.id} />
         <ModeButton
           label="Live preview"
           active={mode === "live"}
