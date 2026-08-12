@@ -31,7 +31,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         settings = get_settings()
-        if settings.ENVIRONMENT == "test":
+        # Rate limiting is a production concern; dev/test iterate too fast for it.
+        if settings.ENVIRONMENT in ("dev", "test"):
             return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
 
