@@ -5,22 +5,23 @@
 import { useRouter } from "next/navigation";
 import {
   ArrowLeftRight,
-  CalendarDays,
-  Download,
-  FileStack,
-  Settings,
-  Upload,
   BookOpen,
+  CalendarDays,
   Code2,
+  Download,
   FilePlus2,
+  FileStack,
   GitFork,
+  History,
   LogOut,
   PanelLeft,
   PanelRight,
   Pencil,
   Search,
+  Settings,
   SquarePen,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -74,6 +75,7 @@ export function CommandPalette({
   const open = useWorkspaceStore((s) => s.paletteOpen);
   const setOpen = useWorkspaceStore((s) => s.setPaletteOpen);
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
+  const setVersionsOpen = useWorkspaceStore((s) => s.setVersionsOpen);
   const setMode = useWorkspaceStore((s) => s.setEditorMode);
   const toggleLeft = useWorkspaceStore((s) => s.toggleLeftSidebar);
   const toggleRight = useWorkspaceStore((s) => s.toggleRightSidebar);
@@ -89,6 +91,7 @@ export function CommandPalette({
     { id: "graph", label: "Open graph view", hotkey: "⌘G", icon: <GitFork className="size-4 rotate-90" />, run: onOpenGraph },
     { id: "daily-note", label: "Open today's daily note", icon: <CalendarDays className="size-4" />, run: onOpenDailyNote },
     { id: "insert-template", label: "Insert template…", icon: <FileStack className="size-4" />, run: onInsertTemplate, needsNote: true },
+    { id: "version-history", label: "Version history", icon: <History className="size-4" />, run: () => setVersionsOpen(true), needsNote: true },
     { id: "export-vault", label: "Export vault as zip", icon: <Download className="size-4" />, run: onExportVault },
     { id: "import-vault", label: "Import notes from zip…", icon: <Upload className="size-4" />, run: onImportVault },
     { id: "settings", label: "Open settings", hotkey: "⌘,", icon: <Settings className="size-4" />, run: onOpenSettings },

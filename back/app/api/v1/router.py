@@ -6,7 +6,20 @@ auth, vaults, notes, folders, links, graph, search, tags, attachments.
 
 from fastapi import APIRouter
 
-from app.api.v1 import attachments, auth, bookmarks, daily, folders, links, notes, publish, search, vault_io, vaults
+from app.api.v1 import (
+    attachments,
+    auth,
+    bookmarks,
+    daily,
+    folders,
+    links,
+    notes,
+    publish,
+    search,
+    vault_io,
+    vaults,
+    versions,
+)
 
 api_router = APIRouter()
 
@@ -21,4 +34,5 @@ api_router.include_router(daily.router, prefix="/vaults/{vault_id}", tags=["Dail
 api_router.include_router(vault_io.router, prefix="/vaults/{vault_id}", tags=["Import & Export"])
 api_router.include_router(bookmarks.router, prefix="/vaults/{vault_id}/bookmarks", tags=["Bookmarks"])
 api_router.include_router(publish.router, prefix="/vaults/{vault_id}/notes", tags=["Publish"])
+api_router.include_router(versions.router, prefix="/vaults/{vault_id}/notes/{note_id}/versions", tags=["Versions"])
 api_router.include_router(publish.public_router, prefix="/public", tags=["Public"])
