@@ -146,8 +146,8 @@ block, memo-cached) · also fixed: graced-refresh convergence (session-nuke
 race found live) · ~~local graph panel~~ ✅ · ~~hotkeys ⌘B/I/K/⇧H~~ ✅ ·
 ~~settings modal (⌘,)~~ ✅ · ~~bookmarks~~ ✅ · ~~scale fixes~~ ✅ (functional
 lower() indexes 0007, switcher/search debounce + gcTime caps, virtualized
-explorer). REMAINING: properties UI (+ StateField migration), tables in
-live preview.
+explorer). ~~properties UI + StateField migration~~ ✅ ·
+~~tables in live preview~~ ✅ — **PHASE B COMPLETE** (43 backend + 24 e2e).
 
 **Phase C — "v2.0 differentiators"**: publish → semantic search → collaboration.
 
