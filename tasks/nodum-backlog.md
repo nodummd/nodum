@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **47 backend + 28 e2e**. Feature branches
+> Suites must stay green: currently **51 backend + 28 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -15,7 +15,7 @@
 
 ## Sprint 1 — Hardening (finish the audit tail)
 
-- [ ] **S1.1 Stream attachment uploads** (P2) — `api/v1/attachments.py` reads
+- [x] 2026-08-12 **S1.1 Stream attachment uploads** (P2) — `api/v1/attachments.py` reads
   the whole body into RAM before the size check.
   *Do:* read the UploadFile in chunks (1MB), abort with 422 the moment the
   running total exceeds `MAX_ATTACHMENT_SIZE_BYTES`; only then assemble/pass
@@ -23,7 +23,7 @@
   *Accept:* test uploads a >25MB stream and gets 422 without memory spike;
   existing attachment tests green.
 
-- [ ] **S1.2 Access-token revocation** (P3) — tokens stay valid ≤15min after
+- [x] 2026-08-12 **S1.2 Access-token revocation** (P3) — tokens stay valid ≤15min after
   logout/password change.
   *Do:* Redis denylist `revoked_jti:{jti}` (TTL = remaining token life) set on
   logout + change-password (all session JTIs? access tokens aren't stored —
@@ -31,21 +31,21 @@
   = timestamp, TTL 15min; `get_current_user_id` rejects tokens with iat older).
   *Accept:* test: logout → old access token 401s immediately.
 
-- [ ] **S1.3 Signup in one transaction** (P3) — signup + default vault are
+- [x] 2026-08-12 **S1.3 Signup in one transaction** (P3) — signup + default vault are
   separate commits; crash strands a vaultless account.
   *Do:* single transaction for user + welcome vault (move commit to the end;
   login still separate).
   *Accept:* existing signup tests green; new test asserts vault exists in the
   same request even if login step is skipped.
 
-- [ ] **S1.4 Attachment S3/DB ordering** (P3) — upload puts S3 object before
+- [x] 2026-08-12 **S1.4 Attachment S3/DB ordering** (P3) — upload puts S3 object before
   DB row; DB failure orphans the object. Delete removes S3 before DB.
   *Do:* upload: S3 put → DB insert → on DB failure, best-effort S3 delete.
   Delete: DB row first, then best-effort S3 delete (orphan tolerable, missing
   row not).
   *Accept:* code order verified; tests green.
 
-- [ ] **S1.5 Refresh roadmap doc** — mark the fixed "queued" items in
+- [x] 2026-08-12 **S1.5 Refresh roadmap doc** — mark the fixed "queued" items in
   `nodum-audit-and-roadmap.md` as done so the two docs agree.
 
 ## Sprint 2 — Parity core (what Obsidian users miss first)

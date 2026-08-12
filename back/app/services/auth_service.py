@@ -26,7 +26,7 @@ class TokenBundle:
 
 
 async def signup(db: AsyncSession, *, email: str, password: str, name: str) -> ServiceResponse[User]:
-    """Create a new user account."""
+    """Create a new user account WITH its onboarding vault — one transaction."""
     email = email.strip().lower()
     existing = await db.scalar(select(User.id).where(User.email == email))
     if existing:
@@ -34,6 +34,11 @@ async def signup(db: AsyncSession, *, email: str, password: str, name: str) -> S
 
     user = User(email=email, password_hash=hash_password(password), name=name.strip())
     db.add(user)
+    await db.flush()
+
+    from app.services.vault_service import create_default_vault
+
+    await create_default_vault(db, user.id)
     await db.commit()
     await db.refresh(user)
     logger.info("user_signed_up", user_id=str(user.id))
@@ -69,10 +74,11 @@ async def login(
     user.last_login_at = datetime.now(UTC)
     db.add(session)
     await db.commit()
+    await db.refresh(session)
 
     return ServiceResponse.ok(
         TokenBundle(
-            access_token=create_access_token(user.id),
+            access_token=create_access_token(user.id, session.id),
             refresh_token=create_refresh_token(user.id, jti),
             user=user,
         )
@@ -143,7 +149,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
         await db.commit()  # release the row lock
         return ServiceResponse.ok(
             TokenBundle(
-                access_token=create_access_token(user.id),
+                access_token=create_access_token(user.id, session.id),
                 refresh_token=create_refresh_token(user.id, session.refresh_token_jti),
                 user=user,
             )
@@ -162,7 +168,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
 
     return ServiceResponse.ok(
         TokenBundle(
-            access_token=create_access_token(user.id),
+            access_token=create_access_token(user.id, session.id),
             refresh_token=create_refresh_token(user.id, new_refresh_jti),
             user=user,
         )
@@ -170,7 +176,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
 
 
 async def logout(db: AsyncSession, *, refresh_token: str | None) -> ServiceResponse[None]:
-    """Invalidate the session matching the presented refresh token."""
+    """Invalidate the session and instantly revoke its outstanding access tokens."""
     if refresh_token:
         payload = decode_token(refresh_token, expected_type="refresh")
         if payload:
@@ -178,6 +184,17 @@ async def logout(db: AsyncSession, *, refresh_token: str | None) -> ServiceRespo
             if session and session.is_active:
                 session.invalidate("user_logout")
                 await db.commit()
+                try:
+                    from app.core.redis import redis_client
+
+                    settings = get_settings()
+                    await redis_client.set(
+                        f"revoked_sid:{session.id}",
+                        "1",
+                        ex=(settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 1) * 60,
+                    )
+                except Exception:
+                    logger.warning("revocation_marker_failed")
     # Logout always succeeds from the client's perspective.
     return ServiceResponse.ok(None)
 
@@ -228,4 +245,15 @@ async def change_password(
     for s in result.scalars():
         s.invalidate("password_changed")
     await db.commit()
+    try:
+        from app.core.redis import redis_client
+
+        settings = get_settings()
+        await redis_client.set(
+            f"auth_revoked_user:{user_id}",
+            str(int(datetime.now(UTC).timestamp())),
+            ex=(settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 1) * 60,
+        )
+    except Exception:
+        logger.warning("revocation_marker_failed")
     return ServiceResponse.ok(None)

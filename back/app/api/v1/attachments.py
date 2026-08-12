@@ -26,10 +26,19 @@ def _serialize(a: Any) -> dict[str, Any]:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_attachment(vault_id: UUID, file: UploadFile, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
-    """Upload a file (multipart form field ``file``)."""
-    content = await file.read()
-    if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
-        raise ValidationFailedError("Attachment is too large.")
+    """Upload a file (multipart form field ``file``).
+
+    The body is consumed in 1MB chunks and rejected the moment the running
+    total exceeds the cap — an oversized upload never fully buffers in RAM.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(1024 * 1024):
+        total += len(chunk)
+        if total > MAX_ATTACHMENT_SIZE_BYTES:
+            raise ValidationFailedError("Attachment is too large.")
+        chunks.append(chunk)
+    content = b"".join(chunks)
     attachment = (
         await attachment_service.upload(
             db,
