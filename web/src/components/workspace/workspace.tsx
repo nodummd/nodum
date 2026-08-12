@@ -21,6 +21,7 @@ function GraphLoading() {
     </div>
   );
 }
+import { CommandPalette } from "./command-palette";
 import { QuickSwitcher } from "./quick-switcher";
 import { Ribbon } from "./ribbon";
 import { SidebarLeft } from "./sidebar-left";
@@ -83,6 +84,29 @@ export function Workspace({ vault }: { vault: Vault }) {
     },
   });
 
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
+
+  const closeActiveTab = useCallback(() => {
+    const { activeTabId: current } = useWorkspaceStore.getState();
+    if (current) closeTab(current);
+  }, [closeTab]);
+
+  const deleteActiveNote = useCallback(() => {
+    const { activeTabId: current, tabs: allTabs } = useWorkspaceStore.getState();
+    const tab = allTabs.find((t) => t.id === current && t.kind === "note");
+    if (!tab) return;
+    void (async () => {
+      try {
+        await noteApi.remove(vault.id, tab.id);
+        closeTab(tab.id);
+        void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+        void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
+      } catch (err) {
+        toastError(err, "Could not delete note.");
+      }
+    })();
+  }, [vault.id, closeTab, queryClient]);
+
   // Global hotkeys: ⌘O switcher, ⌘N new note, ⌘G graph
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -97,11 +121,21 @@ export function Workspace({ vault }: { vault: Vault }) {
       } else if (e.key === "g") {
         e.preventDefault();
         openGraph();
+      } else if (e.key === "p") {
+        e.preventDefault();
+        useWorkspaceStore.getState().setPaletteOpen(true);
+      } else if (e.key === "w") {
+        e.preventDefault();
+        closeActiveTab();
+      } else if (e.key === "e") {
+        e.preventDefault();
+        const { editorMode, setEditorMode } = useWorkspaceStore.getState();
+        setEditorMode(editorMode === "reading" ? "live" : "reading");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setSwitcherOpen, switcherOpen, newNote, openGraph]);
+  }, [setSwitcherOpen, switcherOpen, newNote, openGraph, closeActiveTab]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-ob-sidebar text-ob-text">
@@ -127,6 +161,12 @@ export function Workspace({ vault }: { vault: Vault }) {
 
       <SidebarRight vaultId={vault.id} noteId={activeNoteId} onOpenNote={openNote} />
       <QuickSwitcher vaultId={vault.id} onOpenNote={openNote} />
+      <CommandPalette
+        onNewNote={() => newNote.mutate()}
+        onOpenGraph={openGraph}
+        onDeleteActiveNote={deleteActiveNote}
+        onCloseActiveTab={closeActiveTab}
+      />
       <Toaster />
     </div>
   );
