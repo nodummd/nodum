@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **58 backend + 38 e2e**. Feature branches
+> Suites must stay green: currently **61 backend + 38 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -108,7 +108,7 @@
 
 ## Sprint 4 — Scale & ops (before real traffic)
 
-- [ ] **S4.1 Payload caps** — tree/graph/backlinks endpoints get hard caps +
+- [x] 2026-08-12 **S4.1 Payload caps** — tree/graph/backlinks endpoints get hard caps +
   `truncated: true` markers (tree: 20k items; graph: 20k nodes; backlinks:
   200 sources) so 100k-note vaults degrade gracefully instead of shipping
   20MB JSON.
