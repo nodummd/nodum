@@ -13,6 +13,7 @@ import { useEffect, useRef } from "react";
 import { tagCompletion, wikiLinkCompletion } from "@/lib/editor/autocomplete";
 import { insertLink, toggleBold, toggleHighlightCmd, toggleItalic } from "@/lib/editor/format-commands";
 import { blockWidgets } from "@/lib/editor/block-widgets";
+import { collabExtension, type CollabSession } from "@/lib/editor/collab";
 import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
 import { nodumEditorTheme } from "@/lib/editor/theme";
@@ -23,6 +24,8 @@ export interface MarkdownEditorProps {
   mode: "live" | "source";
   onChange: (content: string) => void;
   onNavigate: (target: string) => void;
+  /** When set, the doc binds to the Yjs session (parent remounts by key). */
+  collab?: CollabSession;
 }
 
 export function MarkdownEditor({
@@ -31,6 +34,7 @@ export function MarkdownEditor({
   mode,
   onChange,
   onNavigate,
+  collab,
 }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -79,8 +83,13 @@ export function MarkdownEditor({
       extensions.push(blockWidgets());
     }
 
+    if (collab) extensions.push(collabExtension(collab));
+
     const view = new EditorView({
-      state: EditorState.create({ doc: initialContent, extensions }),
+      state: EditorState.create({
+        doc: collab ? collab.ytext.toString() : initialContent,
+        extensions,
+      }),
       parent: containerRef.current,
     });
     viewRef.current = view;

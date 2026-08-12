@@ -38,8 +38,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except Exception as e:
         logger.warning("s3_bucket_init_failed", error=str(e))
 
+    from app.core.collab import collab_server
+
+    if settings.COLLAB_ENABLED:
+        await collab_server.startup()
+
     logger.info("app_started")
     yield
+
+    if settings.COLLAB_ENABLED:
+        await collab_server.shutdown()
 
     logger.info("app_shutting_down")
     from app.core.redis import close_redis

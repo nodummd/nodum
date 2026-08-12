@@ -10,6 +10,7 @@ from app.api.v1 import (
     attachments,
     auth,
     bookmarks,
+    collab,
     daily,
     folders,
     links,
@@ -36,3 +37,4 @@ api_router.include_router(bookmarks.router, prefix="/vaults/{vault_id}/bookmarks
 api_router.include_router(publish.router, prefix="/vaults/{vault_id}/notes", tags=["Publish"])
 api_router.include_router(versions.router, prefix="/vaults/{vault_id}/notes/{note_id}/versions", tags=["Versions"])
 api_router.include_router(publish.public_router, prefix="/public", tags=["Public"])
+api_router.include_router(collab.router, tags=["Collab"])
