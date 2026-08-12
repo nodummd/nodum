@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Computed, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Computed, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -66,6 +66,9 @@ class Note(UUIDMixin, TimestampMixin, Base):
             postgresql_using="gin",
             postgresql_ops={"title": "gin_trgm_ops"},
         ),
+        # Expression indexes backing case-insensitive wikilink resolution
+        Index("ix_notes_vault_lower_title", "vault_id", text("lower(title)")),
+        Index("ix_notes_vault_lower_path", "vault_id", text("lower(path)")),
     )
 
     def __repr__(self) -> str:

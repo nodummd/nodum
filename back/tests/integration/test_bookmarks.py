@@ -29,18 +29,12 @@ async def test_bookmark_lifecycle(client: AsyncClient, workspace: dict) -> None:
 
     # star (idempotent)
     for _ in range(2):
-        added = await client.put(
-            f"{workspace['base']}/bookmarks/{note['id']}", headers=workspace["headers"]
-        )
+        added = await client.put(f"{workspace['base']}/bookmarks/{note['id']}", headers=workspace["headers"])
         assert added.status_code == 201
 
     listed = await client.get(f"{workspace['base']}/bookmarks", headers=workspace["headers"])
     assert [b["title"] for b in listed.json()["data"]] == [note["title"]]
 
-    removed = await client.delete(
-        f"{workspace['base']}/bookmarks/{note['id']}", headers=workspace["headers"]
-    )
+    removed = await client.delete(f"{workspace['base']}/bookmarks/{note['id']}", headers=workspace["headers"])
     assert removed.status_code == 200
-    assert (await client.get(f"{workspace['base']}/bookmarks", headers=workspace["headers"])).json()[
-        "data"
-    ] == []
+    assert (await client.get(f"{workspace['base']}/bookmarks", headers=workspace["headers"])).json()["data"] == []
