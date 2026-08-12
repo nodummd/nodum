@@ -180,7 +180,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
             className="mb-4 w-full bg-transparent text-[1.802em] leading-tight font-bold text-ob-text outline-none focus-visible:outline-none"
           />
           {mode === "reading" ? (
-            <ReadingView content={draft} onNavigate={(t) => void navigate(t)} />
+            <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
           ) : (
             <MarkdownEditor
               vaultId={vaultId}

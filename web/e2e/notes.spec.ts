@@ -106,3 +106,14 @@ test.describe("daily notes", () => {
     await expect(title).toHaveValue(value);
   });
 });
+
+test.describe("live preview math", () => {
+  test("inline and block math render as KaTeX in live preview", async ({ page }) => {
+    await signupFreshUser(page, "math-live");
+    await openNoteFromExplorer(page, "Formatting showcase");
+
+    // Both the inline formula and the $$ block render without entering reading view
+    await expect(page.locator(".cm-math-inline .katex").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".cm-math-block .katex").first()).toBeVisible({ timeout: 10_000 });
+  });
+});
