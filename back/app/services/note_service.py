@@ -147,10 +147,12 @@ async def update_content(
     Optimistic concurrency: when the client supplies ``base_updated_at`` and it
     no longer matches the row, the save is rejected with 409 so the client can
     merge instead of silently overwriting a newer version (e.g. second tab).
+    The row is locked (FOR UPDATE) so the check-then-write is atomic under
+    concurrent saves from multiple workers.
     """
     if await get_owned_vault(db, vault_id, user_id) is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
-    note = await _note_in_vault(db, note_id, vault_id)
+    note = await db.scalar(select(Note).where(Note.id == note_id, Note.vault_id == vault_id).with_for_update())
     if note is None:
         return ServiceResponse.fail("not_found", "Note not found.")
 

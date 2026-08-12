@@ -7,21 +7,29 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Code2, Pencil } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
 import { ReadingView } from "@/components/editor/reading-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ApiError } from "@/lib/api/client";
 import { noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
 export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: string }) {
-  const { data: note } = useQuery({
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const { data: note, error } = useQuery({
     queryKey: ["note", vaultId, noteId],
     queryFn: () => noteApi.get(vaultId, noteId),
+    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   });
+
+  // Persisted workspace tabs can outlive their notes — prune on 404.
+  useEffect(() => {
+    if (error instanceof ApiError && error.status === 404) closeTab(noteId);
+  }, [error, closeTab, noteId]);
 
   if (!note) {
     return (
@@ -47,11 +55,13 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   const draftRef = useRef(note.content);
   const baseUpdatedAt = useRef(note.updated_at);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conflictRetries = useRef(0);
 
   const save = useMutation({
     mutationFn: (content: string) =>
       noteApi.saveContent(vaultId, note.id, content, baseUpdatedAt.current),
     onSuccess: (saved: Note) => {
+      conflictRetries.current = 0;
       baseUpdatedAt.current = saved.updated_at;
       queryClient.setQueryData(["note", vaultId, note.id], { ...saved, content: draftRef.current });
       void queryClient.invalidateQueries({ queryKey: ["backlinks", vaultId] });
@@ -59,7 +69,19 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
       void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
       void queryClient.invalidateQueries({ queryKey: ["tags", vaultId] });
     },
-    onError: async () => {
+    onError: async (err) => {
+      // 409 = another tab/device saved first. Recovery: adopt the server's
+      // timestamp and resubmit the local draft once (last-writer-wins, like
+      // Obsidian). Without this the editor would 409 forever silently.
+      if (err instanceof ApiError && err.status === 409 && conflictRetries.current < 2) {
+        conflictRetries.current += 1;
+        const details = err.details as { server_updated_at?: string } | undefined;
+        if (details?.server_updated_at) {
+          baseUpdatedAt.current = details.server_updated_at;
+          save.mutate(draftRef.current);
+          return;
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["note", vaultId, note.id] });
     },
   });
@@ -73,6 +95,18 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     },
     [save],
   );
+
+  // Flush a pending debounced save when the pane unmounts (tab close/switch) —
+  // otherwise up to 700ms of typing would be lost.
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const rename = useMutation({
     mutationFn: (newTitle: string) => noteApi.rename(vaultId, note.id, { title: newTitle }),

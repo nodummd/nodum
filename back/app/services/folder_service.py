@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.vaults import Folder, Note
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault, invalidate_tree_cache
+from app.utils.cache_utils import cache_delete, vault_graph_key
 from app.utils.path_utils import join_path, validate_depth, validate_segment
 
 
@@ -54,15 +55,24 @@ async def create_folder(
 
 
 async def _recompute_subtree_paths(db: AsyncSession, vault_id: UUID, old_prefix: str, new_prefix: str) -> None:
-    """Rewrite materialized paths for every folder and note under a moved/renamed folder."""
+    """Rewrite materialized paths for every folder and note under a moved/renamed folder.
+
+    ``startswith(..., autoescape=True)`` escapes ``%``/``_`` in the prefix —
+    folder names may legally contain them, and unescaped LIKE wildcards would
+    match (and silently corrupt) unrelated sibling subtrees.
+    """
     descendants = (
-        await db.execute(select(Folder).where(Folder.vault_id == vault_id, Folder.path.like(f"{old_prefix}/%")))
+        await db.execute(
+            select(Folder).where(Folder.vault_id == vault_id, Folder.path.startswith(f"{old_prefix}/", autoescape=True))
+        )
     ).scalars()
     for f in descendants:
         f.path = new_prefix + f.path.removeprefix(old_prefix)
 
     note_rows = (
-        await db.execute(select(Note).where(Note.vault_id == vault_id, Note.path.like(f"{old_prefix}/%")))
+        await db.execute(
+            select(Note).where(Note.vault_id == vault_id, Note.path.startswith(f"{old_prefix}/", autoescape=True))
+        )
     ).scalars()
     for n in note_rows:
         n.path = new_prefix + n.path.removeprefix(old_prefix)
@@ -95,6 +105,7 @@ async def rename_folder(
     await db.commit()
     await db.refresh(folder)
     await invalidate_tree_cache(vault_id)
+    await cache_delete(vault_graph_key(vault_id))
     return ServiceResponse.ok(folder)
 
 
@@ -133,6 +144,7 @@ async def move_folder(
     await db.commit()
     await db.refresh(folder)
     await invalidate_tree_cache(vault_id)
+    await cache_delete(vault_graph_key(vault_id))
     return ServiceResponse.ok(folder)
 
 
@@ -146,4 +158,5 @@ async def delete_folder(db: AsyncSession, vault_id: UUID, user_id: UUID, folder_
     await db.delete(folder)
     await db.commit()
     await invalidate_tree_cache(vault_id)
+    await cache_delete(vault_graph_key(vault_id))
     return ServiceResponse.ok(None)
