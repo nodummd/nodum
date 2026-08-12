@@ -102,7 +102,7 @@
   live-preview properties card (text/number/checkbox/date/list pills) writing
   YAML back into the document.
   *Accept:* e2e: edit a value in the card → source frontmatter updated.
-- [ ] **S3.5 Graph hover polish** (S) — dim non-neighbors on hover (research
+- [x] 2026-08-12 **S3.5 Graph hover polish** (S) — dim non-neighbors on hover (research
   spec: ~0.2 alpha, eased), accent ring stays.
   *Accept:* visual check + no perf regression at welcome-vault scale.
 
