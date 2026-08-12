@@ -185,7 +185,7 @@
   *Accept:* manifest served + installable (lighthouse-ish check via
   headers), e2e: POST to share-target creates the clipping note.
 
-🏁 **Release v2.2.0** after Sprint 7.
+🏁 ~~**Release v2.2.0**~~ ✅ 2026-08-13 — dev→main merged, tagged, prod smoke passed (PWA manifest/sw/clip served, clippings flow via API, web healthy).
 
 ## Sprint 8 — Accounts & publishing (Phase D)
 
