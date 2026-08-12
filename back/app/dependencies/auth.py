@@ -19,6 +19,23 @@ async def get_current_user_id(request: Request) -> UUID:
     if payload is None:
         raise UnauthorizedError("Invalid or expired token.")
 
+    # Instant-revocation markers (logout / password change). Fail-open when
+    # Redis is unavailable — token expiry (15min) remains the backstop.
+    try:
+        from app.core.redis import redis_client
+
+        sid = payload.get("sid")
+        if sid and await redis_client.get(f"revoked_sid:{sid}"):
+            raise UnauthorizedError("Token has been revoked.")
+        revoked_at = await redis_client.get(f"auth_revoked_user:{payload.get('sub')}")
+        # <= : tokens minted in the same second as the revocation die too
+        if revoked_at and int(payload.get("iat", 0)) <= int(revoked_at):
+            raise UnauthorizedError("Token has been revoked.")
+    except UnauthorizedError:
+        raise
+    except Exception:
+        pass
+
     try:
         return UUID(str(payload.get("sub")))
     except (ValueError, TypeError) as e:
