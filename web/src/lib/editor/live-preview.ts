@@ -15,8 +15,10 @@ import type { EditorState, Range } from "@codemirror/state";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 
+import { resolveAttachmentUrl } from "./attachment-urls";
 import { CALLOUT_MARKER_RE, calloutDefaultTitle, calloutIconElement, calloutType } from "./callouts";
-import { parseWikiLinkText } from "./markdown-extensions";
+import { isImageTarget, parseWikiLinkText } from "./markdown-extensions";
+import { renderMathHTML } from "./math";
 
 /** Does any selection range touch [from, to]? (touch = reveal raw syntax) */
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
@@ -66,6 +68,60 @@ class BulletWidget extends WidgetType {
   }
 }
 
+class MathWidget extends WidgetType {
+  constructor(
+    readonly source: string,
+    readonly display: boolean,
+  ) {
+    super();
+  }
+
+  override eq(other: MathWidget): boolean {
+    return other.source === this.source && other.display === this.display;
+  }
+
+  override toDOM(): HTMLElement {
+    const el = document.createElement("span");
+    el.className = this.display ? "cm-math-block" : "cm-math-inline";
+    el.innerHTML = renderMathHTML(this.source, this.display);
+    return el;
+  }
+
+  override ignoreEvent(): boolean {
+    return false; // click puts the cursor there → syntax reveals
+  }
+}
+
+class ImageEmbedWidget extends WidgetType {
+  constructor(
+    readonly vaultId: string,
+    readonly filename: string,
+    readonly width: number | null,
+  ) {
+    super();
+  }
+
+  override eq(other: ImageEmbedWidget): boolean {
+    return (
+      other.vaultId === this.vaultId && other.filename === this.filename && other.width === this.width
+    );
+  }
+
+  override toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-image-embed";
+    const img = document.createElement("img");
+    img.alt = this.filename;
+    if (this.width) img.style.maxWidth = `${String(this.width)}px`;
+    wrap.appendChild(img);
+    void resolveAttachmentUrl(this.vaultId, this.filename).then((url) => {
+      if (url) img.src = url;
+      else wrap.classList.add("cm-image-embed-missing");
+    });
+    return wrap;
+  }
+}
+
 class CalloutHeaderWidget extends WidgetType {
   constructor(
     readonly type: string,
@@ -91,7 +147,7 @@ class CalloutHeaderWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(view: EditorView, vaultId: string | null): DecorationSet {
   const { state } = view;
   const decorations: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
@@ -163,6 +219,19 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
+        // ── Inline math ───────────────────────────────────────────────
+        if (name === "InlineMath") {
+          if (!selectionTouches(state, node.from, node.to)) {
+            const source = state.doc.sliceString(node.from + 1, node.to - 1);
+            decorations.push(
+              Decoration.replace({ widget: new MathWidget(source, false) }).range(node.from, node.to),
+            );
+          } else {
+            decorations.push(Decoration.mark({ class: "cm-math-source" }).range(node.from, node.to));
+          }
+          return;
+        }
+
         // ── Wikilinks & embeds ────────────────────────────────────────
         if (name === "WikiLink" || name === "Embed") {
           const isEmbed = name === "Embed";
@@ -171,6 +240,18 @@ function buildDecorations(view: EditorView): DecorationSet {
           const inner = state.doc.sliceString(open, close);
           const { target, alias } = parseWikiLinkText(inner);
           const touched = selectionTouches(state, node.from, node.to);
+
+          // Image embeds render inline: ![[img.png]] / ![[img.png|320]]
+          if (isEmbed && isImageTarget(target) && !touched && vaultId) {
+            const width = alias && /^\d+$/.test(alias) ? Number(alias) : null;
+            decorations.push(
+              Decoration.replace({
+                widget: new ImageEmbedWidget(vaultId, target, width),
+                block: false,
+              }).range(node.from, node.to),
+            );
+            return;
+          }
 
           decorations.push(
             Decoration.mark({
@@ -313,22 +394,24 @@ function buildDecorations(view: EditorView): DecorationSet {
 
 export interface LivePreviewCallbacks {
   onNavigate?: (target: string) => void;
+  vaultId?: string;
 }
 
 export function livePreview(callbacks: LivePreviewCallbacks = {}) {
+  const vaultId = callbacks.vaultId ?? null;
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
 
       constructor(view: EditorView) {
-        this.decorations = buildDecorations(view);
+        this.decorations = buildDecorations(view, vaultId);
       }
 
       update(update: ViewUpdate) {
         // IME + pointer-drag guards (research: the classic failure modes)
         if (update.transactions.some((tr) => tr.isUserEvent("input.type.compose"))) return;
         if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          this.decorations = buildDecorations(update.view);
+          this.decorations = buildDecorations(update.view, vaultId);
         }
       }
     },

@@ -96,6 +96,10 @@ export const linkApi = {
   graph: (vaultId: string) => api<Graph>(`/vaults/${vaultId}/graph`),
   localGraph: (vaultId: string, noteId: string, depth: number) =>
     api<Graph>(`/vaults/${vaultId}/notes/${noteId}/local-graph?depth=${depth}`),
+  related: (vaultId: string, noteId: string) =>
+    api<{ related: { id: string; title: string; path: string; similarity: number }[] }>(
+      `/vaults/${vaultId}/notes/${noteId}/related`,
+    ),
 };
 
 // ── Search & tags ────────────────────────────────────────────────────────────
@@ -112,6 +116,17 @@ export const searchApi = {
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/tags/${tag}/notes`),
 };
 
+// ── Bookmarks ────────────────────────────────────────────────────────────────
+
+export const bookmarkApi = {
+  list: (vaultId: string) =>
+    api<{ note_id: string; title: string; path: string }[]>(`/vaults/${vaultId}/bookmarks`),
+  add: (vaultId: string, noteId: string) =>
+    apiJson<{ bookmarked: boolean }>(`/vaults/${vaultId}/bookmarks/${noteId}`, "PUT"),
+  remove: (vaultId: string, noteId: string) =>
+    apiJson<{ bookmarked: boolean }>(`/vaults/${vaultId}/bookmarks/${noteId}`, "DELETE"),
+};
+
 // ── Daily notes & templates ──────────────────────────────────────────────────
 
 export const dailyApi = {
@@ -120,6 +135,21 @@ export const dailyApi = {
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/templates`),
   insertTemplate: (vaultId: string, noteId: string, templateId: string) =>
     apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST"),
+};
+
+// ── Publish ──────────────────────────────────────────────────────────────────
+
+export const publishApi = {
+  publish: (vaultId: string, noteId: string) =>
+    apiJson<{ token: string; published: boolean }>(`/vaults/${vaultId}/notes/${noteId}/publish`, "POST"),
+  status: (vaultId: string, noteId: string) =>
+    api<{ published: boolean; token: string | null }>(`/vaults/${vaultId}/notes/${noteId}/publish`),
+  unpublish: (vaultId: string, noteId: string) =>
+    apiJson<{ published: boolean }>(`/vaults/${vaultId}/notes/${noteId}/publish`, "DELETE"),
+  readPublic: (token: string) =>
+    api<{ title: string; content: string; updated_at: string; published_at: string }>(
+      `/public/${token}`,
+    ),
 };
 
 // ── Attachments ──────────────────────────────────────────────────────────────

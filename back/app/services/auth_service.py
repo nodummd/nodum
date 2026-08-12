@@ -105,6 +105,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     # workers — without it, two racing refreshes both rotate and the loser's
     # JTI lands nowhere, tripping the reuse defense later.
     session = await db.scalar(select(Session).where(Session.refresh_token_jti == jti).with_for_update())
+    graced = False
     if session is None:
         # Recently-rotated JTI? Benign duplicate (second tab, racing reload).
         graced_session_id: str | None = None
@@ -114,6 +115,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
             logger.warning("refresh_grace_redis_unavailable")
         if graced_session_id:
             session = await db.scalar(select(Session).where(Session.id == UUID(graced_session_id)).with_for_update())
+            graced = session is not None
 
     if session is None:
         # JTI unknown and not in grace: forged or genuinely stolen-and-reused.
@@ -133,6 +135,20 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
         return ServiceResponse.fail("unauthorized", "Account is not available.")
 
     settings = get_settings()
+
+    if graced:
+        # CONVERGE, do not rotate again: every racer ends up holding the
+        # session's current JTI, so response ordering can never leave the
+        # browser with a token that dies when the grace window closes.
+        await db.commit()  # release the row lock
+        return ServiceResponse.ok(
+            TokenBundle(
+                access_token=create_access_token(user.id),
+                refresh_token=create_refresh_token(user.id, session.refresh_token_jti),
+                user=user,
+            )
+        )
+
     old_jti = session.refresh_token_jti
     new_refresh_jti = new_jti()
     session.refresh_token_jti = new_refresh_jti

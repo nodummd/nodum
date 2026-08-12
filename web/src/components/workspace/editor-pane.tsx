@@ -6,14 +6,15 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Code2, Pencil } from "lucide-react";
+import { Bookmark, BookOpen, Code2, Pencil } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
+import { ShareButton } from "./share-button";
 import { ReadingView } from "@/components/editor/reading-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api/client";
-import { noteApi, searchApi } from "@/lib/api/endpoints";
+import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: strin
     queryKey: ["note", vaultId, noteId],
     queryFn: () => noteApi.get(vaultId, noteId),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+    gcTime: 60_000, // full note bodies are heavy — drop quickly once unused
   });
 
   // Persisted workspace tabs can outlive their notes — prune on 404.
@@ -143,6 +145,8 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-0.5 px-3 pt-1.5">
+        <BookmarkButton vaultId={vaultId} noteId={note.id} />
+        <ShareButton vaultId={vaultId} noteId={note.id} />
         <ModeButton
           label="Live preview"
           active={mode === "live"}
@@ -180,7 +184,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
             className="mb-4 w-full bg-transparent text-[1.802em] leading-tight font-bold text-ob-text outline-none focus-visible:outline-none"
           />
           {mode === "reading" ? (
-            <ReadingView content={draft} onNavigate={(t) => void navigate(t)} />
+            <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
           ) : (
             <MarkdownEditor
               vaultId={vaultId}
@@ -224,6 +228,42 @@ function ModeButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+
+function BookmarkButton({ vaultId, noteId }: { vaultId: string; noteId: string }) {
+  const queryClient = useQueryClient();
+  const { data: bookmarks } = useQuery({
+    queryKey: ["bookmarks", vaultId],
+    queryFn: () => bookmarkApi.list(vaultId),
+  });
+  const isBookmarked = bookmarks?.some((b) => b.note_id === noteId) ?? false;
+
+  const toggle = useMutation({
+    mutationFn: () =>
+      isBookmarked ? bookmarkApi.remove(vaultId, noteId) : bookmarkApi.add(vaultId, noteId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["bookmarks", vaultId] }),
+  });
+
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={isBookmarked ? "Remove bookmark" : "Bookmark this note"}
+          aria-pressed={isBookmarked}
+          onClick={() => toggle.mutate()}
+          className={cn(
+            "flex size-6 items-center justify-center rounded transition-colors duration-150",
+            isBookmarked ? "text-ob-accent" : "text-ob-faint hover:bg-ob-hover hover:text-ob-text",
+          )}
+        >
+          <Bookmark className="size-3.5" strokeWidth={1.75} fill={isBookmarked ? "currentColor" : "none"} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{isBookmarked ? "Remove bookmark" : "Bookmark"}</TooltipContent>
     </Tooltip>
   );
 }
