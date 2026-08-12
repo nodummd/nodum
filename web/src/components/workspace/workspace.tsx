@@ -190,6 +190,12 @@ export function Workspace({ vault }: { vault: Vault }) {
       } else if (e.key === "\\") {
         e.preventDefault();
         useWorkspaceStore.getState().splitRight();
+      } else if (e.key === "[") {
+        e.preventDefault();
+        useWorkspaceStore.getState().navigateBack();
+      } else if (e.key === "]") {
+        e.preventDefault();
+        useWorkspaceStore.getState().navigateForward();
       }
     };
     window.addEventListener("keydown", onKey);

@@ -28,11 +28,32 @@ export interface Tab {
   id: string; // note id, or "graph"
   kind: "note" | "graph";
   title: string;
+  /** Pinned tabs sort first, hide their close button, and ⌘W skips them. */
+  pinned?: boolean;
 }
 
 export interface PaneState {
   tabs: Tab[];
   activeTabId: string | null;
+  /** Navigation history of tab ids (⌘[ / ⌘]). */
+  history: string[];
+  historyIndex: number;
+}
+
+const emptyPane = (): PaneState => ({ tabs: [], activeTabId: null, history: [], historyIndex: -1 });
+
+/** Pinned first, original order otherwise. */
+function sortPinned(tabs: Tab[]): Tab[] {
+  return [...tabs.filter((t) => t.pinned), ...tabs.filter((t) => !t.pinned)];
+}
+
+/** Append to a pane's history (truncating any forward entries). */
+function recorded(p: PaneState, tabId: string): Pick<PaneState, "history" | "historyIndex"> {
+  if (p.history[p.historyIndex] === tabId) {
+    return { history: p.history, historyIndex: p.historyIndex };
+  }
+  const history = [...p.history.slice(0, p.historyIndex + 1), tabId].slice(-50);
+  return { history, historyIndex: history.length - 1 };
 }
 
 interface WorkspaceState {
@@ -63,6 +84,9 @@ interface WorkspaceState {
   setActivePane: (index: number) => void;
   splitRight: () => void;
   closePane: (index: number) => void;
+  togglePin: (tabId: string, paneIndex: number) => void;
+  navigateBack: () => void;
+  navigateForward: () => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   setLeftWidth: (w: number) => void;
@@ -80,7 +104,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
       activeVaultId: null,
-      panes: [{ tabs: [], activeTabId: null }],
+      panes: [emptyPane()],
       activePane: 0,
       leftSidebarOpen: true,
       rightSidebarOpen: true,
@@ -96,7 +120,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setActiveVault: (vaultId) => {
         if (get().activeVaultId !== vaultId) {
-          set({ activeVaultId: vaultId, panes: [{ tabs: [], activeTabId: null }], activePane: 0 });
+          set({ activeVaultId: vaultId, panes: [emptyPane()], activePane: 0 });
         }
       },
 
@@ -106,8 +130,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           panes: panes.map((p, i) =>
             i === activePane
               ? {
-                  tabs: p.tabs.some((t) => t.id === tab.id) ? p.tabs : [...p.tabs, tab],
+                  ...p,
+                  tabs: p.tabs.some((t) => t.id === tab.id)
+                    ? p.tabs
+                    : sortPinned([...p.tabs, tab]),
                   activeTabId: tab.id,
+                  ...recorded(p, tab.id),
                 }
               : p,
           ),
@@ -121,7 +149,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           panes: panes.map((p, i) =>
             i === activePane
               ? {
-                  tabs: p.tabs.some((t) => t.id === tab.id) ? p.tabs : [...p.tabs, tab],
+                  ...p,
+                  tabs: p.tabs.some((t) => t.id === tab.id)
+                    ? p.tabs
+                    : sortPinned([...p.tabs, tab]),
                   activeTabId: p.activeTabId ?? tab.id,
                 }
               : p,
@@ -132,9 +163,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       closeTab: (tabId, paneIndex) => {
         const panes = get().panes.map((p, i) => {
           if (paneIndex !== undefined && i !== paneIndex) return p;
-          if (!p.tabs.some((t) => t.id === tabId)) return p;
+          const tab = p.tabs.find((t) => t.id === tabId);
+          if (!tab || tab.pinned) return p;
           const remaining = p.tabs.filter((t) => t.id !== tabId);
           return {
+            ...p,
             tabs: remaining,
             activeTabId:
               p.activeTabId === tabId ? (remaining.at(-1)?.id ?? null) : p.activeTabId,
@@ -151,7 +184,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           paneIndex ?? panes.findIndex((p) => p.tabs.some((t) => t.id === tabId));
         const index = target === -1 ? activePane : target;
         set({
-          panes: panes.map((p, i) => (i === index ? { ...p, activeTabId: tabId } : p)),
+          panes: panes.map((p, i) =>
+            i === index ? { ...p, activeTabId: tabId, ...recorded(p, tabId) } : p,
+          ),
           activePane: index,
         });
       },
@@ -174,7 +209,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const active = current.tabs.find((t) => t.id === current.activeTabId);
         if (!active) return;
         set({
-          panes: [...panes, { tabs: [active], activeTabId: active.id }],
+          panes: [
+            ...panes,
+            { tabs: [active], activeTabId: active.id, history: [active.id], historyIndex: 0 },
+          ],
           activePane: panes.length,
         });
       },
@@ -183,6 +221,49 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const { panes } = get();
         if (panes.length < 2 || index === 0) return;
         set({ panes: panes.slice(0, 1), activePane: 0 });
+      },
+
+      togglePin: (tabId, paneIndex) =>
+        set({
+          panes: get().panes.map((p, i) =>
+            i === paneIndex
+              ? {
+                  ...p,
+                  tabs: sortPinned(
+                    p.tabs.map((t) => (t.id === tabId ? { ...t, pinned: !t.pinned } : t)),
+                  ),
+                }
+              : p,
+          ),
+        }),
+
+      // ⌘[ / ⌘] — walk the active pane's history, skipping closed tabs
+      navigateBack: () => {
+        const { panes, activePane } = get();
+        const p = panes[activePane];
+        let i = p.historyIndex - 1;
+        while (i >= 0 && !p.tabs.some((t) => t.id === p.history[i])) i--;
+        if (i < 0) return;
+        const idx = i;
+        set({
+          panes: panes.map((pane, j) =>
+            j === activePane ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
+          ),
+        });
+      },
+
+      navigateForward: () => {
+        const { panes, activePane } = get();
+        const p = panes[activePane];
+        let i = p.historyIndex + 1;
+        while (i < p.history.length && !p.tabs.some((t) => t.id === p.history[i])) i++;
+        if (i >= p.history.length) return;
+        const idx = i;
+        set({
+          panes: panes.map((pane, j) =>
+            j === activePane ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
+          ),
+        });
       },
       toggleLeftSidebar: () => set({ leftSidebarOpen: !get().leftSidebarOpen }),
       toggleRightSidebar: () => set({ rightSidebarOpen: !get().rightSidebarOpen }),
@@ -198,17 +279,24 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: "nodum-workspace",
-      version: 2,
+      version: 3,
       migrate: (persisted: unknown) => {
         const old = persisted as {
           tabs?: Tab[];
           activeTabId?: string | null;
-          panes?: PaneState[];
+          panes?: Partial<PaneState>[];
         } & Record<string, unknown>;
         if (!old.panes && old.tabs) {
           old.panes = [{ tabs: old.tabs, activeTabId: old.activeTabId ?? null }];
           old.activePane = 0;
         }
+        // v2 panes lack history fields
+        old.panes = (old.panes ?? []).map((p) => ({
+          tabs: p.tabs ?? [],
+          activeTabId: p.activeTabId ?? null,
+          history: p.history ?? (p.activeTabId ? [p.activeTabId] : []),
+          historyIndex: p.historyIndex ?? (p.activeTabId ? 0 : -1),
+        }));
         return old;
       },
       partialize: (s) => ({

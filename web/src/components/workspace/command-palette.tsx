@@ -4,7 +4,9 @@
 
 import { useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   ArrowLeftRight,
+  ArrowRight,
   BookOpen,
   CalendarDays,
   Code2,
@@ -96,6 +98,8 @@ export function CommandPalette({
     { id: "insert-template", label: "Insert template…", icon: <FileStack className="size-4" />, run: onInsertTemplate, needsNote: true },
     { id: "version-history", label: "Version history", icon: <History className="size-4" />, run: () => setVersionsOpen(true), needsNote: true },
     { id: "split-right", label: "Split right", hotkey: "⌘\\", icon: <Columns2 className="size-4" />, run: () => useWorkspaceStore.getState().splitRight(), needsNote: true },
+    { id: "nav-back", label: "Navigate back", hotkey: "⌘[", icon: <ArrowLeft className="size-4" />, run: () => useWorkspaceStore.getState().navigateBack() },
+    { id: "nav-forward", label: "Navigate forward", hotkey: "⌘]", icon: <ArrowRight className="size-4" />, run: () => useWorkspaceStore.getState().navigateForward() },
     { id: "export-vault", label: "Export vault as zip", icon: <Download className="size-4" />, run: onExportVault },
     { id: "import-vault", label: "Import notes from zip…", icon: <Upload className="size-4" />, run: onImportVault },
     { id: "settings", label: "Open settings", hotkey: "⌘,", icon: <Settings className="size-4" />, run: onOpenSettings },
