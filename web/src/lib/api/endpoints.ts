@@ -30,6 +30,7 @@ export const authApi = {
   refresh: () => apiJson<TokenPair>("/auth/refresh", "POST"),
   logout: () => apiJson<{ message: string }>("/auth/logout", "POST"),
   me: () => api<User>("/auth/me"),
+  providers: () => api<{ google: boolean }>("/auth/providers"),
   updateMe: (body: { name?: string; avatar_url?: string; settings?: Record<string, unknown> }) =>
     apiJson<User>("/auth/me", "PATCH", body),
   changePassword: (body: { current_password: string; new_password: string }) =>

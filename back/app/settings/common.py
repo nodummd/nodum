@@ -88,6 +88,12 @@ class CommonSettings(BaseSettings):
     # cache server's logical DB 3; point at a dedicated noeviction instance in prod.
     REDIS_CONTROL_URL: str | None = None
 
+    # Google OAuth (empty = feature hidden; see docs/OWNER-SETUP.md)
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    # Public origin the OAuth callback redirects through (the web app origin)
+    OAUTH_REDIRECT_BASE_URL: str = "http://localhost:3100"
+
     # Live collaboration (Yjs rooms over websockets)
     COLLAB_ENABLED: bool = True
     COLLAB_PERSIST_INTERVAL_SECONDS: float = 3.0
