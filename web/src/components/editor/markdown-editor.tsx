@@ -11,6 +11,7 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
 import { tagCompletion, wikiLinkCompletion } from "@/lib/editor/autocomplete";
+import { insertLink, toggleBold, toggleHighlightCmd, toggleItalic } from "@/lib/editor/format-commands";
 import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
 import { nodumEditorTheme } from "@/lib/editor/theme";
@@ -45,7 +46,16 @@ export function MarkdownEditor({
 
     const extensions = [
       history(),
-      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+      keymap.of([
+        // Obsidian formatting hotkeys take precedence over the defaults
+        { key: "Mod-b", run: toggleBold },
+        { key: "Mod-i", run: toggleItalic },
+        { key: "Mod-k", run: insertLink },
+        { key: "Mod-Shift-h", run: toggleHighlightCmd },
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...searchKeymap,
+      ]),
       markdown({
         base: markdownLanguage,
         extensions: nodumMarkdownExtensions,
