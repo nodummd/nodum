@@ -59,9 +59,7 @@ async def test_publish_public_read_unpublish(client: AsyncClient, workspace: dic
 
 
 async def test_publish_requires_ownership(client: AsyncClient, workspace: dict) -> None:
-    note = await client.post(
-        f"{workspace['base']}/notes", json={"title": "Private"}, headers=workspace["headers"]
-    )
+    note = await client.post(f"{workspace['base']}/notes", json={"title": "Private"}, headers=workspace["headers"])
     note_id = note.json()["data"]["id"]
 
     other = await client.post(

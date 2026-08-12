@@ -96,6 +96,10 @@ export const linkApi = {
   graph: (vaultId: string) => api<Graph>(`/vaults/${vaultId}/graph`),
   localGraph: (vaultId: string, noteId: string, depth: number) =>
     api<Graph>(`/vaults/${vaultId}/notes/${noteId}/local-graph?depth=${depth}`),
+  related: (vaultId: string, noteId: string) =>
+    api<{ related: { id: string; title: string; path: string; similarity: number }[] }>(
+      `/vaults/${vaultId}/notes/${noteId}/related`,
+    ),
 };
 
 // ── Search & tags ────────────────────────────────────────────────────────────
