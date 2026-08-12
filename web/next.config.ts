@@ -8,6 +8,9 @@ const API_PROXY_URL = process.env.API_PROXY_URL ?? "http://localhost:8000";
 const nextConfig: NextConfig = {
   // Standalone server bundle for slim Docker images (see docker/Dockerfile)
   output: "standalone",
+  // The floating dev indicator overlays the ribbon and intercepts clicks
+  // (breaks e2e and manual testing); errors still surface in the console.
+  devIndicators: false,
   rewrites() {
     return Promise.resolve([
       { source: "/api/:path*", destination: `${API_PROXY_URL}/api/:path*` },
