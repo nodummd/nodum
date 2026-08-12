@@ -168,6 +168,10 @@ async def update_content(
             server_updated_at=note.updated_at.isoformat(),
         )
 
+    from app.services.version_service import maybe_snapshot
+
+    await maybe_snapshot(db, note, content)
+
     if err := await _apply_content(note, content):
         return ServiceResponse.fail("validation_failed", err)
 

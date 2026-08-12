@@ -124,6 +124,17 @@ export interface QuickSwitchResult {
   alias?: string;
 }
 
+export interface NoteVersionMeta {
+  id: string;
+  title: string;
+  created_at: string;
+  size_chars: number;
+}
+
+export interface NoteVersionDetail extends NoteVersionMeta {
+  content: string;
+}
+
 export interface TagCount {
   name: string;
   count: number;
