@@ -13,3 +13,9 @@ NOTE_VERSIONS_KEPT = 50
 NOTE_VERSION_INTERVAL_SECONDS = 300
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
+
+# Payload caps — huge vaults degrade gracefully instead of shipping 20MB JSON;
+# responses set "truncated": true when a cap bites
+MAX_TREE_ITEMS = 20_000
+MAX_GRAPH_NODES = 20_000
+MAX_BACKLINK_SOURCES = 200
