@@ -202,16 +202,17 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 | 9 | feature/web-obsidian-ui | REWRITE (user feedback): pixel-faithful Obsidian workspace — ribbon, explorer, tabs, panels, switcher, status bar | ✅ |
 | 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ✅ |
 | 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ✅ |
-| 12 | feature/web-search-palette | search UI, quick switcher, command palette, backlinks/outline/tags panes | ⬜ |
-| 13 | feature/daily-templates | daily notes, templates, bookmarks, version history UI | ⬜ |
-| 14 | feature/import-export | vault zip import (Obsidian-compatible), export, Celery jobs | ⬜ |
-| 15 | feature/e2e | Playwright suite covering the golden path, compose test env | ⬜ |
-| 16 | feature/polish | onboarding vault content, perf pass (EXPLAIN, cache hits), docs, skills | ⬜ |
+| 12 | feature/web-search-palette | (folded into web-obsidian-ui + command-palette) | ✅ |
+| 13 | feature/daily-templates | daily notes, templates (bookmarks/version-history → Phase B) | ✅ |
+| 14 | feature/import-export | vault zip import (Obsidian-compatible), export | ✅ |
+| 15 | feature/e2e | Playwright suite (18 tests) + ci-e2e workflow | ✅ |
+| 16 | feature/docs-skills + prod-readiness | audit fixes, prod verification, docs, project skills | ✅ |
 
-**Definition of done (v1):** `./deploy/compose.sh dev up -d` boots postgres+redis+minio+api+web;
-signup → default vault → create linked notes → backlinks show → graph renders and
-navigates → search + quick switcher work → import Obsidian zip works → Playwright
-suite green → no secrets in git history → pushed to github.com/vorreix/nodum.
+**Definition of done (v1): ✅ MET 2026-08-12.** Dev stack boots; signup → default
+vault → linked notes → backlinks → GPU graph → search + switcher + palette →
+Obsidian zip import/export → 42 backend + 18 Playwright tests green → prod
+compose verified end-to-end (signup→graph→export through the prod proxy) →
+gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 5. Conventions (from hourly — follow strictly)
 - Conventional commits (`feat:`, `fix:`, `chore:`…) + `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
@@ -299,3 +300,11 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
+
+- **2026-08-12 (h): v1.0.0 RELEASED.** Phase A complete: audit fixes (23
+  confirmed findings), command palette, callouts, daily notes + templates,
+  Obsidian import/export, prod compose verified end-to-end, CI e2e, session
+  pruning, README + 4 project skills (.claude/skills/nodum-*). dev merged to
+  main and tagged v1.0.0. Next: Phase B (embeds, properties UI, live-preview
+  math/tables, virtualization) and Phase C differentiators — see
+  tasks/nodum-audit-and-roadmap.md §6.
