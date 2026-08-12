@@ -6,7 +6,7 @@ auth, vaults, notes, folders, links, graph, search, tags, attachments.
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, folders, links, notes, search, vaults
+from app.api.v1 import attachments, auth, folders, links, notes, search, vaults
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(folders.router, prefix="/vaults/{vault_id}/folders", t
 api_router.include_router(notes.router, prefix="/vaults/{vault_id}/notes", tags=["Notes"])
 api_router.include_router(links.router, prefix="/vaults/{vault_id}", tags=["Links & Graph"])
 api_router.include_router(search.router, prefix="/vaults/{vault_id}", tags=["Search & Tags"])
+api_router.include_router(attachments.router, prefix="/vaults/{vault_id}/attachments", tags=["Attachments"])
