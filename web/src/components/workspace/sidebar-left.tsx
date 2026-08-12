@@ -28,7 +28,9 @@ export function SidebarLeft({
   const open = useWorkspaceStore((s) => s.leftSidebarOpen);
   const width = useWorkspaceStore((s) => s.leftWidth);
   const setWidth = useWorkspaceStore((s) => s.setLeftWidth);
-  const [pane, setPane] = useState<PaneKind>("files");
+  // Pane lives in the store so other panels (tag pane) can open Search
+  const pane = useWorkspaceStore((s) => s.leftPane);
+  const setPane = useWorkspaceStore((s) => s.setLeftPane);
   const dragging = useRef(false);
 
   const onDragStart = useCallback(

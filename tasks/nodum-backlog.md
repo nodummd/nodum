@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **58 backend + 35 e2e**. Feature branches
+> Suites must stay green: currently **58 backend + 36 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -92,7 +92,7 @@
   (query matches path:/tag:/text against nodes; first match wins, Obsidian
   rule), persisted with filters+forces into `vaults.settings.graph`.
   *Accept:* e2e: add group, node recolors, survives reload.
-- [ ] **S3.2 Nested tag pane + click-to-search** (S) — tag pane renders the
+- [x] 2026-08-12 **S3.2 Nested tag pane + click-to-search** (S) — tag pane renders the
   `a/b/c` hierarchy as a collapsible tree; clicking a tag runs `tag:` search.
   *Accept:* e2e: nested display + click populates search.
 - [ ] **S3.3 Page preview popover** (S–M) — Cmd/Ctrl+hover over a wikilink
