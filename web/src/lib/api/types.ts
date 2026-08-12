@@ -50,7 +50,14 @@ export interface Note extends NoteMeta {
 
 export type TreeItem =
   | { type: "folder"; id: string; name: string; path: string; children: TreeItem[] }
-  | { type: "note"; id: string; title: string; path: string };
+  | {
+      type: "note";
+      id: string;
+      title: string;
+      path: string;
+      created_at: string;
+      updated_at: string;
+    };
 
 export interface VaultTree {
   vault_id: string;
@@ -104,6 +111,7 @@ export interface SearchResult {
   path: string;
   snippet: string;
   rank: number;
+  created_at: string;
   updated_at: string;
 }
 
@@ -112,6 +120,19 @@ export interface QuickSwitchResult {
   title: string;
   path: string;
   score: number;
+  /** Present when the match came through a frontmatter alias. */
+  alias?: string;
+}
+
+export interface NoteVersionMeta {
+  id: string;
+  title: string;
+  created_at: string;
+  size_chars: number;
+}
+
+export interface NoteVersionDetail extends NoteVersionMeta {
+  content: string;
 }
 
 export interface TagCount {

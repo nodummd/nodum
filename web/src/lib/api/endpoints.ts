@@ -9,6 +9,8 @@ import type {
   Note,
   NoteMeta,
   OutgoingLink,
+  NoteVersionDetail,
+  NoteVersionMeta,
   QuickSwitchResult,
   SearchResult,
   TagCount,
@@ -82,6 +84,15 @@ export const noteApi = {
     apiJson<{ message: string }>(`/vaults/${vaultId}/notes/${noteId}`, "DELETE"),
 };
 
+export const versionApi = {
+  list: (vaultId: string, noteId: string) =>
+    api<NoteVersionMeta[]>(`/vaults/${vaultId}/notes/${noteId}/versions`),
+  get: (vaultId: string, noteId: string, versionId: string) =>
+    api<NoteVersionDetail>(`/vaults/${vaultId}/notes/${noteId}/versions/${versionId}`),
+  restore: (vaultId: string, noteId: string, versionId: string) =>
+    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/versions/${versionId}/restore`, "POST"),
+};
+
 // ── Links & graph ────────────────────────────────────────────────────────────
 
 export const linkApi = {
@@ -105,9 +116,9 @@ export const linkApi = {
 // ── Search & tags ────────────────────────────────────────────────────────────
 
 export const searchApi = {
-  search: (vaultId: string, q: string, limit = 20, offset = 0) =>
+  search: (vaultId: string, q: string, sort = "relevance", limit = 20, offset = 0) =>
     api<{ query: string; results: SearchResult[]; total: number }>(
-      `/vaults/${vaultId}/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
+      `/vaults/${vaultId}/search?q=${encodeURIComponent(q)}&sort=${sort}&limit=${limit}&offset=${offset}`,
     ),
   quickSwitch: (vaultId: string, q: string, limit = 10) =>
     api<QuickSwitchResult[]>(`/vaults/${vaultId}/quick-switch?q=${encodeURIComponent(q)}&limit=${limit}`),

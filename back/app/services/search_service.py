@@ -4,12 +4,17 @@ Operator syntax (subset of Obsidian's):
     path:foo      — path contains foo (case-insensitive)
     file:foo      — title contains foo
     tag:foo       — note has tag foo (nested prefix matching)
+    created:RANGE / updated:RANGE — date filters. RANGE forms:
+        2026-08-01              that calendar day
+        2026-08-01..2026-08-12  inclusive range
+        >2026-08-01  <2026-08-12  open-ended bounds
     "quoted"      — phrase (passed to websearch_to_tsquery)
     -term         — exclusion (websearch_to_tsquery handles it)
 Remaining words form the websearch query.
 """
 
 import re
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -17,11 +22,11 @@ from sqlalchemy import Select, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tags import NoteTag, Tag
-from app.models.vaults import Note
+from app.models.vaults import Note, NoteAlias
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault
 
-_OPERATOR_RE = re.compile(r'(?P<op>path|file|tag):(?P<val>"[^"]+"|\S+)')
+_OPERATOR_RE = re.compile(r'(?P<op>path|file|tag|created|updated):(?P<val>"[^"]+"|\S+)')
 
 
 def parse_query(q: str) -> tuple[str, dict[str, list[str]]]:
@@ -37,6 +42,31 @@ def parse_query(q: str) -> tuple[str, dict[str, list[str]]]:
     return text, operators
 
 
+def _parse_date_range(raw: str) -> tuple[datetime | None, datetime | None]:
+    """Parse a created:/updated: value into (from, to) bounds (inclusive day)."""
+
+    def day(value: str) -> datetime | None:
+        try:
+            return datetime.strptime(value.strip(), "%Y-%m-%d")
+        except ValueError:
+            return None
+
+    raw = raw.strip()
+    if ".." in raw:
+        start_s, end_s = raw.split("..", 1)
+        start, end = day(start_s), day(end_s)
+        return start, (end + timedelta(days=1)) if end else None
+    if raw.startswith(">"):
+        return day(raw[1:].lstrip("=")), None
+    if raw.startswith("<"):
+        end = day(raw[1:].lstrip("="))
+        return None, (end + timedelta(days=1)) if end else None
+    single = day(raw)
+    if single:
+        return single, single + timedelta(days=1)
+    return None, None
+
+
 def _apply_operators(stmt: Select, operators: dict[str, list[str]], vault_id: UUID) -> Select:
     for value in operators.get("path", []):
         stmt = stmt.where(Note.path.ilike(f"%{value}%"))
@@ -50,6 +80,13 @@ def _apply_operators(stmt: Select, operators: dict[str, list[str]], vault_id: UU
             .where(Tag.vault_id == vault_id, or_(Tag.name == tag, Tag.name.like(f"{tag}/%")))
         )
         stmt = stmt.where(Note.id.in_(tag_notes))
+    for op_name, column in (("created", Note.created_at), ("updated", Note.updated_at)):
+        for value in operators.get(op_name, []):
+            date_from, date_to = _parse_date_range(value)
+            if date_from:
+                stmt = stmt.where(column >= date_from)
+            if date_to:
+                stmt = stmt.where(column < date_to)
     return stmt
 
 
@@ -59,10 +96,15 @@ async def search_notes(
     user_id: UUID,
     *,
     q: str,
+    sort: str = "relevance",
     limit: int = 20,
     offset: int = 0,
 ) -> ServiceResponse[dict[str, Any]]:
-    """Ranked full-text search with highlighted snippets."""
+    """Ranked full-text search with highlighted snippets.
+
+    ``sort``: relevance (default; falls back to updated when no text query),
+    updated, created, title.
+    """
     if await get_owned_vault(db, vault_id, user_id) is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
 
@@ -70,8 +112,16 @@ async def search_notes(
     if not text and not operators:
         return ServiceResponse.ok({"query": q, "results": [], "total": 0})
 
-    base = select(Note.id, Note.title, Note.path, Note.folder_id, Note.updated_at).where(Note.vault_id == vault_id)
+    base = select(Note.id, Note.title, Note.path, Note.folder_id, Note.created_at, Note.updated_at).where(
+        Note.vault_id == vault_id
+    )
     base = _apply_operators(base, operators, vault_id)
+
+    order_map = {
+        "updated": (Note.updated_at.desc(),),
+        "created": (Note.created_at.desc(),),
+        "title": (Note.title.asc(),),
+    }
 
     if text:
         tsquery = func.websearch_to_tsquery("english", text)
@@ -83,14 +133,14 @@ async def search_notes(
             tsquery,
             "StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=10, MaxFragments=2",
         )
-        stmt = base.add_columns(rank.label("rank"), headline.label("snippet")).order_by(
-            rank.desc(), Note.updated_at.desc()
-        )
+        ordering = order_map.get(sort, (rank.desc(), Note.updated_at.desc()))
+        stmt = base.add_columns(rank.label("rank"), headline.label("snippet")).order_by(*ordering)
     else:
+        ordering = order_map.get(sort, (Note.updated_at.desc(),))
         stmt = base.add_columns(
             literal(0.0).label("rank"),
             func.left(Note.content, 200).label("snippet"),
-        ).order_by(Note.updated_at.desc())
+        ).order_by(*ordering)
 
     # Window count gives the true total for pagination without a second query.
     stmt = stmt.add_columns(func.count().over().label("total_count"))
@@ -103,6 +153,7 @@ async def search_notes(
             "path": row.path,
             "snippet": row.snippet,
             "rank": float(row.rank or 0),
+            "created_at": row.created_at.isoformat(),
             "updated_at": row.updated_at.isoformat(),
         }
         for row in rows
@@ -143,4 +194,26 @@ async def quick_switch(
             .limit(limit)
         )
     ).all()
-    return ServiceResponse.ok([{"id": str(i), "title": t, "path": p, "score": float(s or 0)} for i, t, p, s in rows])
+    results = [{"id": str(i), "title": t, "path": p, "score": float(s or 0)} for i, t, p, s in rows]
+
+    # Frontmatter aliases match too — labeled so the UI can show "alias of X".
+    # Title matches win when the same note appears through both routes.
+    alias_similarity = func.similarity(NoteAlias.alias, q)
+    alias_rows = (
+        await db.execute(
+            select(Note.id, Note.title, Note.path, NoteAlias.alias, alias_similarity.label("score"))
+            .join(Note, Note.id == NoteAlias.note_id)
+            .where(
+                NoteAlias.vault_id == vault_id,
+                or_(NoteAlias.alias.ilike(f"%{q}%"), alias_similarity > 0.15),
+            )
+            .order_by(NoteAlias.alias.ilike(f"{q}%").desc(), alias_similarity.desc())
+            .limit(limit)
+        )
+    ).all()
+    seen_ids = {r["id"] for r in results}
+    for i, t, p, alias, s in alias_rows:
+        if str(i) not in seen_ids:
+            seen_ids.add(str(i))
+            results.append({"id": str(i), "title": t, "path": p, "score": float(s or 0), "alias": alias})
+    return ServiceResponse.ok(results[:limit])

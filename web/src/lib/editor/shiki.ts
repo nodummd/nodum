@@ -1,0 +1,67 @@
+/**
+ * Shared shiki highlighter — lazy singleton so the (large) grammar bundle is
+ * only fetched when a code fence is actually on screen. Both the reading view
+ * and the live-preview code widget consume it; results are memoized so a
+ * widget rebuild (cursor moves) re-renders synchronously from cache.
+ */
+
+import type { Highlighter } from "shiki";
+
+export const SHIKI_THEME = "github-dark";
+
+/** Grammars loaded up front; anything else is loaded on demand or falls back to text. */
+const PRELOAD_LANGS = [
+  "javascript",
+  "typescript",
+  "jsx",
+  "tsx",
+  "python",
+  "bash",
+  "json",
+  "yaml",
+  "html",
+  "css",
+  "markdown",
+  "sql",
+  "rust",
+  "go",
+];
+
+let highlighterPromise: Promise<Highlighter> | null = null;
+
+function getHighlighter(): Promise<Highlighter> {
+  highlighterPromise ??= import("shiki").then((m) =>
+    m.createHighlighter({ themes: [SHIKI_THEME], langs: PRELOAD_LANGS }),
+  );
+  return highlighterPromise;
+}
+
+const cache = new Map<string, string>();
+const CACHE_MAX = 300;
+
+/** Synchronous cache lookup — non-null once highlightToHtml has run for this input. */
+export function cachedHighlight(code: string, lang: string): string | null {
+  return cache.get(`${lang}\u0000${code}`) ?? null;
+}
+
+/** Highlight a fenced code block to HTML (`<pre class="shiki">…`). Unknown languages fall back to plain text. */
+export async function highlightToHtml(code: string, lang: string): Promise<string> {
+  const key = `${lang}\u0000${code}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  const highlighter = await getHighlighter();
+  let effectiveLang = lang.toLowerCase() || "text";
+  if (!highlighter.getLoadedLanguages().includes(effectiveLang)) {
+    try {
+      // Full-bundle shiki can load any bundled grammar by name at runtime
+      await highlighter.loadLanguage(effectiveLang as never);
+    } catch {
+      effectiveLang = "text";
+    }
+  }
+  const html = highlighter.codeToHtml(code, { lang: effectiveLang, theme: SHIKI_THEME });
+  if (cache.size >= CACHE_MAX) cache.clear();
+  cache.set(key, html);
+  return html;
+}

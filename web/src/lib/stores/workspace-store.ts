@@ -16,6 +16,14 @@ export type MainView =
 
 export type EditorMode = "live" | "source" | "reading";
 
+export type ExplorerSort =
+  | "title-asc"
+  | "title-desc"
+  | "updated-desc"
+  | "updated-asc"
+  | "created-desc"
+  | "created-asc";
+
 export interface Tab {
   id: string; // note id, or "graph"
   kind: "note" | "graph";
@@ -31,11 +39,14 @@ interface WorkspaceState {
   leftWidth: number;
   rightWidth: number;
   editorMode: EditorMode;
+  explorerSort: ExplorerSort;
   paletteOpen: boolean;
   switcherOpen: boolean;
+  versionsOpen: boolean;
 
   setActiveVault: (vaultId: string | null) => void;
   openTab: (tab: Tab) => void;
+  openTabBackground: (tab: Tab) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   renameTab: (tabId: string, title: string) => void;
@@ -44,8 +55,10 @@ interface WorkspaceState {
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
   setEditorMode: (mode: EditorMode) => void;
+  setExplorerSort: (sort: ExplorerSort) => void;
   setPaletteOpen: (open: boolean) => void;
   setSwitcherOpen: (open: boolean) => void;
+  setVersionsOpen: (open: boolean) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -59,8 +72,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       leftWidth: 280,
       rightWidth: 300,
       editorMode: "live",
+      explorerSort: "title-asc",
       paletteOpen: false,
       switcherOpen: false,
+      versionsOpen: false,
 
       setActiveVault: (vaultId) => {
         if (get().activeVaultId !== vaultId) {
@@ -74,6 +89,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           set({ tabs: [...tabs, tab] });
         }
         set({ activeTabId: tab.id });
+      },
+
+      // ⌘Enter in the switcher — the tab appears but focus stays put
+      openTabBackground: (tab) => {
+        const { tabs, activeTabId } = get();
+        if (!tabs.some((t) => t.id === tab.id)) {
+          set({ tabs: [...tabs, tab] });
+        }
+        if (activeTabId === null) set({ activeTabId: tab.id });
       },
 
       closeTab: (tabId) => {
@@ -92,8 +116,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setEditorMode: (mode) => set({ editorMode: mode }),
+      setExplorerSort: (sort) => set({ explorerSort: sort }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
+      setVersionsOpen: (open) => set({ versionsOpen: open }),
     }),
     {
       name: "nodum-workspace",
@@ -106,6 +132,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         leftWidth: s.leftWidth,
         rightWidth: s.rightWidth,
         editorMode: s.editorMode,
+        explorerSort: s.explorerSort,
       }),
     },
   ),

@@ -14,7 +14,7 @@ logger = get_logger("cache")
 
 
 def vault_tree_key(vault_id: Any) -> str:
-    return f"tree:{vault_id}"
+    return f"tree:v2:{vault_id}"
 
 
 def vault_graph_key(vault_id: Any) -> str:

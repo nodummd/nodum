@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
 import { ShareButton } from "./share-button";
+import { VersionHistoryDialog } from "./version-history";
 import { ReadingView } from "@/components/editor/reading-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api/client";
@@ -51,10 +52,16 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   const mode = useWorkspaceStore((s) => s.editorMode);
   const setMode = useWorkspaceStore((s) => s.setEditorMode);
 
+  const versionsOpen = useWorkspaceStore((s) => s.versionsOpen);
+  const setVersionsOpen = useWorkspaceStore((s) => s.setVersionsOpen);
+
   const [title, setTitle] = useState(note.title);
   // draft lives in state (render-safe) and a ref (event-safe for save callbacks)
   const [draft, setDraft] = useState(note.content);
   const draftRef = useRef(note.content);
+  // bumped when content is replaced from outside the editor (version restore)
+  // so the manually-mounted CodeMirror instance remounts with the new doc
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const baseUpdatedAt = useRef(note.updated_at);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conflictRetries = useRef(0);
@@ -187,6 +194,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
             <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
           ) : (
             <MarkdownEditor
+              key={editorEpoch}
               vaultId={vaultId}
               initialContent={draft}
               mode={mode}
@@ -196,6 +204,23 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           )}
         </div>
       </div>
+      <VersionHistoryDialog
+        vaultId={vaultId}
+        noteId={note.id}
+        open={versionsOpen}
+        onOpenChange={setVersionsOpen}
+        onRestored={(restored) => {
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          draftRef.current = restored.content;
+          setDraft(restored.content);
+          baseUpdatedAt.current = restored.updated_at;
+          setEditorEpoch((n) => n + 1);
+          queryClient.setQueryData(["note", vaultId, note.id], restored);
+          void queryClient.invalidateQueries({ queryKey: ["backlinks", vaultId] });
+          void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
+          void queryClient.invalidateQueries({ queryKey: ["tags", vaultId] });
+        }}
+      />
     </div>
   );
 }
