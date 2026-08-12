@@ -60,7 +60,13 @@ async def _recompute_subtree_paths(db: AsyncSession, vault_id: UUID, old_prefix:
     ``startswith(..., autoescape=True)`` escapes ``%``/``_`` in the prefix —
     folder names may legally contain them, and unescaped LIKE wildcards would
     match (and silently corrupt) unrelated sibling subtrees.
+
+    Wikilinks addressed by path follow Obsidian's resolution semantics:
+    links written against a note's old path unresolve (we never rewrite user
+    markdown), and unresolved links matching a note's new path claim it.
     """
+    from app.services.link_service import resolve_links_for_new_note, unresolve_links_for_renamed_note
+
     descendants = (
         await db.execute(
             select(Folder).where(Folder.vault_id == vault_id, Folder.path.startswith(f"{old_prefix}/", autoescape=True))
@@ -75,7 +81,10 @@ async def _recompute_subtree_paths(db: AsyncSession, vault_id: UUID, old_prefix:
         )
     ).scalars()
     for n in note_rows:
+        old_note_path = n.path
         n.path = new_prefix + n.path.removeprefix(old_prefix)
+        await unresolve_links_for_renamed_note(db, n, n.title, old_note_path)
+        await resolve_links_for_new_note(db, n)
 
 
 async def rename_folder(
