@@ -112,6 +112,17 @@ export const searchApi = {
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/tags/${tag}/notes`),
 };
 
+// ── Bookmarks ────────────────────────────────────────────────────────────────
+
+export const bookmarkApi = {
+  list: (vaultId: string) =>
+    api<{ note_id: string; title: string; path: string }[]>(`/vaults/${vaultId}/bookmarks`),
+  add: (vaultId: string, noteId: string) =>
+    apiJson<{ bookmarked: boolean }>(`/vaults/${vaultId}/bookmarks/${noteId}`, "PUT"),
+  remove: (vaultId: string, noteId: string) =>
+    apiJson<{ bookmarked: boolean }>(`/vaults/${vaultId}/bookmarks/${noteId}`, "DELETE"),
+};
+
 // ── Daily notes & templates ──────────────────────────────────────────────────
 
 export const dailyApi = {

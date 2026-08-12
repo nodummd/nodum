@@ -24,6 +24,7 @@ function GraphLoading() {
 import { CommandPalette } from "./command-palette";
 import { QuickSwitcher } from "./quick-switcher";
 import { Ribbon } from "./ribbon";
+import { SettingsModal } from "./settings-modal";
 import { SidebarLeft } from "./sidebar-left";
 import { SidebarRight } from "./sidebar-right";
 import { StatusBar } from "./status-bar";
@@ -88,6 +89,7 @@ export function Workspace({ vault }: { vault: Vault }) {
 
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const exportVault = useCallback(() => {
@@ -174,6 +176,9 @@ export function Workspace({ vault }: { vault: Vault }) {
       } else if (e.key === "w") {
         e.preventDefault();
         closeActiveTab();
+      } else if (e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen(true);
       } else if (e.key === "e") {
         e.preventDefault();
         const { editorMode, setEditorMode } = useWorkspaceStore.getState();
@@ -217,7 +222,9 @@ export function Workspace({ vault }: { vault: Vault }) {
         onInsertTemplate={() => setTemplatePickerOpen(true)}
         onExportVault={exportVault}
         onImportVault={() => importInputRef.current?.click()}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
+      <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
       <input
         ref={importInputRef}
         type="file"
