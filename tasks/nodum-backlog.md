@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **58 backend + 33 e2e**. Feature branches
+> Suites must stay green: currently **58 backend + 35 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -88,7 +88,7 @@
 
 ## Sprint 3 — Parity polish
 
-- [ ] **S3.1 Graph groups + settings persistence** (M) — color-by-query rows
+- [x] 2026-08-12 **S3.1 Graph groups + settings persistence** (M) — color-by-query rows
   (query matches path:/tag:/text against nodes; first match wins, Obsidian
   rule), persisted with filters+forces into `vaults.settings.graph`.
   *Accept:* e2e: add group, node recolors, survives reload.
