@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **65 backend + 38 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 39 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -126,11 +126,11 @@
 
 ## Sprint 5 — Collaboration groundwork (Phase C finale)
 
-- [ ] **S5.1 CRDT plumbing** — Yjs doc per note; `y-codemirror.next` binding
+- [x] 2026-08-12 **S5.1 CRDT plumbing** — Yjs doc per note; `y-codemirror.next` binding
   behind a feature flag; websocket endpoint (FastAPI) relaying updates
   (y-websocket protocol), Redis pub/sub fanout across workers.
-- [ ] **S5.2 Presence** — remote cursors/selections with user colors.
-- [ ] **S5.3 Persistence strategy** — periodic Yjs state vector → note
+- [x] 2026-08-12 **S5.2 Presence** — remote cursors/selections with user colors.
+- [x] 2026-08-12 **S5.3 Persistence strategy** — periodic Yjs state vector → note
   content sync (existing autosave path stays authoritative for non-collab
   sessions); conflict story documented.
   *Accept (all):* two browser contexts edit one note live; both see each

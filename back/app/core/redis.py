@@ -6,6 +6,7 @@ from app.settings import get_settings
 
 settings = get_settings()
 
+
 def control_url_from(cache_url: str) -> str:
     """Default control-plane URL: same server, logical DB 3.
 

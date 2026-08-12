@@ -39,6 +39,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
   const [dailyFolder, setDailyFolder] = useState<string | null>(null);
   const [dailyTemplate, setDailyTemplate] = useState<string | null>(null);
   const [templatesFolder, setTemplatesFolder] = useState<string | null>(null);
+  const [collabDraft, setCollabDraft] = useState<boolean | null>(null);
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
 
@@ -58,6 +59,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
           dailyNoteFolder: dailyFolder ?? settings.dailyNoteFolder ?? "",
           dailyNoteTemplate: dailyTemplate ?? settings.dailyNoteTemplate ?? "",
           templatesFolder: templatesFolder ?? settings.templatesFolder ?? "Templates",
+          collabEnabled: collabDraft ?? Boolean(settings.collabEnabled),
         },
       }),
     onSuccess: () => {
@@ -142,6 +144,21 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
               onChange={(e) => setTemplatesFolder(e.target.value)}
             />
           </div>
+          <label className="flex items-center justify-between gap-2 text-[13px] text-ob-muted">
+            <span>
+              Live collaboration <span className="text-ob-faint">(beta)</span>
+              <span className="block text-[11px] text-ob-faint">
+                Sync open notes across devices and tabs in real time.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="Live collaboration"
+              checked={collabDraft ?? Boolean(settings.collabEnabled)}
+              onChange={(e) => setCollabDraft(e.target.checked)}
+              className="accent-[var(--ob-interactive-accent)]"
+            />
+          </label>
           <Button size="sm" onClick={() => saveVault.mutate()} disabled={saveVault.isPending}>
             Save vault settings
           </Button>

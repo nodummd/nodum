@@ -9,13 +9,12 @@ from app.core.custom_exceptions import UnauthorizedError
 from app.utils.jwt_utils import decode_token
 
 
-async def get_current_user_id(request: Request) -> UUID:
-    """Validate the Authorization Bearer access token and return the user id."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise UnauthorizedError("Not authenticated.")
+async def validate_access_token(token: str) -> UUID:
+    """Validate a raw access token (incl. revocation) and return the user id.
 
-    payload = decode_token(auth_header.removeprefix("Bearer ").strip(), expected_type="access")
+    Shared by the HTTP Bearer dependency and the collab websocket route.
+    """
+    payload = decode_token(token, expected_type="access")
     if payload is None:
         raise UnauthorizedError("Invalid or expired token.")
 
@@ -40,6 +39,14 @@ async def get_current_user_id(request: Request) -> UUID:
         return UUID(str(payload.get("sub")))
     except (ValueError, TypeError) as e:
         raise UnauthorizedError("Invalid token subject.") from e
+
+
+async def get_current_user_id(request: Request) -> UUID:
+    """Validate the Authorization Bearer access token and return the user id."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise UnauthorizedError("Not authenticated.")
+    return await validate_access_token(auth_header.removeprefix("Bearer ").strip())
 
 
 CurrentUserId = Annotated[UUID, Depends(get_current_user_id)]

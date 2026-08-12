@@ -13,6 +13,10 @@ import { MarkdownEditor } from "@/components/editor/markdown-editor";
 import { PagePreview, usePagePreview } from "@/components/editor/page-preview";
 import { ShareButton } from "./share-button";
 import { VersionHistoryDialog } from "./version-history";
+import { createCollabSession, presenceColor, type CollabSession } from "@/lib/editor/collab";
+import { getAccessToken } from "@/lib/api/client";
+import { useAuthStore } from "@/lib/stores/auth-store";
+import { vaultApi } from "@/lib/api/endpoints";
 import { ReadingView } from "@/components/editor/reading-view";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api/client";
@@ -68,6 +72,37 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conflictRetries = useRef(0);
 
+  // ── Live collaboration (per-vault opt-in via settings.collabEnabled) ──────
+  const user = useAuthStore((s) => s.user);
+  const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
+  const collabEnabled = Boolean(
+    (vaults?.find((v) => v.id === vaultId)?.settings as { collabEnabled?: boolean } | undefined)
+      ?.collabEnabled,
+  );
+  const collabRef = useRef<CollabSession | null>(null);
+  const [collabReady, setCollabReady] = useState(false);
+  useEffect(() => {
+    if (!collabEnabled) return;
+    const token = getAccessToken();
+    if (!token) return;
+    const session = createCollabSession(vaultId, note.id, token, {
+      name: user?.name ?? "Someone",
+      color: presenceColor(user?.email ?? note.id),
+    });
+    collabRef.current = session;
+    const onSync = (synced: boolean) => {
+      if (synced) setCollabReady(true);
+    };
+    session.provider.on("sync", onSync);
+    return () => {
+      session.provider.off("sync", onSync);
+      session.destroy();
+      collabRef.current = null;
+    };
+    // user identity is stable within a mounted editor session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collabEnabled, vaultId, note.id]);
+
   const save = useMutation({
     mutationFn: (content: string) =>
       noteApi.saveContent(vaultId, note.id, content, baseUpdatedAt.current),
@@ -101,6 +136,8 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     (content: string) => {
       draftRef.current = content;
       setDraft(content);
+      // During a live session the collab server persists — REST autosave off
+      if (collabRef.current) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => save.mutate(content), 700);
     },
@@ -111,7 +148,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // otherwise up to 700ms of typing would be lost.
   useEffect(() => {
     return () => {
-      if (saveTimer.current) {
+      if (saveTimer.current && !collabRef.current) {
         clearTimeout(saveTimer.current);
         void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
       }
@@ -194,14 +231,17 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           />
           {mode === "reading" ? (
             <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
+          ) : collabEnabled && !collabReady ? (
+            <p className="pt-2 text-[13px] text-ob-faint">Connecting live session…</p>
           ) : (
             <MarkdownEditor
-              key={editorEpoch}
+              key={collabReady ? `collab-${note.id}` : editorEpoch}
               vaultId={vaultId}
               initialContent={draft}
               mode={mode}
               onChange={onChange}
               onNavigate={(t) => void navigate(t)}
+              collab={collabReady ? (collabRef.current ?? undefined) : undefined}
             />
           )}
         </div>

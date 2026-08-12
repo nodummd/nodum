@@ -87,6 +87,10 @@ class CommonSettings(BaseSettings):
     # Control-plane Redis (rate limits, auth revocation/grace). Defaults to the
     # cache server's logical DB 3; point at a dedicated noeviction instance in prod.
     REDIS_CONTROL_URL: str | None = None
+
+    # Live collaboration (Yjs rooms over websockets)
+    COLLAB_ENABLED: bool = True
+    COLLAB_PERSIST_INTERVAL_SECONDS: float = 3.0
     # Cache TTLs (seconds)
     CACHE_GRAPH_TTL: int = 300
     CACHE_TREE_TTL: int = 300
