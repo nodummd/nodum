@@ -1,0 +1,278 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-interface);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-interface);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  /* Obsidian workspace tokens exposed as Tailwind colors */
+  --color-ob-bg: var(--ob-background-primary);
+  --color-ob-bg-alt: var(--ob-background-primary-alt);
+  --color-ob-sidebar: var(--ob-background-secondary);
+  --color-ob-sidebar-alt: var(--ob-background-secondary-alt);
+  --color-ob-border: var(--ob-background-modifier-border);
+  --color-ob-hover: var(--ob-background-modifier-hover);
+  --color-ob-active: var(--ob-background-modifier-active);
+  --color-ob-text: var(--ob-text-normal);
+  --color-ob-muted: var(--ob-text-muted);
+  --color-ob-faint: var(--ob-text-faint);
+  --color-ob-accent: var(--ob-interactive-accent);
+  --color-ob-accent-hover: var(--ob-interactive-accent-hover);
+}
+
+/* ============================================================
+   Obsidian default dark theme palette (color-base scale)
+   Mirrors Obsidian's CSS variables so the workspace reads
+   pixel-faithful. Single dark theme for v1 (Obsidian's default).
+   ============================================================ */
+:root,
+.dark {
+  /* base scale (Obsidian dark) */
+  --ob-color-base-00: #1e1e1e;
+  --ob-color-base-10: #242424;
+  --ob-color-base-20: #262626;
+  --ob-color-base-25: #2a2a2a;
+  --ob-color-base-30: #363636;
+  --ob-color-base-35: #3f3f3f;
+  --ob-color-base-40: #555555;
+  --ob-color-base-50: #666666;
+  --ob-color-base-70: #b3b3b3;
+  --ob-color-base-100: #dadada;
+
+  --ob-background-primary: var(--ob-color-base-00);
+  --ob-background-primary-alt: var(--ob-color-base-10);
+  --ob-background-secondary: var(--ob-color-base-20);
+  --ob-background-secondary-alt: var(--ob-color-base-10);
+  --ob-background-modifier-border: var(--ob-color-base-30);
+  --ob-background-modifier-hover: rgba(255, 255, 255, 0.055);
+  --ob-background-modifier-active: rgba(255, 255, 255, 0.1);
+  --ob-text-normal: var(--ob-color-base-100);
+  --ob-text-muted: var(--ob-color-base-70);
+  --ob-text-faint: var(--ob-color-base-50);
+  --ob-text-on-accent: #ffffff;
+  --ob-interactive-accent: hsl(254, 80%, 68%);
+  --ob-interactive-accent-hover: hsl(254, 80%, 73%);
+  --ob-text-selection: hsla(254, 80%, 68%, 0.25);
+  --ob-link-color: hsl(254, 80%, 68%);
+  --ob-link-unresolved: hsla(254, 80%, 68%, 0.55);
+  --ob-tag-background: hsla(254, 80%, 68%, 0.12);
+
+  --font-interface: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  /* shadcn tokens mapped onto the Obsidian palette */
+  --radius: 8px;
+  --background: var(--ob-background-primary);
+  --foreground: var(--ob-text-normal);
+  --card: var(--ob-background-secondary);
+  --card-foreground: var(--ob-text-normal);
+  --popover: var(--ob-color-base-25);
+  --popover-foreground: var(--ob-text-normal);
+  --primary: var(--ob-interactive-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--ob-color-base-25);
+  --secondary-foreground: var(--ob-text-normal);
+  --muted: var(--ob-color-base-25);
+  --muted-foreground: var(--ob-text-muted);
+  --accent: var(--ob-color-base-25);
+  --accent-foreground: var(--ob-text-normal);
+  --destructive: #e93147;
+  --border: var(--ob-background-modifier-border);
+  --input: var(--ob-color-base-35);
+  --ring: var(--ob-interactive-accent);
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--ob-background-primary);
+  color: var(--ob-text-normal);
+  font-family: var(--font-interface);
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: var(--ob-text-selection);
+}
+
+/* Obsidian-style thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ob-color-base-35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ob-color-base-35);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus visibility (accessibility) without disturbing the chrome look */
+:focus-visible {
+  outline: 2px solid var(--ob-interactive-accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   Reading view — rendered markdown matching Obsidian
+   ============================================================ */
+.nodum-reading {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ob-text-normal);
+}
+.nodum-reading h1 { font-size: 1.802em; font-weight: 700; margin: 1em 0 0.4em; line-height: 1.3; }
+.nodum-reading h2 { font-size: 1.602em; font-weight: 700; margin: 1em 0 0.4em; line-height: 1.3; }
+.nodum-reading h3 { font-size: 1.424em; font-weight: 700; margin: 1em 0 0.4em; }
+.nodum-reading h4 { font-size: 1.266em; font-weight: 700; margin: 1em 0 0.4em; }
+.nodum-reading h5 { font-size: 1.125em; font-weight: 700; margin: 1em 0 0.4em; }
+.nodum-reading h6 { font-size: 1em; font-weight: 700; color: var(--ob-text-muted); margin: 1em 0 0.4em; }
+.nodum-reading p { margin: 0.6em 0; }
+.nodum-reading a { color: var(--ob-link-color); text-decoration: none; }
+.nodum-reading a:hover { text-decoration: underline; }
+.nodum-reading strong { font-weight: 700; }
+.nodum-reading em { font-style: italic; }
+.nodum-reading del { color: var(--ob-text-muted); }
+.nodum-reading mark { background: hsla(254, 80%, 68%, 0.25); color: inherit; border-radius: 2px; }
+.nodum-reading code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--ob-color-base-25);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.nodum-reading pre {
+  background: var(--ob-color-base-25);
+  border-radius: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+.nodum-reading pre code { background: transparent; padding: 0; }
+.nodum-reading blockquote {
+  border-left: 2px solid var(--ob-interactive-accent);
+  margin: 0.8em 0;
+  padding: 0 0 0 16px;
+  color: var(--ob-text-muted);
+}
+.nodum-reading ul, .nodum-reading ol { padding-left: 1.6em; margin: 0.4em 0; }
+.nodum-reading li { margin: 0.15em 0; }
+.nodum-reading li::marker { color: var(--ob-interactive-accent); }
+.nodum-reading input[type="checkbox"] {
+  accent-color: var(--ob-interactive-accent);
+  width: 14px; height: 14px; margin-right: 4px; vertical-align: middle;
+}
+.nodum-reading table { border-collapse: collapse; margin: 0.8em 0; }
+.nodum-reading th, .nodum-reading td {
+  border: 1px solid var(--ob-background-modifier-border);
+  padding: 4px 10px; font-size: 0.95em;
+}
+.nodum-reading th { background: var(--ob-color-base-25); }
+.nodum-reading hr { border: none; border-top: 1px solid var(--ob-background-modifier-border); margin: 1.5em 0; }
+.nodum-reading .nodum-embed-placeholder {
+  display: inline-block; color: var(--ob-text-faint);
+  border: 1px dashed var(--ob-background-modifier-border);
+  border-radius: 6px; padding: 2px 8px;
+}
+
+/* Graph view labels */
+.nodum-graph-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 11px;
+  color: var(--ob-text-muted);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+
+/* ============================================================
+   Callouts (Obsidian's 13 types — color via --callout-color r,g,b)
+   ============================================================ */
+.nodum-callout {
+  margin: 0.8em 0;
+  border-radius: 8px;
+  background: rgba(var(--callout-color), 0.1);
+  overflow: hidden;
+}
+.nodum-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 0.95em;
+  color: rgb(var(--callout-color));
+  background: transparent;
+  text-align: left;
+}
+.nodum-callout-title:disabled {
+  cursor: default;
+}
+.nodum-callout-content {
+  padding: 0 12px 8px 36px;
+}
+.nodum-callout-content > *:first-child { margin-top: 0; }
+.nodum-callout-content > *:last-child { margin-bottom: 0; }
+.nodum-callout blockquote {
+  border-left-color: rgb(var(--callout-color));
+}
+
+/* Live preview callout lines */
+.cm-callout-line {
+  background: rgba(var(--callout-color), 0.08);
+  border-left: 3px solid rgb(var(--callout-color)) !important;
+  padding-left: 12px !important;
+}
+.cm-callout-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+.cm-callout-header svg { flex-shrink: 0; }

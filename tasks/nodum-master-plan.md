@@ -190,28 +190,29 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 
 | # | Branch | Scope | Status |
 |---|--------|-------|--------|
-| 0 | (main) | repo init, README, LICENSE, .gitignore, this plan | 🔨 |
-| 1 | feature/scaffold | back/ + web/ + deploy/ skeletons, Dockerfiles, compose files, compose.sh, Makefile, .env.example, CI stubs | ⬜ |
-| 2 | feature/backend-foundation | settings, db, redis, logging, middlewares (cors, security-headers, request-id, rate-limit), exceptions, health, alembic 0001 | ⬜ |
-| 3 | feature/auth | users+sessions models, signup/login/refresh/logout/me, JWT rotation, tests | ⬜ |
-| 4 | feature/vaults-notes | vaults/folders/notes CRUD, tree endpoint, default-vault onboarding seed, tests | ⬜ |
-| 5 | feature/links-graph | link parser, links table sync on save, backlinks/outgoing endpoints, graph endpoint + Redis cache, tests | ⬜ |
-| 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ⬜ |
-| 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ⬜ |
-| 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ⬜ |
-| 9 | feature/web-vault-ui | file explorer tree, tabs, workspace layout, panels, settings modal, themes | ⬜ |
-| 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ⬜ |
-| 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ⬜ |
-| 12 | feature/web-search-palette | search UI, quick switcher, command palette, backlinks/outline/tags panes | ⬜ |
-| 13 | feature/daily-templates | daily notes, templates, bookmarks, version history UI | ⬜ |
-| 14 | feature/import-export | vault zip import (Obsidian-compatible), export, Celery jobs | ⬜ |
-| 15 | feature/e2e | Playwright suite covering the golden path, compose test env | ⬜ |
-| 16 | feature/polish | onboarding vault content, perf pass (EXPLAIN, cache hits), docs, skills | ⬜ |
+| 0 | (main) | repo init, README, LICENSE, .gitignore, this plan | ✅ |
+| 1 | feature/scaffold | back/ + web/ + deploy/ skeletons, Dockerfiles, compose files, compose.sh, Makefile, .env.example, CI stubs | ✅ |
+| 2 | feature/backend-foundation | (folded into scaffold) settings, db, redis, logging, middlewares, exceptions, health | ✅ |
+| 3 | feature/auth | users+sessions models, signup/login/refresh/logout/me, JWT rotation, tests | ✅ |
+| 4 | feature/vaults-notes | vaults/folders/notes CRUD, tree endpoint, default-vault onboarding seed, tests | ✅ |
+| 5 | feature/links-graph | link parser, links table sync on save, backlinks/outgoing endpoints, graph endpoint + Redis cache, tests | ✅ |
+| 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ✅ |
+| 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ✅ |
+| 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ✅ |
+| 9 | feature/web-obsidian-ui | REWRITE (user feedback): pixel-faithful Obsidian workspace — ribbon, explorer, tabs, panels, switcher, status bar | ✅ |
+| 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ✅ |
+| 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ✅ |
+| 12 | feature/web-search-palette | (folded into web-obsidian-ui + command-palette) | ✅ |
+| 13 | feature/daily-templates | daily notes, templates (bookmarks/version-history → Phase B) | ✅ |
+| 14 | feature/import-export | vault zip import (Obsidian-compatible), export | ✅ |
+| 15 | feature/e2e | Playwright suite (18 tests) + ci-e2e workflow | ✅ |
+| 16 | feature/docs-skills + prod-readiness | audit fixes, prod verification, docs, project skills | ✅ |
 
-**Definition of done (v1):** `./deploy/compose.sh dev up -d` boots postgres+redis+minio+api+web;
-signup → default vault → create linked notes → backlinks show → graph renders and
-navigates → search + quick switcher work → import Obsidian zip works → Playwright
-suite green → no secrets in git history → pushed to github.com/vorreix/nodum.
+**Definition of done (v1): ✅ MET 2026-08-12.** Dev stack boots; signup → default
+vault → linked notes → backlinks → GPU graph → search + switcher + palette →
+Obsidian zip import/export → 42 backend + 18 Playwright tests green → prod
+compose verified end-to-end (signup→graph→export through the prod proxy) →
+gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 5. Conventions (from hourly — follow strictly)
 - Conventional commits (`feat:`, `fix:`, `chore:`…) + `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
@@ -224,6 +225,86 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
 - **2026-08-12**: Project started. Analyzed hourly reference (backend layering,
   compose patterns, Dockerfile.api). Wrote this plan. Next: git init + push,
   research workflow (Obsidian deep-dive + library validation), then feature/scaffold.
+- **2026-08-12 (b)**: Scaffold + auth + vaults/notes shipped to dev. Research
+  workflow finished → `docs/research/` (6 specs + DECISIONS.md). Key library
+  decisions: CM6 with in-repo live-preview decorations (SilverBullet patterns);
+  reading view react-markdown + @portaljs/remark-wiki-link + rehype-callouts +
+  katex + client-side mermaid + shiki; graph = @cosmos.gl/graph 3.4.0 (NEVER
+  @cosmograph/* — CC-BY-NC license); Next 16.3 already generated (read
+  node_modules/next/dist/docs before frontend work); auth pattern = Next
+  rewrites /api/* → FastAPI so refresh cookie is first-party.
+  Infra note: nodum dev ports remapped (pg 15432, redis 16379, minio 19000/1)
+  to coexist with the hourly stack. Tests: 13 passing (auth 8, vaults 5).
+  Next: feature/links-graph (link extraction, backlinks, graph endpoint).
+- **2026-08-12 (c)**: BACKEND v1 API COMPLETE — links/graph (wikilink parser,
+  backlinks+snippets, unlinked mentions, cached whole-vault graph, local BFS
+  graph), search (weighted tsvector + GIN, operators path:/file:/tag:,
+  ts_headline marks, pg_trgm quick switcher), tags (synced tables, nested
+  matching, tag pane counts), attachments (MinIO, ![[embed]] resolution).
+  35 tests green · migrations 0001-0005 · all merged to dev & pushed.
+  NEXT: frontend phase — feature/web-foundation (api client + auth + shell,
+  Next 16: READ web/AGENTS.md + node_modules/next/dist/docs first, add
+  /api/* rewrite → localhost:8000 so refresh cookie is first-party), then
+  web-vault-ui → web-editor → web-graph → web-search-palette. Use
+  docs/research/DECISIONS.md package versions. Consider parallel subagents
+  for independent component groups after the foundation lands.
+- **2026-08-12 (d)**: feature/web-foundation SHIPPED & BROWSER-VERIFIED —
+  /api/* rewrite proxy (first-party cookie auth), api client (in-memory token,
+  single-flight refresh), typed endpoints for all resources, zustand stores
+  (auth bootstrap + persisted workspace), shadcn radix-nova, landing/login/
+  signup/vault pages. Live test: signup → welcome vault tree renders; session
+  survives reload. Dev servers: API uvicorn :8000, web dev :3100 (3000 taken
+  by unrelated process). NEXT: feature/web-vault-ui (Obsidian layout: file
+  explorer + tabs + panels + settings + themes) then feature/web-editor
+  (CM6 live preview per docs/research/editor-stack.md), then graph.
+- **2026-08-12 (e)**: USER FEEDBACK: disliked first UI. Installed design
+  skills (.claude/skills/: frontend-design, web-design-guidelines,
+  composition-patterns, react-best-practices, ui-ux-pro-max, ui-styling —
+  gitignored as vendored). COMPLETE UI REWRITE → feature/web-obsidian-ui:
+  exact Obsidian dark palette (base-scale vars, purple accent), ribbon,
+  explorer w/ context menus, tabs, editor pane w/ autosave, right panels
+  (backlinks/outgoing/tags/outline), search pane, ⌘O switcher (async-safe
+  cmdk highlight — NOTE: cmdk Enter needed manual onKeyDown handler),
+  status bar. Browser-verified end to end. Dev rate limiting disabled
+  (dev/test envs) after 429s from per-keystroke queries.
+  KNOWN ISSUE (P2): rapid concurrent refreshes can trip the token-reuse
+  defense and kill sessions — add ~30s grace for the previous refresh JTI.
+  UI RULE GOING FORWARD: match Obsidian exactly; Lucide icons only (no
+  emoji); tokens from globals.css only (no raw hex in components).
+  NEXT: feature/web-editor — CM6 live preview (this makes note content
+  render like Obsidian: hidden syntax, wikilink pills, checkboxes, callouts);
+  then feature/web-graph (@cosmos.gl/graph).
+- **2026-08-12 (f)**: feature/web-editor SHIPPED & BROWSER-VERIFIED. CM6
+  live preview (custom Lezer nodes for wikilinks/embeds/tags/highlights,
+  reveal-on-cursor, checkbox widgets, click-to-follow + create-on-ghost-click
+  with instant backlink resolution, [[..]] and # autocomplete), source mode,
+  reading view (KaTeX math renders, frontmatter stripped, wikilink nav).
+  All 35 backend tests green; web lint+build clean.
+  Live-preview gaps deferred (acceptable): math/mermaid widgets in live
+  mode, table widget, properties UI, callout icon/color variants.
+  NEXT: feature/web-graph — @cosmos.gl/graph GPU graph view (global + local,
+  filters/forces per docs/research/obsidian-graph-spec.md), then Playwright
+  e2e + daily notes/templates + import/export + prod compose verification.
+- **2026-08-12 (g)**: feature/web-graph SHIPPED & BROWSER-VERIFIED. cosmos.gl
+  GPU graph: nodes sized by degree, ghost nodes, click-to-open + ghost-click
+  creates note, hover tooltip+ring, HTML label overlay (tracked positions,
+  zoom fade), filters + force sliders, CSS-variable colors, fitView framing
+  (points must seed around space center 2048 — camera gotcha). Graph tab via
+  ⌘G. MINOR BUGS NOTED: (1) reading-view wikilink preprocessor converts
+  [[..]] inside inline code (regex runs pre-parse); (2) local graph not yet
+  surfaced in right panel (props ready).
+  REMAINING FOR v1 DoD: Playwright e2e suite · daily notes + templates ·
+  bookmarks · vault import/export (Obsidian zip) · command palette content
+  (⌘P currently opens empty switcher state) · prod compose full-stack boot
+  check · README/docs polish · project skills (.claude/skills/nodum-*).
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
+
+- **2026-08-12 (h): v1.0.0 RELEASED.** Phase A complete: audit fixes (23
+  confirmed findings), command palette, callouts, daily notes + templates,
+  Obsidian import/export, prod compose verified end-to-end, CI e2e, session
+  pruning, README + 4 project skills (.claude/skills/nodum-*). dev merged to
+  main and tagged v1.0.0. Next: Phase B (embeds, properties UI, live-preview
+  math/tables, virtualization) and Phase C differentiators — see
+  tasks/nodum-audit-and-roadmap.md §6.

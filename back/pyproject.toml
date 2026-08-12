@@ -1,0 +1,100 @@
+[project]
+name = "nodum"
+version = "0.1.0"
+description = "Nodum — open-source web knowledge base with linked notes and a knowledge graph"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # Web framework
+    "fastapi>=0.135.1",
+    "uvicorn[standard]>=0.41.0",
+    "python-multipart>=0.0.22",
+    # Database
+    "sqlalchemy[asyncio]>=2.0.47",
+    "asyncpg>=0.31.0",
+    "alembic>=1.18.4",
+    # Validation & settings
+    "pydantic[email]>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    # Auth
+    "python-jose[cryptography]>=3.5.0",
+    "argon2-cffi>=25.1.0",
+    # Redis
+    # Capped at <6.5: kombu (celery's transport layer) hard-limits redis to <6.5.
+    # Upgrade to >=7 once kombu 5.7.0 ships to PyPI.
+    "redis[hiredis]>=6.0.0,<6.5",
+    # HTTP client
+    "httpx>=0.28.1",
+    # Background jobs (vault import/export, unlinked-mention scans)
+    "celery[redis]>=5.6.2",
+    # Object storage (attachments)
+    "boto3>=1.42.59",
+    # Markdown / frontmatter parsing
+    "python-frontmatter>=1.1.0",
+    "pyyaml>=6.0.2",
+    # Logging & monitoring
+    "structlog>=25.5.0",
+    "sentry-sdk[fastapi]>=2.53.0",
+    # Utilities
+    "python-slugify>=8.0.4",
+    "uuid7>=0.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.1.0",
+    "pytest-cov>=7.0.0",
+    "httpx>=0.28.1",
+    "ruff>=0.15.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+src = ["app"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# One event loop for the whole run — the app's global async engine pools
+# connections that must not cross loops.
+asyncio_default_test_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "session"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

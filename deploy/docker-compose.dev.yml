@@ -1,0 +1,110 @@
+# ============================================================
+# Development Overrides
+# ============================================================
+# Hot reload, volume mounts for live code changes.
+# Usage: ./compose.sh dev up -d
+# ============================================================
+
+services:
+  # ── Backend API (dev) ───────────────────────────────────
+  api:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: development
+    container_name: nodum-api-dev
+    environment:
+      - ENVIRONMENT=dev
+      - DEBUG_MODE=true
+      - LOG_LEVEL=DEBUG
+      - UNDER_DEVELOPMENT=true
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-nodum}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nodum}
+      - POSTGRES_DB=${POSTGRES_DB:-nodum}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_PUBLIC_URL=http://localhost:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - BACKEND_BASE_URL=http://localhost:8000
+      - FRONTEND_BASE_URL=http://localhost:3000
+      - BACKEND_CORS_ORIGINS=http://localhost:3000
+      - SECRET_KEY=${SECRET_KEY:-dev-only-secret}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-only-jwt-secret}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../back:/app
+      - api_venv:/app/.venv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  # ── Celery Worker (dev) ─────────────────────────────────
+  celery-worker:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: development
+    container_name: nodum-celery-dev
+    environment:
+      - ENVIRONMENT=dev
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-nodum}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nodum}
+      - POSTGRES_DB=${POSTGRES_DB:-nodum}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - ../back:/app
+      - celery_venv:/app/.venv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+    entrypoint: []
+    command: uv run celery -A app.core.celery:celery_app worker -B --loglevel=DEBUG --concurrency=2
+
+  # ── Web (Next.js dev server) ────────────────────────────
+  web:
+    build:
+      context: ../web
+      dockerfile: docker/Dockerfile
+      target: development
+    container_name: nodum-web-dev
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NODE_ENV=development
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ../web:/app
+      - web_node_modules:/app/node_modules
+      - web_next:/app/.next
+    depends_on:
+      - api
+    networks:
+      - app_network
+
+volumes:
+  api_venv:
+  celery_venv:
+  web_node_modules:
+  web_next:
