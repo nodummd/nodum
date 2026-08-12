@@ -4,9 +4,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { SlidersHorizontal, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { searchApi } from "@/lib/api/endpoints";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function SearchPane({
   vaultId,
@@ -15,8 +16,18 @@ export function SearchPane({
   vaultId: string;
   onOpenNote: (noteId: string, title: string) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [debounced, setDebounced] = useState("");
+  const searchSeed = useWorkspaceStore((s) => s.searchSeed);
+  const [query, setQuery] = useState(searchSeed ?? "");
+  const [debounced, setDebounced] = useState(searchSeed ?? "");
+  // Render-time adjustment when another panel seeds a query (tag click)
+  const lastSeed = useRef(searchSeed);
+  if (searchSeed !== lastSeed.current) {
+    lastSeed.current = searchSeed;
+    if (searchSeed !== null) {
+      setQuery(searchSeed);
+      setDebounced(searchSeed);
+    }
+  }
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<"relevance" | "updated" | "created" | "title">("relevance");
   const [dateField, setDateField] = useState<"updated" | "created">("updated");
