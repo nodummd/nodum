@@ -123,9 +123,13 @@ Full detail: workflow `wf_cfded3bb-7d0` output (session artifacts).
 ## 6. Proposed plan (my recommendation)
 
 **Phase A — "finish v1.0"** (ship-ready open-source release)
-1. Fix remaining audit defects (graph-cache invalidation, save-flush, stale tabs)
-2. Command palette with real commands (parity #1)
-3. Callouts full rendering (parity #2)
+1. ~~Fix remaining audit defects~~ ✅ (all queued P2s fixed: path-link
+   re-resolution + test, toasts on every explorer mutation, session-expiry
+   transition, wikilink left-button guard, graph slider debounce + stable
+   callbacks, search window-count total)
+2. ~~Command palette with real commands~~ ✅ (13 commands, ⌘P/⌘W/⌘E hotkeys,
+   2 e2e tests — suite now 36 backend + 15 e2e)
+3. Callouts full rendering (parity #2) ← NEXT
 4. Daily notes + templates (parity #3+#7)
 5. Obsidian vault import/export (parity #15)
 6. Prod compose verification + CI e2e + session pruning
