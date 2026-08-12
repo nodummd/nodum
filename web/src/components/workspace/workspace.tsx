@@ -39,13 +39,15 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
   const queryClient = useQueryClient();
-  const tabs = useWorkspaceStore((s) => s.tabs);
-  const activeTabId = useWorkspaceStore((s) => s.activeTabId);
+  const panes = useWorkspaceStore((s) => s.panes);
+  const activePane = useWorkspaceStore((s) => s.activePane);
   const openTab = useWorkspaceStore((s) => s.openTab);
+  const setActivePane = useWorkspaceStore((s) => s.setActivePane);
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
 
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+  const currentPane = panes[activePane] ?? panes[0];
+  const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
 
   const openNote = useCallback(
@@ -136,13 +138,15 @@ export function Workspace({ vault }: { vault: Vault }) {
   }, [vault.id, queryClient, openNote]);
 
   const closeActiveTab = useCallback(() => {
-    const { activeTabId: current } = useWorkspaceStore.getState();
-    if (current) closeTab(current);
+    const { panes: all, activePane: idx } = useWorkspaceStore.getState();
+    const current = all[idx]?.activeTabId;
+    if (current) closeTab(current, idx);
   }, [closeTab]);
 
   const deleteActiveNote = useCallback(() => {
-    const { activeTabId: current, tabs: allTabs } = useWorkspaceStore.getState();
-    const tab = allTabs.find((t) => t.id === current && t.kind === "note");
+    const { panes: all, activePane: idx } = useWorkspaceStore.getState();
+    const current = all[idx]?.activeTabId;
+    const tab = all[idx]?.tabs.find((t) => t.id === current && t.kind === "note");
     if (!tab) return;
     void (async () => {
       try {
@@ -183,6 +187,9 @@ export function Workspace({ vault }: { vault: Vault }) {
         e.preventDefault();
         const { editorMode, setEditorMode } = useWorkspaceStore.getState();
         setEditorMode(editorMode === "reading" ? "live" : "reading");
+      } else if (e.key === "\\") {
+        e.preventDefault();
+        useWorkspaceStore.getState().splitRight();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -199,16 +206,41 @@ export function Workspace({ vault }: { vault: Vault }) {
         onOpenNote={openNote}
       />
 
-      <main className="relative flex min-w-0 flex-1 flex-col border-l border-ob-border">
-        <TabBar onNewNote={() => newNote.mutate()} />
-        <div className="relative min-h-0 flex-1 bg-ob-bg">
-          {activeTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
-          {activeTab?.kind === "note" && <EditorPane vaultId={vault.id} noteId={activeTab.id} />}
-          {activeTab?.kind === "graph" && (
-            <GraphView vaultId={vault.id} onOpenNote={openNote} onCreateNote={createFromGraph} />
-          )}
-          <StatusBar vaultId={vault.id} noteId={activeNoteId} />
-        </div>
+      <main className="relative flex min-w-0 flex-1 border-l border-ob-border">
+        {panes.map((pane, paneIndex) => {
+          const paneTab = pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
+          return (
+            <section
+              key={paneIndex}
+              aria-label={`Editor pane ${String(paneIndex + 1)}`}
+              onFocusCapture={() => setActivePane(paneIndex)}
+              onClickCapture={() => setActivePane(paneIndex)}
+              className={
+                paneIndex > 0
+                  ? "flex min-w-0 flex-1 flex-col border-l border-ob-border"
+                  : "flex min-w-0 flex-1 flex-col"
+              }
+            >
+              <TabBar paneIndex={paneIndex} onNewNote={() => newNote.mutate()} />
+              <div className="relative min-h-0 flex-1 bg-ob-bg">
+                {paneTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
+                {paneTab?.kind === "note" && (
+                  <EditorPane vaultId={vault.id} noteId={paneTab.id} />
+                )}
+                {paneTab?.kind === "graph" && (
+                  <GraphView
+                    vaultId={vault.id}
+                    onOpenNote={openNote}
+                    onCreateNote={createFromGraph}
+                  />
+                )}
+                {paneIndex === panes.length - 1 && (
+                  <StatusBar vaultId={vault.id} noteId={activeNoteId} />
+                )}
+              </div>
+            </section>
+          );
+        })}
       </main>
 
       <SidebarRight vaultId={vault.id} noteId={activeNoteId} onOpenNote={openNote} />

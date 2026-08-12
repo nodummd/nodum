@@ -30,10 +30,16 @@ export interface Tab {
   title: string;
 }
 
-interface WorkspaceState {
-  activeVaultId: string | null;
+export interface PaneState {
   tabs: Tab[];
   activeTabId: string | null;
+}
+
+interface WorkspaceState {
+  activeVaultId: string | null;
+  /** 1 or 2 editor panes (split view). */
+  panes: PaneState[];
+  activePane: number;
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
   leftWidth: number;
@@ -50,9 +56,13 @@ interface WorkspaceState {
   setActiveVault: (vaultId: string | null) => void;
   openTab: (tab: Tab) => void;
   openTabBackground: (tab: Tab) => void;
-  closeTab: (tabId: string) => void;
-  setActiveTab: (tabId: string) => void;
+  /** paneIndex omitted → close in every pane (e.g. the note was deleted). */
+  closeTab: (tabId: string, paneIndex?: number) => void;
+  setActiveTab: (tabId: string, paneIndex?: number) => void;
   renameTab: (tabId: string, title: string) => void;
+  setActivePane: (index: number) => void;
+  splitRight: () => void;
+  closePane: (index: number) => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   setLeftWidth: (w: number) => void;
@@ -70,8 +80,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
       activeVaultId: null,
-      tabs: [],
-      activeTabId: null,
+      panes: [{ tabs: [], activeTabId: null }],
+      activePane: 0,
       leftSidebarOpen: true,
       rightSidebarOpen: true,
       leftWidth: 280,
@@ -86,38 +96,94 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setActiveVault: (vaultId) => {
         if (get().activeVaultId !== vaultId) {
-          set({ activeVaultId: vaultId, tabs: [], activeTabId: null });
+          set({ activeVaultId: vaultId, panes: [{ tabs: [], activeTabId: null }], activePane: 0 });
         }
       },
 
       openTab: (tab) => {
-        const { tabs } = get();
-        if (!tabs.some((t) => t.id === tab.id)) {
-          set({ tabs: [...tabs, tab] });
-        }
-        set({ activeTabId: tab.id });
+        const { panes, activePane } = get();
+        set({
+          panes: panes.map((p, i) =>
+            i === activePane
+              ? {
+                  tabs: p.tabs.some((t) => t.id === tab.id) ? p.tabs : [...p.tabs, tab],
+                  activeTabId: tab.id,
+                }
+              : p,
+          ),
+        });
       },
 
       // ⌘Enter in the switcher — the tab appears but focus stays put
       openTabBackground: (tab) => {
-        const { tabs, activeTabId } = get();
-        if (!tabs.some((t) => t.id === tab.id)) {
-          set({ tabs: [...tabs, tab] });
-        }
-        if (activeTabId === null) set({ activeTabId: tab.id });
+        const { panes, activePane } = get();
+        set({
+          panes: panes.map((p, i) =>
+            i === activePane
+              ? {
+                  tabs: p.tabs.some((t) => t.id === tab.id) ? p.tabs : [...p.tabs, tab],
+                  activeTabId: p.activeTabId ?? tab.id,
+                }
+              : p,
+          ),
+        });
       },
 
-      closeTab: (tabId) => {
-        const { tabs, activeTabId } = get();
-        const remaining = tabs.filter((t) => t.id !== tabId);
-        const nextActive =
-          activeTabId === tabId ? (remaining.at(-1)?.id ?? null) : activeTabId;
-        set({ tabs: remaining, activeTabId: nextActive });
+      closeTab: (tabId, paneIndex) => {
+        const panes = get().panes.map((p, i) => {
+          if (paneIndex !== undefined && i !== paneIndex) return p;
+          if (!p.tabs.some((t) => t.id === tabId)) return p;
+          const remaining = p.tabs.filter((t) => t.id !== tabId);
+          return {
+            tabs: remaining,
+            activeTabId:
+              p.activeTabId === tabId ? (remaining.at(-1)?.id ?? null) : p.activeTabId,
+          };
+        });
+        // a second pane that runs out of tabs disappears
+        const kept = panes.filter((p, i) => i === 0 || p.tabs.length > 0);
+        set({ panes: kept, activePane: Math.min(get().activePane, kept.length - 1) });
       },
 
-      setActiveTab: (tabId) => set({ activeTabId: tabId }),
+      setActiveTab: (tabId, paneIndex) => {
+        const { panes, activePane } = get();
+        const target =
+          paneIndex ?? panes.findIndex((p) => p.tabs.some((t) => t.id === tabId));
+        const index = target === -1 ? activePane : target;
+        set({
+          panes: panes.map((p, i) => (i === index ? { ...p, activeTabId: tabId } : p)),
+          activePane: index,
+        });
+      },
+
       renameTab: (tabId, title) =>
-        set({ tabs: get().tabs.map((t) => (t.id === tabId ? { ...t, title } : t)) }),
+        set({
+          panes: get().panes.map((p) => ({
+            ...p,
+            tabs: p.tabs.map((t) => (t.id === tabId ? { ...t, title } : t)),
+          })),
+        }),
+
+      setActivePane: (index) =>
+        set({ activePane: Math.min(index, get().panes.length - 1) }),
+
+      splitRight: () => {
+        const { panes, activePane } = get();
+        if (panes.length >= 2) return;
+        const current = panes[activePane];
+        const active = current.tabs.find((t) => t.id === current.activeTabId);
+        if (!active) return;
+        set({
+          panes: [...panes, { tabs: [active], activeTabId: active.id }],
+          activePane: panes.length,
+        });
+      },
+
+      closePane: (index) => {
+        const { panes } = get();
+        if (panes.length < 2 || index === 0) return;
+        set({ panes: panes.slice(0, 1), activePane: 0 });
+      },
       toggleLeftSidebar: () => set({ leftSidebarOpen: !get().leftSidebarOpen }),
       toggleRightSidebar: () => set({ rightSidebarOpen: !get().rightSidebarOpen }),
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
@@ -132,10 +198,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: "nodum-workspace",
+      version: 2,
+      migrate: (persisted: unknown) => {
+        const old = persisted as {
+          tabs?: Tab[];
+          activeTabId?: string | null;
+          panes?: PaneState[];
+        } & Record<string, unknown>;
+        if (!old.panes && old.tabs) {
+          old.panes = [{ tabs: old.tabs, activeTabId: old.activeTabId ?? null }];
+          old.activePane = 0;
+        }
+        return old;
+      },
       partialize: (s) => ({
         activeVaultId: s.activeVaultId,
-        tabs: s.tabs,
-        activeTabId: s.activeTabId,
+        panes: s.panes,
+        activePane: s.activePane,
         leftSidebarOpen: s.leftSidebarOpen,
         rightSidebarOpen: s.rightSidebarOpen,
         leftWidth: s.leftWidth,
