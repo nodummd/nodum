@@ -150,3 +150,58 @@ test.describe("local graph panel", () => {
     await expect(page.locator("aside ~ * canvas, div canvas").last()).toBeVisible({ timeout: 15_000 });
   });
 });
+
+test.describe("block widgets (StateField)", () => {
+  test("frontmatter, tables and block math render as widgets when cursor is outside", async ({
+    page,
+  }) => {
+    await signupFreshUser(page, "blockwidgets");
+
+    // Create the note via the API (typing raw markdown fights CM's list
+    // continuation — the feature under test is rendering, not input)
+    const content = [
+      "---",
+      "status: active",
+      "tags:",
+      "  - demo",
+      "---",
+      "",
+      "| Col A | Col B |",
+      "| --- | --- |",
+      "| one | **two** |",
+      "",
+      "$$x^2 + y^2 = z^2$$",
+      "",
+      "End marker.",
+    ].join("\n");
+    await page.evaluate(async (noteContent) => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const vaults = await (
+        await fetch("/api/v1/vaults", { headers: { Authorization: `Bearer ${token}` } })
+      ).json();
+      await fetch(`/api/v1/vaults/${vaults.data[0].id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: "Block zoo", content: noteContent }),
+      });
+    }, content);
+    await page.reload();
+    await openNoteFromExplorer(page, "Block zoo");
+
+    // Move the cursor to the end so no region is touched
+    await editorSurface(page).click();
+    await page.keyboard.press("ControlOrMeta+ArrowDown");
+
+    await expect(page.locator(".cm-properties-widget")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".cm-properties-pill", { hasText: "demo" })).toBeVisible();
+    await expect(page.locator(".cm-table-widget table")).toBeVisible();
+    await expect(page.locator(".cm-table-widget td strong", { hasText: "two" })).toBeVisible();
+    await expect(page.locator(".cm-math-block .katex")).toBeVisible();
+
+    // Clicking the properties card reveals raw YAML (reveal-on-cursor)
+    await page.locator(".cm-properties-widget").click();
+    await expect(page.locator(".cm-properties-widget")).not.toBeVisible({ timeout: 5_000 });
+    await expect(editorSurface(page)).toContainText("status: active");
+  });
+});

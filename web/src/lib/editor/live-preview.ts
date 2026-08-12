@@ -389,27 +389,6 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
     });
   }
 
-  // ── Block math: $$…$$ regions (may span lines) ────────────────────
-  for (const { from, to } of view.visibleRanges) {
-    const text = state.doc.sliceString(from, to);
-    const re = /\$\$([\s\S]+?)\$\$/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-      const start = from + m.index;
-      const end = start + m[0].length;
-      if (selectionTouches(state, start, end)) {
-        decorations.push(Decoration.mark({ class: "cm-math-source" }).range(start, end));
-      } else {
-        // NOTE: ViewPlugins may not emit block decorations — the widget is
-        // inline but styled full-width (StateField migration tracked in the
-        // roadmap alongside the properties UI).
-        decorations.push(
-          Decoration.replace({ widget: new MathWidget(m[1].trim(), true) }).range(start, end),
-        );
-      }
-    }
-  }
-
   return Decoration.set(decorations, true);
 }
 
