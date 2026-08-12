@@ -7,6 +7,7 @@ import { useCallback, useRef } from "react";
 
 import { BookmarksPane } from "./bookmarks-pane";
 import { FileExplorer } from "./file-explorer";
+import { CanvasesSection } from "./canvases-section";
 import { SearchPane } from "./search-pane";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -84,9 +85,14 @@ export function SidebarLeft({
         </span>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         {pane === "files" && (
-          <FileExplorer vaultId={vaultId} activeNoteId={activeNoteId} onOpenNote={onOpenNote} />
+          <>
+            <div className="min-h-0 flex-1">
+              <FileExplorer vaultId={vaultId} activeNoteId={activeNoteId} onOpenNote={onOpenNote} />
+            </div>
+            <CanvasesSection vaultId={vaultId} />
+          </>
         )}
         {pane === "search" && <SearchPane vaultId={vaultId} onOpenNote={onOpenNote} />}
         {pane === "bookmarks" && <BookmarksPane vaultId={vaultId} onOpenNote={onOpenNote} />}
