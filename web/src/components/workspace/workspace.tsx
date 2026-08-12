@@ -4,7 +4,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { EditorPane } from "./editor-pane";
 
@@ -28,8 +28,9 @@ import { SidebarLeft } from "./sidebar-left";
 import { SidebarRight } from "./sidebar-right";
 import { StatusBar } from "./status-bar";
 import { TabBar } from "./tab-bar";
+import { TemplatePicker } from "./template-picker";
 import { Toaster } from "./toaster";
-import { noteApi } from "@/lib/api/endpoints";
+import { dailyApi, noteApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
 import { toastError } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -85,6 +86,19 @@ export function Workspace({ vault }: { vault: Vault }) {
   });
 
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+
+  const openDailyNote = useCallback(() => {
+    void (async () => {
+      try {
+        const note = await dailyApi.openDailyNote(vault.id);
+        void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+        openNote(note.id, note.title);
+      } catch (err) {
+        toastError(err, "Could not open today's daily note.");
+      }
+    })();
+  }, [vault.id, queryClient, openNote]);
 
   const closeActiveTab = useCallback(() => {
     const { activeTabId: current } = useWorkspaceStore.getState();
@@ -139,7 +153,7 @@ export function Workspace({ vault }: { vault: Vault }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-ob-sidebar text-ob-text">
-      <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} />
+      <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} onOpenDailyNote={openDailyNote} />
       <SidebarLeft
         vaultId={vault.id}
         vaultName={vault.name}
@@ -166,6 +180,14 @@ export function Workspace({ vault }: { vault: Vault }) {
         onOpenGraph={openGraph}
         onDeleteActiveNote={deleteActiveNote}
         onCloseActiveTab={closeActiveTab}
+        onOpenDailyNote={openDailyNote}
+        onInsertTemplate={() => setTemplatePickerOpen(true)}
+      />
+      <TemplatePicker
+        vaultId={vault.id}
+        noteId={activeNoteId}
+        open={templatePickerOpen}
+        onOpenChange={setTemplatePickerOpen}
       />
       <Toaster />
     </div>

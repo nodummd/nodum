@@ -5,6 +5,8 @@
 import { useRouter } from "next/navigation";
 import {
   ArrowLeftRight,
+  CalendarDays,
+  FileStack,
   BookOpen,
   Code2,
   FilePlus2,
@@ -47,6 +49,8 @@ interface CommandPaletteProps {
   onOpenGraph: () => void;
   onDeleteActiveNote: () => void;
   onCloseActiveTab: () => void;
+  onOpenDailyNote: () => void;
+  onInsertTemplate: () => void;
 }
 
 export function CommandPalette({
@@ -54,6 +58,8 @@ export function CommandPalette({
   onOpenGraph,
   onDeleteActiveNote,
   onCloseActiveTab,
+  onOpenDailyNote,
+  onInsertTemplate,
 }: CommandPaletteProps) {
   const router = useRouter();
   const open = useWorkspaceStore((s) => s.paletteOpen);
@@ -72,6 +78,8 @@ export function CommandPalette({
     { id: "new-note", label: "Create new note", hotkey: "⌘N", icon: <SquarePen className="size-4" />, run: onNewNote },
     { id: "quick-switcher", label: "Open quick switcher", hotkey: "⌘O", icon: <Search className="size-4" />, run: () => setSwitcherOpen(true) },
     { id: "graph", label: "Open graph view", hotkey: "⌘G", icon: <GitFork className="size-4 rotate-90" />, run: onOpenGraph },
+    { id: "daily-note", label: "Open today's daily note", icon: <CalendarDays className="size-4" />, run: onOpenDailyNote },
+    { id: "insert-template", label: "Insert template…", icon: <FileStack className="size-4" />, run: onInsertTemplate, needsNote: true },
     { id: "mode-live", label: "Editor: Live Preview", icon: <Pencil className="size-4" />, run: () => setMode("live"), needsNote: true },
     { id: "mode-source", label: "Editor: Source mode", icon: <Code2 className="size-4" />, run: () => setMode("source"), needsNote: true },
     { id: "mode-reading", label: "Editor: Reading view", icon: <BookOpen className="size-4" />, run: () => setMode("reading"), needsNote: true },
