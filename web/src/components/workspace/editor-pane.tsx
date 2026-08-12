@@ -24,6 +24,7 @@ export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: strin
     queryKey: ["note", vaultId, noteId],
     queryFn: () => noteApi.get(vaultId, noteId),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+    gcTime: 60_000, // full note bodies are heavy — drop quickly once unused
   });
 
   // Persisted workspace tabs can outlive their notes — prune on 404.

@@ -3,7 +3,7 @@
 /** Quick switcher (⌘O) — fuzzy note jump; Enter on no match creates the note. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Command,
@@ -27,15 +27,23 @@ export function QuickSwitcher({
   const open = useWorkspaceStore((s) => s.switcherOpen);
   const setOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const [query, setQuery] = useState("");
+  // Server queries fire on the debounced copy — not per keystroke
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 150);
+    return () => clearTimeout(timer);
+  }, [query]);
   // User's manual arrow-key choice; effective highlight is derived below so
   // async result arrival never needs an effect.
   const [chosen, setChosen] = useState("");
   const queryClient = useQueryClient();
 
   const { data: results } = useQuery({
-    queryKey: ["quick-switch", vaultId, query],
-    queryFn: () => searchApi.quickSwitch(vaultId, query),
+    queryKey: ["quick-switch", vaultId, debouncedQuery],
+    queryFn: () => searchApi.quickSwitch(vaultId, debouncedQuery),
     enabled: open,
+    gcTime: 10_000, // per-keystroke entries must not pile up for 5 minutes
   });
 
   const trimmed = query.trim();
