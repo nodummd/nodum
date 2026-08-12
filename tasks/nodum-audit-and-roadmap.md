@@ -143,9 +143,11 @@ Full detail: workflow `wf_cfded3bb-7d0` output (session artifacts).
 **Phase B — "v1.1 polish"**: ~~embeds inline~~ ✅ (images in both surfaces,
 note transclusion in reading view) · ~~live-preview math~~ ✅ (KaTeX inline +
 block, memo-cached) · also fixed: graced-refresh convergence (session-nuke
-race found live). REMAINING: properties UI (+ StateField migration for block
-widgets), local graph panel, tables in live preview, settings modal, hotkeys
-(⌘B/I/K), bookmarks, explorer virtualization + scale fixes.
+race found live) · ~~local graph panel~~ ✅ · ~~hotkeys ⌘B/I/K/⇧H~~ ✅ ·
+~~settings modal (⌘,)~~ ✅ · ~~bookmarks~~ ✅ · ~~scale fixes~~ ✅ (functional
+lower() indexes 0007, switcher/search debounce + gcTime caps, virtualized
+explorer). REMAINING: properties UI (+ StateField migration), tables in
+live preview.
 
 **Phase C — "v2.0 differentiators"**: publish → semantic search → collaboration.
 
