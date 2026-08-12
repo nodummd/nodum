@@ -79,8 +79,10 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     (vaults?.find((v) => v.id === vaultId)?.settings as { collabEnabled?: boolean } | undefined)
       ?.collabEnabled,
   );
+  // ref mirror for event callbacks (onChange/unmount flush); render reads
+  // the state below — never the ref
   const collabRef = useRef<CollabSession | null>(null);
-  const [collabReady, setCollabReady] = useState(false);
+  const [syncedSession, setSyncedSession] = useState<CollabSession | null>(null);
   useEffect(() => {
     if (!collabEnabled) return;
     const token = getAccessToken();
@@ -91,7 +93,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     });
     collabRef.current = session;
     const onSync = (synced: boolean) => {
-      if (synced) setCollabReady(true);
+      if (synced) setSyncedSession(session);
     };
     session.provider.on("sync", onSync);
     return () => {
@@ -102,6 +104,8 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     // user identity is stable within a mounted editor session
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collabEnabled, vaultId, note.id]);
+  // gate on the flag so a just-disabled vault never reuses a destroyed session
+  const activeCollab = collabEnabled ? syncedSession : null;
 
   const save = useMutation({
     mutationFn: (content: string) =>
@@ -231,17 +235,17 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           />
           {mode === "reading" ? (
             <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
-          ) : collabEnabled && !collabReady ? (
+          ) : collabEnabled && !activeCollab ? (
             <p className="pt-2 text-[13px] text-ob-faint">Connecting live session…</p>
           ) : (
             <MarkdownEditor
-              key={collabReady ? `collab-${note.id}` : editorEpoch}
+              key={activeCollab ? `collab-${note.id}` : editorEpoch}
               vaultId={vaultId}
               initialContent={draft}
               mode={mode}
               onChange={onChange}
               onNavigate={(t) => void navigate(t)}
-              collab={collabReady ? (collabRef.current ?? undefined) : undefined}
+              collab={activeCollab ?? undefined}
             />
           )}
         </div>

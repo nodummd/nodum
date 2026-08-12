@@ -222,6 +222,14 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 - Never commit `.env` — only `.env.example` with placeholder values + generation commands.
 
 ## 6. Progress Log
+
+- **2026-08-12 (evening)** — Backlog fully executed: Sprint 1 hardening,
+  Sprint 2 parity core → **v1.2.0**, Sprint 3 polish (graph groups, nested
+  tags, page preview, editable properties, hover dim), Sprint 4 scale & ops
+  (payload caps, scan bounds, Redis control-plane split, Sentry, deploy +
+  backup docs), Sprint 5 live collaboration (Yjs + pycrdt, presence,
+  persistence) → **v2.0.0**. Suites: 68 backend + 39 e2e. Working checklist:
+  tasks/nodum-backlog.md.
 - **2026-08-12**: Project started. Analyzed hourly reference (backend layering,
   compose patterns, Dockerfile.api). Wrote this plan. Next: git init + push,
   research workflow (Obsidian deep-dive + library validation), then feature/scaffold.
