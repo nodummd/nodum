@@ -80,7 +80,7 @@ services:
     networks:
       - app_network
     entrypoint: []
-    command: uv run celery -A app.core.celery:celery_app worker --loglevel=DEBUG --concurrency=2
+    command: uv run celery -A app.core.celery:celery_app worker -B --loglevel=DEBUG --concurrency=2
 
   # ── Web (Next.js dev server) ────────────────────────────
   web:
