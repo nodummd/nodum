@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 43 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 45 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -177,7 +177,7 @@
   *Accept:* e2e with mobile viewport: drawers open/close, note editable,
   no horizontal scroll.
 
-- [ ] **S7.2 PWA + share-target web clipper** (M)
+- [x] 2026-08-13 **S7.2 PWA + share-target web clipper** (share_target uses GET per web-share spec; /clip handles params + manual paste) (M)
   *Do:* manifest.json + icons + service worker (app-shell cache only, no
   offline vault promises); share_target POST route `/clip` that creates a
   note from shared title/text/url into a "Clippings" folder; a /clip page
