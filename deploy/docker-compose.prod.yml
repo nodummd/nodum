@@ -23,6 +23,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set in deploy/.env}
       - POSTGRES_DB=${POSTGRES_DB:?set in deploy/.env}
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_CONTROL_URL=redis://redis:6379/3
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - S3_ENDPOINT_URL=http://minio:9000
@@ -61,6 +62,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set in deploy/.env}
       - POSTGRES_DB=${POSTGRES_DB:?set in deploy/.env}
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_CONTROL_URL=redis://redis:6379/3
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - S3_ENDPOINT_URL=http://minio:9000

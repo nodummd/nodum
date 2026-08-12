@@ -37,6 +37,15 @@ services:
       - app_network
 
   # ── Redis ───────────────────────────────────────────────
+  # Logical DB layout: 0 = API cache (evictable), 1 = celery broker,
+  # 2 = celery results, 3 = control plane (rate limits, token revocation,
+  # refresh grace — must NOT be evicted).
+  #
+  # maxmemory guidance: allkeys-lru is fine for a dev box. In production,
+  # raise maxmemory (1gb+ for busy vault caches) and prefer EITHER
+  # maxmemory-policy=volatile-lru on a shared instance OR — better — run a
+  # second Redis with maxmemory-policy=noeviction and point
+  # REDIS_CONTROL_URL at it so auth/ratelimit state can never be evicted.
   redis:
     image: redis:7.4.2-alpine
     container_name: nodum-redis

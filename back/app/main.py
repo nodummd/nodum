@@ -78,7 +78,7 @@ def create_app() -> FastAPI:
         from sqlalchemy import text
 
         from app.core.db import async_session_factory
-        from app.core.redis import redis_client
+        from app.core.redis import redis_client, redis_control
 
         checks: dict[str, str] = {}
         overall = "healthy"
@@ -93,6 +93,7 @@ def create_app() -> FastAPI:
 
         try:
             await redis_client.ping()
+            await redis_control.ping()
             checks["redis"] = "healthy"
         except Exception:
             checks["redis"] = "degraded"
