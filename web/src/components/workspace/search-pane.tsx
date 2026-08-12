@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { SlidersHorizontal, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { searchApi } from "@/lib/api/endpoints";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -19,10 +19,10 @@ export function SearchPane({
   const searchSeed = useWorkspaceStore((s) => s.searchSeed);
   const [query, setQuery] = useState(searchSeed ?? "");
   const [debounced, setDebounced] = useState(searchSeed ?? "");
-  // Render-time adjustment when another panel seeds a query (tag click)
-  const lastSeed = useRef(searchSeed);
-  if (searchSeed !== lastSeed.current) {
-    lastSeed.current = searchSeed;
+  // Render-time state adjustment when another panel seeds a query (tag click)
+  const [lastSeed, setLastSeed] = useState(searchSeed);
+  if (searchSeed !== lastSeed) {
+    setLastSeed(searchSeed);
     if (searchSeed !== null) {
       setQuery(searchSeed);
       setDebounced(searchSeed);
