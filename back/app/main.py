@@ -38,8 +38,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except Exception as e:
         logger.warning("s3_bucket_init_failed", error=str(e))
 
+    from app.core.collab import collab_server
+
+    if settings.COLLAB_ENABLED:
+        await collab_server.startup()
+
     logger.info("app_started")
     yield
+
+    if settings.COLLAB_ENABLED:
+        await collab_server.shutdown()
 
     logger.info("app_shutting_down")
     from app.core.redis import close_redis
@@ -78,7 +86,7 @@ def create_app() -> FastAPI:
         from sqlalchemy import text
 
         from app.core.db import async_session_factory
-        from app.core.redis import redis_client
+        from app.core.redis import redis_client, redis_control
 
         checks: dict[str, str] = {}
         overall = "healthy"
@@ -93,6 +101,7 @@ def create_app() -> FastAPI:
 
         try:
             await redis_client.ping()
+            await redis_control.ping()
             checks["redis"] = "healthy"
         except Exception:
             checks["redis"] = "degraded"

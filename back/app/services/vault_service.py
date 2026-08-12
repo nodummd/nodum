@@ -116,13 +116,19 @@ async def get_tree(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceRe
             .order_by(Folder.path)
         )
     ).all()
+    from app.constants import limits
+
     notes = (
         await db.execute(
             select(Note.id, Note.folder_id, Note.title, Note.path, Note.created_at, Note.updated_at)
             .where(Note.vault_id == vault_id)
             .order_by(Note.title)
+            .limit(limits.MAX_TREE_ITEMS + 1)
         )
     ).all()
+    truncated = len(notes) > limits.MAX_TREE_ITEMS
+    if truncated:
+        notes = notes[: limits.MAX_TREE_ITEMS]
 
     children: dict[str | None, list[dict[str, Any]]] = {}
     for f in folders:
@@ -158,7 +164,9 @@ async def get_tree(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceRe
         else:
             roots.append(leaf)
 
-    tree = {"vault_id": str(vault_id), "items": roots}
+    tree: dict[str, Any] = {"vault_id": str(vault_id), "items": roots}
+    if truncated:
+        tree["truncated"] = True
     await cache_set_json(vault_tree_key(vault_id), tree, get_settings().CACHE_TREE_TTL)
     return ServiceResponse.ok(tree)
 

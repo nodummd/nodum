@@ -425,3 +425,87 @@ body {
 
 /* %%comments%% — faint while editing, stripped in reading view */
 .cm-comment { color: var(--ob-text-faint); font-style: italic; }
+
+/* Page preview popover (Cmd/Ctrl+hover on wikilinks) */
+.nodum-page-preview .nodum-reading { font-size: 13px; }
+.nodum-page-preview .nodum-reading h1 { font-size: 1.3em; }
+.nodum-page-preview .nodum-reading h2 { font-size: 1.2em; }
+.nodum-page-preview .nodum-reading h3 { font-size: 1.1em; }
+
+/* Editable properties widget controls */
+.cm-properties-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ob-text-normal);
+  font-size: 13px;
+  padding: 1px 2px;
+  border-radius: 3px;
+}
+.cm-properties-input:hover { background: var(--ob-background-modifier-hover, rgba(255,255,255,0.05)); }
+.cm-properties-input:focus { background: var(--ob-color-base-30, #363636); }
+.cm-properties-input[type="date"] { color-scheme: dark; }
+.cm-properties-checkbox { accent-color: var(--ob-interactive-accent); width: 14px; height: 14px; }
+.cm-properties-pill-remove {
+  margin-left: 4px;
+  color: inherit;
+  opacity: 0.5;
+  font-size: 12px;
+  line-height: 1;
+}
+.cm-properties-pill-remove:hover { opacity: 1; }
+.cm-properties-add {
+  width: 34px;
+  background: transparent;
+  border: 1px dashed var(--ob-background-modifier-border);
+  border-radius: 999px;
+  color: var(--ob-text-faint);
+  font-size: 12px;
+  padding: 0 6px;
+  outline: none;
+}
+.cm-properties-add:focus { width: 90px; color: var(--ob-text-normal); }
+
+/* ============================================================
+   Live collaboration — remote cursors & selections (y-codemirror.next)
+   ============================================================ */
+.cm-ySelection { }
+.cm-yLineSelection { margin: 0; }
+.cm-ySelectionCaret {
+  position: relative;
+  border-left: 1px solid;
+  margin-left: -1px;
+  box-sizing: border-box;
+}
+.cm-ySelectionCaretDot {
+  border-radius: 50%;
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  top: -2px;
+  left: -2.5px;
+  transform-origin: bottom center;
+  transition: transform 0.3s ease-in-out;
+}
+.cm-ySelectionCaret:hover > .cm-ySelectionCaretDot { transform: scale(0); }
+.cm-ySelectionInfo {
+  position: absolute;
+  top: -16px;
+  left: -1px;
+  padding: 1px 4px;
+  border-radius: 3px 3px 3px 0;
+  font-size: 10px;
+  line-height: 1.2;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  white-space: nowrap;
+  color: #1e1e1e;
+  opacity: 0;
+  transition: opacity 0.2s;
+  user-select: none;
+  pointer-events: none;
+  z-index: 30;
+}
+.cm-ySelectionCaret:hover > .cm-ySelectionInfo { opacity: 1; }

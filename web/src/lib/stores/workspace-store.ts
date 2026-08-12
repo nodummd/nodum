@@ -43,6 +43,9 @@ interface WorkspaceState {
   paletteOpen: boolean;
   switcherOpen: boolean;
   versionsOpen: boolean;
+  leftPane: "files" | "search" | "bookmarks";
+  /** One-shot query seed for the search pane (tag pane click-to-search). */
+  searchSeed: string | null;
 
   setActiveVault: (vaultId: string | null) => void;
   openTab: (tab: Tab) => void;
@@ -59,6 +62,8 @@ interface WorkspaceState {
   setPaletteOpen: (open: boolean) => void;
   setSwitcherOpen: (open: boolean) => void;
   setVersionsOpen: (open: boolean) => void;
+  setLeftPane: (pane: "files" | "search" | "bookmarks") => void;
+  setSearchSeed: (q: string | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -76,6 +81,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       paletteOpen: false,
       switcherOpen: false,
       versionsOpen: false,
+      leftPane: "files",
+      searchSeed: null,
 
       setActiveVault: (vaultId) => {
         if (get().activeVaultId !== vaultId) {
@@ -120,6 +127,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
       setVersionsOpen: (open) => set({ versionsOpen: open }),
+      setLeftPane: (pane) => set({ leftPane: pane }),
+      setSearchSeed: (q) => set({ searchSeed: q }),
     }),
     {
       name: "nodum-workspace",

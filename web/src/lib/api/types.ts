@@ -60,6 +60,7 @@ export type TreeItem =
     };
 
 export interface VaultTree {
+  truncated?: boolean;
   vault_id: string;
   items: TreeItem[];
 }
@@ -99,6 +100,8 @@ export interface GraphNode {
 }
 
 export interface Graph {
+  /** Set when the server capped the payload (huge vault). */
+  truncated?: boolean;
   vault_id: string;
   nodes: GraphNode[];
   edges: [number, number][];

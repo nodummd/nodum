@@ -220,8 +220,14 @@ async def get_backlinks(
         )
     ).all()
 
+    from app.constants import limits
+
     by_source: dict[UUID, dict[str, Any]] = {}
+    truncated = False
     for count, src_id, title, path, content in rows:
+        if src_id not in by_source and len(by_source) >= limits.MAX_BACKLINK_SOURCES:
+            truncated = True
+            continue
         entry = by_source.setdefault(
             src_id,
             {"note_id": str(src_id), "title": title, "path": path, "count": 0, "snippets": []},
@@ -230,7 +236,10 @@ async def get_backlinks(
         if not entry["snippets"]:
             entry["snippets"] = _snippets_for(content, [f"[[{note.title}", f"[[{note.path}"])
 
-    return ServiceResponse.ok({"note_id": str(note_id), "backlinks": list(by_source.values())})
+    payload: dict[str, Any] = {"note_id": str(note_id), "backlinks": list(by_source.values())}
+    if truncated:
+        payload["truncated"] = True
+    return ServiceResponse.ok(payload)
 
 
 async def get_outgoing_links(
@@ -276,19 +285,35 @@ async def get_unlinked_mentions(
     if note is None:
         return ServiceResponse.fail("not_found", "Note not found.")
 
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.constants import limits
+
     already_linking = select(Link.source_note_id).where(Link.vault_id == vault_id, Link.target_note_id == note_id)
-    rows = (
-        await db.execute(
-            select(Note.id, Note.title, Note.path, Note.content)
-            .where(
-                Note.vault_id == vault_id,
-                Note.id != note_id,
-                Note.id.not_in(already_linking),
-                Note.content.ilike(f"%{note.title}%"),
+    try:
+        # The %title% scan is sequential by design (no trigram index — too
+        # heavy for 2MB contents). LIMIT + a local statement timeout bound it.
+        await db.execute(sql_text(f"SET LOCAL statement_timeout = {int(limits.UNLINKED_MENTIONS_TIMEOUT_MS)}"))
+        rows = (
+            await db.execute(
+                select(Note.id, Note.title, Note.path, Note.content)
+                .where(
+                    Note.vault_id == vault_id,
+                    Note.id != note_id,
+                    Note.id.not_in(already_linking),
+                    Note.content.ilike(f"%{note.title}%"),
+                )
+                .limit(limit)
             )
-            .limit(limit)
-        )
-    ).all()
+        ).all()
+    except DBAPIError as exc:
+        origin = type(getattr(exc, "orig", exc)).__name__
+        if "QueryCanceled" not in origin and "QueryCanceled" not in str(exc):
+            raise
+        await db.rollback()
+        logger.warning("unlinked_mentions_timeout", vault_id=str(vault_id), note_id=str(note_id))
+        return ServiceResponse.ok({"note_id": str(note_id), "unlinked_mentions": [], "timed_out": True})
 
     mentions = []
     link_form = f"[[{note.title.lower()}"
@@ -322,7 +347,19 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
     if cached is not None:
         return ServiceResponse.ok(cached)
 
-    note_rows = (await db.execute(select(Note.id, Note.title, Note.path).where(Note.vault_id == vault_id))).all()
+    from app.constants import limits
+
+    note_rows = (
+        await db.execute(
+            select(Note.id, Note.title, Note.path)
+            .where(Note.vault_id == vault_id)
+            .order_by(Note.updated_at.desc())
+            .limit(limits.MAX_GRAPH_NODES + 1)
+        )
+    ).all()
+    truncated = len(note_rows) > limits.MAX_GRAPH_NODES
+    if truncated:
+        note_rows = note_rows[: limits.MAX_GRAPH_NODES]
     link_rows = (
         await db.execute(
             select(Link.source_note_id, Link.target_note_id, Link.target_title).where(Link.vault_id == vault_id)
@@ -371,6 +408,9 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
         else:
             dst = ghost_index.get(target_title)
             if dst is None:
+                if len(nodes) >= limits.MAX_GRAPH_NODES:
+                    truncated = True
+                    continue
                 dst = len(nodes)
                 ghost_index[target_title] = dst
                 nodes.append(
@@ -388,7 +428,9 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
         nodes[src]["degree"] += 1
         nodes[dst]["degree"] += 1
 
-    graph = {"vault_id": str(vault_id), "nodes": nodes, "edges": edges}
+    graph: dict[str, Any] = {"vault_id": str(vault_id), "nodes": nodes, "edges": edges}
+    if truncated:
+        graph["truncated"] = True
     await cache_set_json(cache_key, graph, get_settings().CACHE_GRAPH_TTL)
     return ServiceResponse.ok(graph)
 

@@ -14,11 +14,11 @@ logger = get_logger("cache")
 
 
 def vault_tree_key(vault_id: Any) -> str:
-    return f"tree:v2:{vault_id}"
+    return f"tree:v3:{vault_id}"
 
 
 def vault_graph_key(vault_id: Any) -> str:
-    return f"graph:{vault_id}"
+    return f"graph:v2:{vault_id}"
 
 
 async def cache_get_json(key: str) -> Any | None:

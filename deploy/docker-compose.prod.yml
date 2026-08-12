@@ -23,6 +23,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set in deploy/.env}
       - POSTGRES_DB=${POSTGRES_DB:?set in deploy/.env}
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_CONTROL_URL=redis://redis:6379/3
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - S3_ENDPOINT_URL=http://minio:9000
@@ -61,6 +62,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set in deploy/.env}
       - POSTGRES_DB=${POSTGRES_DB:?set in deploy/.env}
       - REDIS_URL=redis://redis:6379/0
+      - REDIS_CONTROL_URL=redis://redis:6379/3
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - S3_ENDPOINT_URL=http://minio:9000
@@ -85,15 +87,24 @@ services:
       target: production
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?set in deploy/.env}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         API_PROXY_URL: http://api:8000
     container_name: nodum-web
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - API_PROXY_URL=http://api:8000
+      - SENTRY_DSN=${SENTRY_DSN:-}
     ports:
       - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     networks:
       - app_network

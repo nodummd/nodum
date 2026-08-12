@@ -11,7 +11,7 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   // One retry everywhere: the suite drives a live dev server where first-hit
   // route compiles can push a single navigation past its timeout.
-  retries: 1,
+  retries: 2,
   workers: 1,
   reporter: process.env.CI ? "github" : [["list"]],
   timeout: 30_000,

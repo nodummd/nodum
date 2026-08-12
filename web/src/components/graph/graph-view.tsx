@@ -8,12 +8,24 @@
  */
 
 import { Graph as CosmosGraph } from "@cosmos.gl/graph";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { linkApi } from "@/lib/api/endpoints";
+import { linkApi, vaultApi } from "@/lib/api/endpoints";
+import type { Vault } from "@/lib/api/types";
+import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, type GraphGroup } from "@/lib/graph/groups";
 
 const LABELS_SHOWN = 28;
+
+/** Shape stored under vaults.settings.graph (all keys optional). */
+interface PersistedGraph {
+  groups?: GraphGroup[];
+  showGhosts?: boolean;
+  showOrphans?: boolean;
+  centerForce?: number;
+  repelForce?: number;
+  linkDistance?: number;
+}
 
 interface GraphViewProps {
   vaultId: string;
@@ -49,15 +61,44 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const graphRef = useRef<CosmosGraph | null>(null);
   const rafRef = useRef<number>(0);
   const [hovered, setHovered] = useState<{ title: string; x: number; y: number } | null>(null);
-  const [showGhosts, setShowGhosts] = useState(true);
-  const [showOrphans, setShowOrphans] = useState(true);
-  // Slider values update instantly for the UI; the WebGL graph only rebuilds
-  // against the debounced copies (300ms idle) — dragging a slider would
-  // otherwise tear down and recreate the simulation on every tick.
-  const [centerForce, setCenterForce] = useState(0.55);
-  const [repelForce, setRepelForce] = useState(1.1);
-  const [linkDistance, setLinkDistance] = useState(12);
+  const queryClient = useQueryClient();
+
+  // Settings persist per vault under settings.graph. Local edits are drafts
+  // layered over the persisted value (draft ?? persisted ?? default) so async
+  // load needs no state syncing; the compact side-panel never persists.
+  const { data: vaults } = useQuery({
+    queryKey: ["vaults"],
+    queryFn: vaultApi.list,
+    enabled: !compact,
+  });
+  const persisted = useMemo<PersistedGraph>(() => {
+    const vault = vaults?.find((v) => v.id === vaultId);
+    return (vault?.settings as { graph?: PersistedGraph } | undefined)?.graph ?? {};
+  }, [vaults, vaultId]);
+
+  const [ghostsDraft, setGhostsDraft] = useState<boolean | null>(null);
+  const [orphansDraft, setOrphansDraft] = useState<boolean | null>(null);
+  const [centerDraft, setCenterDraft] = useState<number | null>(null);
+  const [repelDraft, setRepelDraft] = useState<number | null>(null);
+  const [distDraft, setDistDraft] = useState<number | null>(null);
+  const [groupsDraft, setGroupsDraft] = useState<GraphGroup[] | null>(null);
+
+  const showGhosts = ghostsDraft ?? persisted.showGhosts ?? true;
+  const showOrphans = orphansDraft ?? persisted.showOrphans ?? true;
+  const centerForce = centerDraft ?? persisted.centerForce ?? 0.55;
+  const repelForce = repelDraft ?? persisted.repelForce ?? 1.1;
+  const linkDistance = distDraft ?? persisted.linkDistance ?? 12;
+  const groups = useMemo(
+    () => groupsDraft ?? persisted.groups ?? [],
+    [groupsDraft, persisted.groups],
+  );
+
+  // Slider/group values update instantly for the UI; the WebGL graph only
+  // rebuilds against the debounced copies (300ms idle) — dragging a slider or
+  // typing a group query would otherwise tear down the simulation per tick.
   const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12 });
+  const [appliedGroups, setAppliedGroups] = useState<GraphGroup[]>([]);
+  const groupsJson = JSON.stringify(groups);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -65,6 +106,46 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     }, 300);
     return () => clearTimeout(timer);
   }, [centerForce, repelForce, linkDistance]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAppliedGroups(JSON.parse(groupsJson) as GraphGroup[]);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [groupsJson]);
+
+  // Debounced persistence — only after the user actually changed something.
+  const touched =
+    ghostsDraft !== null ||
+    orphansDraft !== null ||
+    centerDraft !== null ||
+    repelDraft !== null ||
+    distDraft !== null ||
+    groupsDraft !== null;
+  const settingsJson = JSON.stringify({
+    groups,
+    showGhosts,
+    showOrphans,
+    centerForce,
+    repelForce,
+    linkDistance,
+  } satisfies PersistedGraph);
+  const persistSettings = useMutation({
+    mutationFn: (graph: PersistedGraph) => vaultApi.update(vaultId, { settings: { graph } }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["vaults"], (old: Vault[] | undefined) =>
+        old?.map((v) => (v.id === updated.id ? updated : v)),
+      );
+    },
+  });
+  const persistMutate = persistSettings.mutate;
+  useEffect(() => {
+    if (compact || !touched) return;
+    const timer = setTimeout(() => {
+      persistMutate(JSON.parse(settingsJson) as PersistedGraph);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [settingsJson, compact, touched, persistMutate]);
 
   const { data } = useQuery({
     queryKey: centerNoteId
@@ -106,6 +187,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     const positions = new Float32Array(n * 2);
     const colors = new Float32Array(n * 4);
     const sizes = new Float32Array(n);
+    // Pre-resolve each group's color once (canvas probe per group, not per node)
+    const groupRgba = appliedGroups.map((g) => toRgba(g.color, 1));
     // cosmos space runs [0, spaceSize]; seed points around its center
     const SPACE = 4096;
     const spread = Math.max(200, Math.sqrt(n) * 60);
@@ -114,7 +197,15 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       positions[i * 2] = SPACE / 2 + (Math.random() - 0.5) * spread;
       positions[i * 2 + 1] = SPACE / 2 + (Math.random() - 0.5) * spread;
       const isCenter = centerNoteId && node.id === centerNoteId;
-      const c = isCenter ? focusColor : node.unresolved ? ghostColor : nodeColor;
+      // Precedence: center focus > ghost > group color (first match) > default
+      const gi = node.unresolved ? -1 : matchGroupIndex(node, appliedGroups);
+      const c = isCenter
+        ? focusColor
+        : node.unresolved
+          ? ghostColor
+          : gi >= 0
+            ? groupRgba[gi]
+            : nodeColor;
       colors.set(c, i * 4);
       // Obsidian-ish radius: grows with sqrt(degree), clamped
       sizes[i] = Math.min(6 + 3 * Math.sqrt(node.degree), 26) * (isCenter ? 1.3 : 1);
@@ -123,6 +214,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     filtered.edges.forEach(([s, t], i) => {
       links[i * 2] = s;
       links[i * 2 + 1] = t;
+    });
+
+    // Hover dim (research spec): fade non-neighbors to ~0.2 alpha, eased
+    const adjacency: Set<number>[] = filtered.nodes.map(() => new Set<number>());
+    filtered.edges.forEach(([s, t]) => {
+      adjacency[s].add(t);
+      adjacency[t].add(s);
     });
 
     const graph = new CosmosGraph(container, {
@@ -155,17 +253,52 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         if (node && event instanceof MouseEvent) {
           setHovered({ title: node.title, x: event.offsetX, y: event.offsetY });
         }
+        const target = colors.slice();
+        for (let i = 0; i < n; i++) {
+          if (i === index || adjacency[index].has(i)) continue;
+          target[i * 4 + 3] = colors[i * 4 + 3] * 0.2;
+        }
+        animateColors(target);
+        const dimmedLinks = baseLinkColors.slice();
+        filtered.edges.forEach(([s, t], i) => {
+          if (s !== index && t !== index) dimmedLinks[i * 4 + 3] *= 0.15;
+        });
+        graphRef.current?.setLinkColors(dimmedLinks);
       },
-      onPointMouseOut: () => setHovered(null),
+      onPointMouseOut: () => {
+        setHovered(null);
+        animateColors(colors.slice());
+        graphRef.current?.setLinkColors(baseLinkColors.slice());
+      },
     });
+
+    // Eased color transition (easeOutQuad over ~160ms) toward a target array
+    let dimRaf = 0;
+    let currentColors = colors.slice();
+    function animateColors(target: Float32Array): void {
+      cancelAnimationFrame(dimRaf);
+      const start = currentColors.slice();
+      const t0 = performance.now();
+      const DURATION = 160;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / DURATION);
+        const eased = t * (2 - t);
+        const mixed = new Float32Array(start.length);
+        for (let i = 0; i < mixed.length; i++) mixed[i] = start[i] + (target[i] - start[i]) * eased;
+        graphRef.current?.setPointColors(mixed);
+        currentColors = mixed;
+        if (t < 1) dimRaf = requestAnimationFrame(step);
+      };
+      dimRaf = requestAnimationFrame(step);
+    }
 
     graph.setPointPositions(positions);
     graph.setPointColors(colors);
     graph.setPointSizes(sizes);
     graph.setLinks(links);
-    const linkColors = new Float32Array(filtered.edges.length * 4);
-    for (let i = 0; i < filtered.edges.length; i++) linkColors.set(linkColor, i * 4);
-    graph.setLinkColors(linkColors);
+    const baseLinkColors = new Float32Array(filtered.edges.length * 4);
+    for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
+    graph.setLinkColors(baseLinkColors);
     graph.render(0.9);
     graph.fitView(300);
     graphRef.current = graph;
@@ -189,6 +322,11 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       const el = document.createElement("div");
       el.textContent = filtered.nodes[i].title;
       el.className = "nodum-graph-label";
+      // Grouped nodes carry their group color into the label too
+      if (!filtered.nodes[i].unresolved) {
+        const hex = matchGroupHex(filtered.nodes[i], appliedGroups);
+        if (hex) el.style.color = hex;
+      }
       overlay.appendChild(el);
       labelEls.set(i, el);
     }
@@ -211,12 +349,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     return () => {
       clearTimeout(fitTimer);
       cancelAnimationFrame(rafRef.current);
+      cancelAnimationFrame(dimRaf);
       overlay.remove();
       graph.destroy();
       graphRef.current = null;
     };
-    // Re-create when data or physics sliders change (cosmos re-init is cheap)
-  }, [filtered, centerNoteId, applied, onOpenNote, onCreateNote]);
+    // Re-create when data, physics sliders, or groups change (re-init is cheap)
+  }, [filtered, centerNoteId, applied, appliedGroups, onOpenNote, onCreateNote]);
 
   return (
     <div className="relative h-full w-full bg-ob-bg">
@@ -240,7 +379,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
           <input
             type="checkbox"
             checked={!showGhosts}
-            onChange={(e) => setShowGhosts(!e.target.checked)}
+            onChange={(e) => setGhostsDraft(!e.target.checked)}
             className="accent-[var(--ob-interactive-accent)]"
           />
         </label>
@@ -249,19 +388,64 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
           <input
             type="checkbox"
             checked={showOrphans}
-            onChange={(e) => setShowOrphans(e.target.checked)}
+            onChange={(e) => setOrphansDraft(e.target.checked)}
             className="accent-[var(--ob-interactive-accent)]"
           />
         </label>
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Forces</p>
-        <ForceSlider label="Center force" min={0} max={1} step={0.05} value={centerForce} onChange={setCenterForce} />
-        <ForceSlider label="Repel force" min={0.1} max={3} step={0.1} value={repelForce} onChange={setRepelForce} />
-        <ForceSlider label="Link distance" min={4} max={40} step={1} value={linkDistance} onChange={setLinkDistance} />
+        <ForceSlider label="Center force" min={0} max={1} step={0.05} value={centerForce} onChange={setCenterDraft} />
+        <ForceSlider label="Repel force" min={0.1} max={3} step={0.1} value={repelForce} onChange={setRepelDraft} />
+        <ForceSlider label="Link distance" min={4} max={40} step={1} value={linkDistance} onChange={setDistDraft} />
+
+        <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Groups</p>
+        {groups.map((g, i) => (
+          <div key={i} className="flex items-center gap-1.5 py-0.5">
+            <input
+              type="color"
+              value={g.color}
+              aria-label={`Group ${i + 1} color`}
+              onChange={(e) =>
+                setGroupsDraft(groups.map((x, j) => (j === i ? { ...x, color: e.target.value } : x)))
+              }
+              className="h-5 w-6 shrink-0 cursor-pointer rounded border border-ob-border bg-transparent p-0"
+            />
+            <input
+              value={g.query}
+              aria-label={`Group ${i + 1} query`}
+              placeholder="path: tag:# file: text"
+              onChange={(e) =>
+                setGroupsDraft(groups.map((x, j) => (j === i ? { ...x, query: e.target.value } : x)))
+              }
+              className="h-6 min-w-0 flex-1 rounded border border-ob-border bg-ob-bg px-1.5 text-[12px] text-ob-text outline-none placeholder:text-ob-faint"
+            />
+            <button
+              type="button"
+              aria-label={`Remove group ${i + 1}`}
+              onClick={() => setGroupsDraft(groups.filter((_, j) => j !== i))}
+              className="shrink-0 text-ob-faint hover:text-ob-text"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            setGroupsDraft([
+              ...groups,
+              { query: "", color: GROUP_PALETTE[groups.length % GROUP_PALETTE.length] },
+            ])
+          }
+          className="mt-1 w-full rounded border border-dashed border-ob-border py-0.5 text-[11px] text-ob-faint hover:text-ob-text"
+        >
+          + Add group
+        </button>
 
         {data && (
           <p className="pt-2 text-[11px] text-ob-faint">
             {filtered?.nodes.length ?? 0} nodes · {filtered?.edges.length ?? 0} links
+            {data.truncated ? " · capped" : ""}
           </p>
         )}
       </div>
