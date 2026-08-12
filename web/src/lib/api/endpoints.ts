@@ -9,6 +9,8 @@ import type {
   Note,
   NoteMeta,
   OutgoingLink,
+  NoteVersionDetail,
+  NoteVersionMeta,
   QuickSwitchResult,
   SearchResult,
   TagCount,
@@ -80,6 +82,15 @@ export const noteApi = {
   ) => apiJson<NoteMeta>(`/vaults/${vaultId}/notes/${noteId}/rename`, "PATCH", body),
   remove: (vaultId: string, noteId: string) =>
     apiJson<{ message: string }>(`/vaults/${vaultId}/notes/${noteId}`, "DELETE"),
+};
+
+export const versionApi = {
+  list: (vaultId: string, noteId: string) =>
+    api<NoteVersionMeta[]>(`/vaults/${vaultId}/notes/${noteId}/versions`),
+  get: (vaultId: string, noteId: string, versionId: string) =>
+    api<NoteVersionDetail>(`/vaults/${vaultId}/notes/${noteId}/versions/${versionId}`),
+  restore: (vaultId: string, noteId: string, versionId: string) =>
+    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/versions/${versionId}/restore`, "POST"),
 };
 
 // ── Links & graph ────────────────────────────────────────────────────────────

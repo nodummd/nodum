@@ -42,6 +42,7 @@ interface WorkspaceState {
   explorerSort: ExplorerSort;
   paletteOpen: boolean;
   switcherOpen: boolean;
+  versionsOpen: boolean;
 
   setActiveVault: (vaultId: string | null) => void;
   openTab: (tab: Tab) => void;
@@ -56,6 +57,7 @@ interface WorkspaceState {
   setExplorerSort: (sort: ExplorerSort) => void;
   setPaletteOpen: (open: boolean) => void;
   setSwitcherOpen: (open: boolean) => void;
+  setVersionsOpen: (open: boolean) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>()(
@@ -72,6 +74,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       explorerSort: "title-asc",
       paletteOpen: false,
       switcherOpen: false,
+      versionsOpen: false,
 
       setActiveVault: (vaultId) => {
         if (get().activeVaultId !== vaultId) {
@@ -106,6 +109,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setExplorerSort: (sort) => set({ explorerSort: sort }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
+      setVersionsOpen: (open) => set({ versionsOpen: open }),
     }),
     {
       name: "nodum-workspace",

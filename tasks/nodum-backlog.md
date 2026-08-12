@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **55 backend + 30 e2e**. Feature branches
+> Suites must stay green: currently **58 backend + 31 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -66,10 +66,10 @@
   *Accept:* backend tests: [[Alias]] resolves to the note; switcher finds by
   alias; e2e switcher shows alias row.
 
-- [ ] **S2.3 Note version history** (M) — server-side snapshots.
+- [x] 2026-08-12 **S2.3 Note version history** (M) — server-side snapshots.
   *Do:* `note_versions(note_id, content, created_at)` (migration with S2.2);
-  snapshot on save when content changed AND last snapshot >5min old (or on
-  title change); prune to `NOTE_VERSIONS_KEPT=50` (celery nightly); endpoints
+  snapshot on save when content changed AND last snapshot >5min old; prune
+  to `NOTE_VERSIONS_KEPT=50` inline on snapshot (stronger than celery); endpoints
   list/get/restore; UI: "Version history" palette command → dialog listing
   versions with restore button.
   *Accept:* backend: edit → versions listed → restore returns old content;
