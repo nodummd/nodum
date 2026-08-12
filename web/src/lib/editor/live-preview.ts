@@ -387,6 +387,26 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
         }
       },
     });
+
+    // ── %%comments%% — visible but faint while editing (Obsidian behavior;
+    // the reading view strips them). Markers inside code spans don't count.
+    const chunk = state.doc.sliceString(from, to);
+    const markers: number[] = [];
+    for (let i = chunk.indexOf("%%"); i !== -1; i = chunk.indexOf("%%", i + 2)) {
+      const pos = from + i;
+      if (!/Code/.test(tree.resolveInner(pos, 1).name)) markers.push(pos);
+    }
+    for (let i = 0; i + 1 < markers.length; i += 2) {
+      decorations.push(
+        Decoration.mark({ class: "cm-comment" }).range(markers[i], markers[i + 1] + 2),
+      );
+    }
+    if (markers.length % 2 === 1) {
+      const last = markers[markers.length - 1];
+      if (last < to) {
+        decorations.push(Decoration.mark({ class: "cm-comment" }).range(last, to));
+      }
+    }
   }
 
   return Decoration.set(decorations, true);

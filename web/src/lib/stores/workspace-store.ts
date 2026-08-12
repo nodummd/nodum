@@ -46,6 +46,7 @@ interface WorkspaceState {
 
   setActiveVault: (vaultId: string | null) => void;
   openTab: (tab: Tab) => void;
+  openTabBackground: (tab: Tab) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   renameTab: (tabId: string, title: string) => void;
@@ -88,6 +89,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           set({ tabs: [...tabs, tab] });
         }
         set({ activeTabId: tab.id });
+      },
+
+      // ⌘Enter in the switcher — the tab appears but focus stays put
+      openTabBackground: (tab) => {
+        const { tabs, activeTabId } = get();
+        if (!tabs.some((t) => t.id === tab.id)) {
+          set({ tabs: [...tabs, tab] });
+        }
+        if (activeTabId === null) set({ activeTabId: tab.id });
       },
 
       closeTab: (tabId) => {
