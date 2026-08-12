@@ -103,3 +103,25 @@ def frontmatter_tags(properties: dict) -> set[str]:
     else:
         return set()
     return {t.strip().lstrip("#").strip("/").lower() for t in items if t and str(t).strip()}
+
+
+def frontmatter_aliases(properties: dict) -> list[str]:
+    """Aliases from the parsed frontmatter ``aliases`` (or ``alias``) property.
+
+    Accepts a YAML list or a comma-separated string. Deduped case-insensitively
+    (original casing kept for display), capped at 20 entries of <=255 chars.
+    """
+    raw = properties.get("aliases", properties.get("alias"))
+    if isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",")]
+    elif isinstance(raw, list):
+        items = [str(a).strip() for a in raw]
+    else:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for alias in items:
+        if alias and len(alias) <= 255 and alias.lower() not in seen:
+            seen.add(alias.lower())
+            out.append(alias)
+    return out[:20]

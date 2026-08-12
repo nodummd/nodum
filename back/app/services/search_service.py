@@ -22,7 +22,7 @@ from sqlalchemy import Select, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tags import NoteTag, Tag
-from app.models.vaults import Note
+from app.models.vaults import Note, NoteAlias
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault
 
@@ -194,4 +194,26 @@ async def quick_switch(
             .limit(limit)
         )
     ).all()
-    return ServiceResponse.ok([{"id": str(i), "title": t, "path": p, "score": float(s or 0)} for i, t, p, s in rows])
+    results = [{"id": str(i), "title": t, "path": p, "score": float(s or 0)} for i, t, p, s in rows]
+
+    # Frontmatter aliases match too — labeled so the UI can show "alias of X".
+    # Title matches win when the same note appears through both routes.
+    alias_similarity = func.similarity(NoteAlias.alias, q)
+    alias_rows = (
+        await db.execute(
+            select(Note.id, Note.title, Note.path, NoteAlias.alias, alias_similarity.label("score"))
+            .join(Note, Note.id == NoteAlias.note_id)
+            .where(
+                NoteAlias.vault_id == vault_id,
+                or_(NoteAlias.alias.ilike(f"%{q}%"), alias_similarity > 0.15),
+            )
+            .order_by(NoteAlias.alias.ilike(f"{q}%").desc(), alias_similarity.desc())
+            .limit(limit)
+        )
+    ).all()
+    seen_ids = {r["id"] for r in results}
+    for i, t, p, alias, s in alias_rows:
+        if str(i) not in seen_ids:
+            seen_ids.add(str(i))
+            results.append({"id": str(i), "title": t, "path": p, "score": float(s or 0), "alias": alias})
+    return ServiceResponse.ok(results[:limit])

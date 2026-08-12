@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **51 backend + 29 e2e**. Feature branches
+> Suites must stay green: currently **55 backend + 30 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -58,7 +58,7 @@
   *Accept:* e2e: code fence shows colored tokens in both views; mermaid fence
   renders an SVG diagram.
 
-- [ ] **S2.2 Aliases** (M) — frontmatter `aliases:` must resolve.
+- [x] 2026-08-12 **S2.2 Aliases** (M) — frontmatter `aliases:` must resolve.
   *Do:* extract aliases on save into `note_aliases(note_id, alias)` w/
   uq(vault, lower(alias)) + index (migration 0010); wikilink resolution
   (`_resolve_targets`, `resolve_links_for_new_note`) matches aliases; quick

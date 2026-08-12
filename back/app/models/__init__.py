@@ -11,7 +11,7 @@ from app.models.bookmarks import Bookmark
 from app.models.links import Link
 from app.models.publications import Publication
 from app.models.tags import NoteTag, Tag
-from app.models.vaults import Folder, Note, Vault
+from app.models.vaults import Folder, Note, NoteAlias, NoteVersion, Vault
 
 __all__ = [
     "Attachment",
@@ -20,7 +20,9 @@ __all__ = [
     "Folder",
     "Link",
     "Note",
+    "NoteAlias",
     "NoteTag",
+    "NoteVersion",
     "Publication",
     "Session",
     "Tag",
