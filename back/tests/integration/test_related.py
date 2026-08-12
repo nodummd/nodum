@@ -38,7 +38,7 @@ async def test_related_ranks_by_content_similarity(client: AsyncClient, workspac
         "Espresso extraction depends on grind size, water temperature and pressure. "
         "Dial in the grinder until the espresso shot runs 25 seconds.",
     )
-    coffee_b = await create(
+    await create(
         "Grinder maintenance",
         "Clean the espresso grinder burrs weekly. Grind size drifts as burrs wear, changing extraction and shot time.",
     )
