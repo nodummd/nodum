@@ -1,0 +1,62 @@
+# ============================================================
+# Nodum API — Multi-stage Dockerfile
+# ============================================================
+
+# ── Base stage ────────────────────────────────────────────
+FROM python:3.13-slim-bookworm AS base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (pinned version for reproducible builds)
+COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+
+# Copy dependency files first (cache layer)
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies (locked, no project package)
+RUN uv sync --no-dev --no-install-project --frozen
+
+# ── Development stage ─────────────────────────────────────
+FROM base AS development
+
+RUN uv sync --no-install-project --frozen
+
+# Copy application code (overridden by volume mount in dev)
+COPY . .
+
+RUN chmod +x ./scripts/pre-start.sh
+
+EXPOSE 8000
+
+ENTRYPOINT ["./scripts/pre-start.sh"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# ── Production stage ──────────────────────────────────────
+FROM base AS production
+
+COPY . .
+
+# Non-root user
+RUN groupadd -r nodum && useradd -r -g nodum nodum \
+    && chown -R nodum:nodum /app \
+    && chmod +x ./scripts/pre-start.sh
+
+USER nodum
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["./scripts/pre-start.sh"]
+
+CMD ["uv", "run", "uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "4"]
