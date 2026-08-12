@@ -79,11 +79,21 @@ async def login(
     )
 
 
+# Rotated JTIs stay valid for this window so parallel tabs / racing page
+# loads that present the just-spent token are treated as benign duplicates
+# instead of tripping the stolen-token defense.
+REFRESH_GRACE_SECONDS = 30
+_GRACE_KEY = "refresh_grace:{jti}"
+
+
 async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[TokenBundle]:
     """Rotate the refresh token: old JTI is spent, a new pair is issued.
 
-    Reuse of a spent JTI invalidates the whole session (stolen-token defense).
+    Reuse of a spent JTI outside the grace window invalidates the whole
+    session family (stolen-token defense).
     """
+    from app.core.redis import redis_client
+
     payload = decode_token(refresh_token, expected_type="refresh")
     if payload is None:
         return ServiceResponse.fail("unauthorized", "Invalid or expired refresh token.")
@@ -93,7 +103,17 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
 
     session = await db.scalar(select(Session).where(Session.refresh_token_jti == jti))
     if session is None:
-        # JTI not found: either forged, or already rotated (token reuse).
+        # Recently-rotated JTI? Benign duplicate (second tab, racing reload).
+        graced_session_id: str | None = None
+        try:
+            graced_session_id = await redis_client.get(_GRACE_KEY.format(jti=jti))
+        except Exception:
+            logger.warning("refresh_grace_redis_unavailable")
+        if graced_session_id:
+            session = await db.get(Session, UUID(graced_session_id))
+
+    if session is None:
+        # JTI unknown and not in grace: forged or genuinely stolen-and-reused.
         # Invalidate every active session for this user as a precaution.
         result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))
         for s in result.scalars():
@@ -110,10 +130,16 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
         return ServiceResponse.fail("unauthorized", "Account is not available.")
 
     settings = get_settings()
+    old_jti = session.refresh_token_jti
     new_refresh_jti = new_jti()
     session.refresh_token_jti = new_refresh_jti
     session.expires_at = datetime.now(UTC) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     await db.commit()
+
+    try:
+        await redis_client.set(_GRACE_KEY.format(jti=old_jti), str(session.id), ex=REFRESH_GRACE_SECONDS)
+    except Exception:
+        logger.warning("refresh_grace_redis_unavailable")
 
     return ServiceResponse.ok(
         TokenBundle(

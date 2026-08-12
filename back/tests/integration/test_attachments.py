@@ -64,9 +64,7 @@ async def test_upload_list_resolve_download_delete(client: AsyncClient, workspac
         assert blob.status_code == 200
         assert blob.content == PNG_BYTES
 
-    deleted = await client.delete(
-        f"{workspace['base']}/attachments/{att['id']}", headers=workspace["headers"]
-    )
+    deleted = await client.delete(f"{workspace['base']}/attachments/{att['id']}", headers=workspace["headers"])
     assert deleted.status_code == 200
 
     resolved2 = await client.get(
