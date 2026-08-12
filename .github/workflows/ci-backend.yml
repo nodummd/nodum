@@ -1,0 +1,34 @@
+name: CI Backend
+
+on:
+  push:
+    branches: [main, dev]
+    paths: ["back/**", ".github/workflows/ci-backend.yml"]
+  pull_request:
+    paths: ["back/**", ".github/workflows/ci-backend.yml"]
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: back
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Unit tests
+        run: uv run pytest tests/unit -q

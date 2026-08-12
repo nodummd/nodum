@@ -1,0 +1,56 @@
+# ============================================================
+# Test Overrides — isolated ports, ephemeral data
+# Usage: ./compose.sh test up -d
+# ============================================================
+
+services:
+  postgres:
+    container_name: nodum-postgres-test
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data    # ephemeral — fast, wiped on down
+
+  redis:
+    container_name: nodum-redis-test
+    ports:
+      - "127.0.0.1:56379:6379"
+
+  minio:
+    container_name: nodum-minio-test
+    ports:
+      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:59001:9001"
+
+  api:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: development
+    container_name: nodum-api-test
+    environment:
+      - ENVIRONMENT=test
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-nodum}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nodum}
+      - POSTGRES_DB=${POSTGRES_DB:-nodum}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - SECRET_KEY=test-secret
+      - JWT_SECRET_KEY=test-jwt-secret
+      - BACKEND_CORS_ORIGINS=http://localhost:53000
+    ports:
+      - "127.0.0.1:58000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app_network
