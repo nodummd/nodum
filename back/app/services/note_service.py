@@ -100,6 +100,12 @@ async def create_note(
         return ServiceResponse.fail("validation_failed", err)
 
     db.add(note)
+    await db.flush()
+
+    from app.services.link_service import resolve_links_for_new_note, sync_note_links
+
+    await sync_note_links(db, note)
+    await resolve_links_for_new_note(db, note)
     await db.commit()
     await db.refresh(note)
     await invalidate_tree_cache(vault_id)
@@ -156,6 +162,9 @@ async def update_content(
     if err := await _apply_content(note, content):
         return ServiceResponse.fail("validation_failed", err)
 
+    from app.services.link_service import sync_note_links
+
+    await sync_note_links(db, note)
     await db.commit()
     await db.refresh(note)
     await cache_delete(vault_graph_key(vault_id))
@@ -205,9 +214,15 @@ async def rename_note(
     if new_path != note.path and await _note_path_taken(db, vault_id, new_path, exclude_id=note_id):
         return ServiceResponse.fail("already_exists", "A note with this path already exists.")
 
+    old_title, old_path = note.title, note.path
     note.title = new_title
     note.folder_id = new_folder_id
     note.path = new_path
+
+    from app.services.link_service import resolve_links_for_new_note, unresolve_links_for_renamed_note
+
+    await unresolve_links_for_renamed_note(db, note, old_title, old_path)
+    await resolve_links_for_new_note(db, note)
     await db.commit()
     await db.refresh(note)
     await invalidate_tree_cache(vault_id)
