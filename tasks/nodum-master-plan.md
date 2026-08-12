@@ -200,7 +200,7 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 | 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ✅ |
 | 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ✅ |
 | 9 | feature/web-obsidian-ui | REWRITE (user feedback): pixel-faithful Obsidian workspace — ribbon, explorer, tabs, panels, switcher, status bar | ✅ |
-| 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ⬜ |
+| 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ✅ |
 | 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ⬜ |
 | 12 | feature/web-search-palette | search UI, quick switcher, command palette, backlinks/outline/tags panes | ⬜ |
 | 13 | feature/daily-templates | daily notes, templates, bookmarks, version history UI | ⬜ |
@@ -273,6 +273,17 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
   NEXT: feature/web-editor — CM6 live preview (this makes note content
   render like Obsidian: hidden syntax, wikilink pills, checkboxes, callouts);
   then feature/web-graph (@cosmos.gl/graph).
+- **2026-08-12 (f)**: feature/web-editor SHIPPED & BROWSER-VERIFIED. CM6
+  live preview (custom Lezer nodes for wikilinks/embeds/tags/highlights,
+  reveal-on-cursor, checkbox widgets, click-to-follow + create-on-ghost-click
+  with instant backlink resolution, [[..]] and # autocomplete), source mode,
+  reading view (KaTeX math renders, frontmatter stripped, wikilink nav).
+  All 35 backend tests green; web lint+build clean.
+  Live-preview gaps deferred (acceptable): math/mermaid widgets in live
+  mode, table widget, properties UI, callout icon/color variants.
+  NEXT: feature/web-graph — @cosmos.gl/graph GPU graph view (global + local,
+  filters/forces per docs/research/obsidian-graph-spec.md), then Playwright
+  e2e + daily notes/templates + import/export + prod compose verification.
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
