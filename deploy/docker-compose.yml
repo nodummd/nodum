@@ -1,0 +1,91 @@
+# ============================================================
+# Nodum — Core Services Definition
+# ============================================================
+# Usage:
+#   ./compose.sh dev up -d        # Development
+#   ./compose.sh test up -d       # Testing
+#   ./compose.sh prod up -d       # Production
+#
+# Security: host ports are bound to 127.0.0.1 (loopback only).
+# Services communicate internally via app_network by service name.
+#
+# Image pins (update together when upgrading infra):
+#   pgvector: 0.8.0-pg16       (postgres 16 + pgvector for future semantic features)
+#   redis:    7.4.2-alpine      (Redis 7 — BSD license)
+#   minio:    RELEASE.2025-09-07T16-13-09Z  (last free Docker Hub publish)
+# ============================================================
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    container_name: nodum-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nodum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodum}
+      POSTGRES_DB: ${POSTGRES_DB:-nodum}
+    ports:
+      - "127.0.0.1:5432:5432"    # Loopback only — prevents external network exposure
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nodum}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  # ── Redis ───────────────────────────────────────────────
+  redis:
+    image: redis:7.4.2-alpine
+    container_name: nodum-redis
+    command:
+      - redis-server
+      - "--maxmemory"
+      - "256mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - "60 1"
+    ports:
+      - "127.0.0.1:6379:6379"    # Loopback only
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  # ── MinIO (S3-compatible storage for attachments) ───────
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: nodum-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "127.0.0.1:9000:9000"    # API — loopback only
+      - "127.0.0.1:9001:9001"    # Console — loopback only
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
