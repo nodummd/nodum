@@ -422,3 +422,6 @@ body {
   font-size: 12px;
   margin: 4px 0 0;
 }
+
+/* %%comments%% — faint while editing, stripped in reading view */
+.cm-comment { color: var(--ob-text-faint); font-style: italic; }

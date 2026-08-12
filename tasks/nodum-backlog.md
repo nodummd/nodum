@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **58 backend + 31 e2e**. Feature branches
+> Suites must stay green: currently **58 backend + 33 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -75,12 +75,12 @@
   *Accept:* backend: edit → versions listed → restore returns old content;
   e2e: palette opens dialog, restore round-trips.
 
-- [ ] **S2.4 %%comments%% hidden in reading view** (S) — strip `%%…%%`
+- [x] 2026-08-12 **S2.4 %%comments%% hidden in reading view** (S) — strip `%%…%%`
   outside code spans in the reading pre-processor; in live preview style
   them faint (visible while editing = Obsidian behavior).
   *Accept:* e2e: comment text visible in live, absent in reading.
 
-- [ ] **S2.5 Quick-switcher extras** (S) — Shift+Enter force-creates even on
+- [x] 2026-08-12 **S2.5 Quick-switcher extras** (S) — Shift+Enter force-creates even on
   a match; ⌘Enter opens in background (no tab switch).
   *Accept:* e2e covers both.
 

@@ -15,6 +15,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { noteApi, searchApi } from "@/lib/api/endpoints";
+import { toastError } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function QuickSwitcher({
@@ -26,6 +27,7 @@ export function QuickSwitcher({
 }) {
   const open = useWorkspaceStore((s) => s.switcherOpen);
   const setOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
+  const openTabBackground = useWorkspaceStore((s) => s.openTabBackground);
   const [query, setQuery] = useState("");
   // Server queries fire on the debounced copy — not per keystroke
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -75,6 +77,7 @@ export function QuickSwitcher({
       onOpenNote(note.id, note.title);
       handleOpenChange(false);
     },
+    onError: (err) => toastError(err, "Could not create the note."),
   });
 
   const selectValue = (value: string) => {
@@ -103,6 +106,20 @@ export function QuickSwitcher({
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             e.preventDefault();
+            // Shift+Enter force-creates with the typed name, match or not
+            if (e.shiftKey) {
+              if (trimmed) createNote.mutate(trimmed);
+              return;
+            }
+            // ⌘/Ctrl+Enter opens the match in the background (no tab switch)
+            if (e.metaKey || e.ctrlKey) {
+              const match = results?.find((r) => r.id === highlighted);
+              if (match) {
+                openTabBackground({ id: match.id, kind: "note", title: match.title });
+                handleOpenChange(false);
+              }
+              return;
+            }
             if (highlighted) selectValue(highlighted);
           }}
         />
@@ -135,6 +152,17 @@ export function QuickSwitcher({
             )}
           </CommandGroup>
         </CommandList>
+        <div className="flex items-center gap-3 border-t border-ob-border px-3 py-1.5 text-[11px] text-ob-faint">
+          <span>
+            <kbd className="rounded border border-ob-border px-1">↵</kbd> open
+          </span>
+          <span>
+            <kbd className="rounded border border-ob-border px-1">⇧↵</kbd> create
+          </span>
+          <span>
+            <kbd className="rounded border border-ob-border px-1">⌘↵</kbd> open in background
+          </span>
+        </div>
       </Command>
     </CommandDialog>
   );
