@@ -1,0 +1,96 @@
+name: CI E2E
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: nodum
+          POSTGRES_PASSWORD: nodum
+          POSTGRES_DB: nodum
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nodum" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7.4.2-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      minio:
+        image: bitnami/minio:2025.9.7
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ["9000:9000"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install backend deps
+        working-directory: back
+        run: uv sync --frozen
+
+      - name: Start API
+        working-directory: back
+        env:
+          ENVIRONMENT: dev
+          POSTGRES_SERVER: localhost
+          POSTGRES_PORT: "5432"
+          REDIS_URL: redis://localhost:6379/0
+          S3_ENDPOINT_URL: http://localhost:9000
+          S3_PUBLIC_URL: http://localhost:9000
+        run: |
+          uv run alembic upgrade head
+          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break || sleep 1; done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Build and start web
+        working-directory: web
+        env:
+          API_PROXY_URL: http://127.0.0.1:8000
+        run: |
+          npm run build
+          nohup npx next start -p 3100 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3100 >/dev/null && break || sleep 1; done
+
+      - name: Install Playwright browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e suite
+        working-directory: web
+        env:
+          BASE_URL: http://127.0.0.1:3100
+        run: npx playwright test
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/
+          retention-days: 7
