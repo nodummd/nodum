@@ -217,12 +217,14 @@ async def create_default_vault(db: AsyncSession, user_id: UUID) -> Vault:
     await db.flush()
 
     # Extract wikilinks/tags after all notes exist so cross-references resolve.
+    from app.services.embedding_service import embed_text
     from app.services.link_service import sync_note_links
     from app.services.note_service import parse_properties
     from app.services.tag_service import sync_note_tags
 
     for note in seeded:
         note.properties = parse_properties(note.content)
+        note.embedding = await embed_text(f"{note.title}\n{note.content}")
         await sync_note_links(db, note)
         await sync_note_tags(db, note)
     await db.commit()
