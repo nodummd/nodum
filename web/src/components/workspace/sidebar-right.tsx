@@ -3,9 +3,9 @@
 /** Right sidebar — Backlinks / Outgoing / Tags / Outline panes (Obsidian style). */
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, GitFork, Hash, Link2, List } from "lucide-react";
+import { ArrowRight, ChevronRight, GitFork, Hash, Link2, List } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { linkApi, noteApi, searchApi } from "@/lib/api/endpoints";
@@ -227,24 +227,105 @@ function OutgoingPane({
   );
 }
 
+interface TagTreeNode {
+  segment: string;
+  full: string;
+  count: number;
+  children: TagTreeNode[];
+}
+
+/** Fold flat "a/b/c" tag names into a tree; parent counts sum descendants. */
+function buildTagTree(tags: { name: string; count: number }[]): TagTreeNode[] {
+  const roots: TagTreeNode[] = [];
+  const find = (list: TagTreeNode[], segment: string, full: string): TagTreeNode => {
+    let node = list.find((n) => n.segment === segment);
+    if (!node) {
+      node = { segment, full, count: 0, children: [] };
+      list.push(node);
+    }
+    return node;
+  };
+  for (const t of tags) {
+    const segments = t.name.split("/");
+    let list = roots;
+    let full = "";
+    for (const seg of segments) {
+      full = full ? `${full}/${seg}` : seg;
+      const node = find(list, seg, full);
+      node.count += t.count; // ancestors aggregate descendant usage
+      list = node.children;
+    }
+  }
+  const sortRec = (list: TagTreeNode[]) => {
+    list.sort((a, b) => a.segment.localeCompare(b.segment));
+    list.forEach((n) => sortRec(n.children));
+  };
+  sortRec(roots);
+  return roots;
+}
+
 function TagsPane({ vaultId }: { vaultId: string }) {
   const { data } = useQuery({ queryKey: ["tags", vaultId], queryFn: () => searchApi.tags(vaultId) });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const setLeftPane = useWorkspaceStore((s) => s.setLeftPane);
+  const setSearchSeed = useWorkspaceStore((s) => s.setSearchSeed);
+
+  const tree = useMemo(() => buildTagTree(data ?? []), [data]);
+
+  const toggle = (full: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(full)) next.delete(full);
+      else next.add(full);
+      return next;
+    });
+  };
+  const search = (full: string) => {
+    setSearchSeed(`tag:${full}`);
+    setLeftPane("search");
+  };
+
+  const renderBranch = (nodes: TagTreeNode[], depth: number) =>
+    nodes.map((node) => (
+      <div key={node.full}>
+        <div
+          className="flex items-center gap-0.5 rounded py-0.5 pr-1 hover:bg-ob-hover"
+          style={{ paddingLeft: 2 + depth * 14 }}
+        >
+          {node.children.length > 0 ? (
+            <button
+              type="button"
+              aria-label={collapsed.has(node.full) ? `Expand ${node.full}` : `Collapse ${node.full}`}
+              onClick={() => toggle(node.full)}
+              className="flex size-4 shrink-0 items-center justify-center text-ob-faint hover:text-ob-text"
+            >
+              <ChevronRight
+                className={collapsed.has(node.full) ? "size-3" : "size-3 rotate-90"}
+                strokeWidth={2}
+              />
+            </button>
+          ) : (
+            <span className="size-4 shrink-0" />
+          )}
+          <button
+            type="button"
+            onClick={() => search(node.full)}
+            title={`Search tag:${node.full}`}
+            className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left"
+          >
+            <span className="truncate text-[13px] text-ob-accent">#{node.segment}</span>
+            <span className="shrink-0 text-[11px] text-ob-faint">{node.count}</span>
+          </button>
+        </div>
+        {node.children.length > 0 && !collapsed.has(node.full) && renderBranch(node.children, depth + 1)}
+      </div>
+    ));
 
   return (
     <div>
       <SectionLabel>Tags {data ? `(${data.length})` : ""}</SectionLabel>
       {data && data.length === 0 && <EmptyHint>No tags in this vault yet.</EmptyHint>}
-      <div className="flex flex-wrap gap-1.5 px-1 pt-1">
-        {data?.map((t) => (
-          <span
-            key={t.name}
-            className="inline-flex items-center gap-1 rounded-full bg-[var(--ob-tag-background)] px-2 py-0.5 text-[12px] text-ob-accent"
-          >
-            #{t.name}
-            <span className="text-[10px] text-ob-faint">{t.count}</span>
-          </span>
-        ))}
-      </div>
+      <div className="pt-1">{renderBranch(tree, 0)}</div>
     </div>
   );
 }
