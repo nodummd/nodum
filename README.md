@@ -79,7 +79,7 @@ back/     FastAPI backend (uv, alembic, tests)
 web/      Next.js frontend (+ Playwright e2e)
 deploy/   docker-compose files, compose.sh, .env.example
 tasks/    master plan · audit & roadmap (the decision docs)
-docs/     research specs (Obsidian parity, library decisions)
+docs/     deploy + backup guides, research specs (Obsidian parity)
 ```
 
 ## Contributing
