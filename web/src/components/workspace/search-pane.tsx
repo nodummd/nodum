@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { searchApi } from "@/lib/api/endpoints";
 
@@ -16,12 +16,20 @@ export function SearchPane({
   onOpenNote: (noteId: string, title: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const trimmed = query.trim();
+  const [debounced, setDebounced] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(query), 200);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const trimmed = debounced.trim();
 
   const { data, isFetching } = useQuery({
     queryKey: ["search", vaultId, trimmed],
     queryFn: () => searchApi.search(vaultId, trimmed),
     enabled: trimmed.length > 0,
+    gcTime: 30_000,
   });
 
   return (
