@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **51 backend + 28 e2e**. Feature branches
+> Suites must stay green: currently **51 backend + 29 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -50,7 +50,7 @@
 
 ## Sprint 2 — Parity core (what Obsidian users miss first)
 
-- [ ] **S2.1 Code-block syntax highlighting (shiki) + mermaid diagrams** (M)
+- [x] 2026-08-12 **S2.1 Code-block syntax highlighting (shiki) + mermaid diagrams** (M)
   *Do:* reading view: `@shikijs/rehype` (theme matching Obsidian dark) +
   client-side mermaid component for ```mermaid fences (research: never bundle
   rehype-mermaid). Live preview: shiki-highlighted block widget for fenced

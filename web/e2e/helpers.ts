@@ -28,6 +28,29 @@ export async function openNoteFromExplorer(page: Page, title: string): Promise<v
   });
 }
 
+/**
+ * Create a note through the API from inside the page (uses the refresh
+ * cookie). Avoids typing markdown through CodeMirror, which rewrites input
+ * (list continuation, auto-pairs) and corrupts fixture content.
+ */
+export async function createNoteViaApi(page: Page, title: string, content: string): Promise<void> {
+  await page.evaluate(
+    async ({ title, content }) => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const vaults = await (
+        await fetch("/api/v1/vaults", { headers: { Authorization: `Bearer ${token}` } })
+      ).json();
+      await fetch(`/api/v1/vaults/${vaults.data[0].id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title, content }),
+      });
+    },
+    { title, content },
+  );
+}
+
 /** The CodeMirror editing surface of the active note. */
 export function editorSurface(page: Page) {
   return page.locator(".cm-content").first();

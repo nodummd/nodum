@@ -4,7 +4,8 @@
  * may not emit them), with IME-compose guards and atomicRanges so cursor
  * motion skips over replaced regions.
  *
- * Covers: GFM tables, YAML frontmatter (properties card), $$ block math.
+ * Covers: GFM tables, YAML frontmatter (properties card), $$ block math,
+ * fenced code (shiki-highlighted; ```mermaid fences render diagrams).
  * Reveal-on-cursor applies: a region touched by the selection renders raw.
  */
 
@@ -15,6 +16,8 @@ import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 import { renderMathHTML } from "./math";
+import { renderMermaidSvg } from "./mermaid";
+import { cachedHighlight, highlightToHtml } from "./shiki";
 
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
   return state.selection.ranges.some((r) => r.from <= to && r.to >= from);
@@ -177,6 +180,87 @@ class BlockMathWidget extends WidgetType {
   }
 }
 
+// ── Fenced code widget ───────────────────────────────────────────────────────
+
+class CodeFenceWidget extends WidgetType {
+  constructor(
+    readonly lang: string,
+    readonly code: string,
+  ) {
+    super();
+  }
+
+  override eq(other: CodeFenceWidget): boolean {
+    return other.lang === this.lang && other.code === this.code;
+  }
+
+  override toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-code-widget";
+
+    if (this.lang === "mermaid") {
+      wrap.classList.add("cm-mermaid-widget");
+      const code = this.code;
+      void renderMermaidSvg(code)
+        .then((svg) => {
+          wrap.innerHTML = svg;
+        })
+        .catch(() => {
+          // Parse error while assembling a diagram — show the raw source
+          const pre = document.createElement("pre");
+          const codeEl = document.createElement("code");
+          codeEl.textContent = code;
+          pre.appendChild(codeEl);
+          wrap.replaceChildren(pre);
+        });
+      const pre = document.createElement("pre");
+      const codeEl = document.createElement("code");
+      codeEl.textContent = code;
+      pre.appendChild(codeEl);
+      wrap.appendChild(pre);
+      return wrap;
+    }
+
+    if (this.lang) {
+      const badge = document.createElement("div");
+      badge.className = "cm-code-lang";
+      badge.textContent = this.lang;
+      wrap.appendChild(badge);
+    }
+    const pre = document.createElement("pre");
+    const codeEl = document.createElement("code");
+    codeEl.textContent = this.code;
+    pre.appendChild(codeEl);
+    wrap.appendChild(pre);
+
+    const cached = cachedHighlight(this.code, this.lang);
+    const apply = (html: string) => {
+      pre.outerHTML = html; // shiki emits its own <pre class="shiki">
+      wrap.classList.add("is-highlighted");
+    };
+    if (cached) apply(cached);
+    else {
+      void highlightToHtml(this.code, this.lang).then((html) => {
+        if (wrap.querySelector("pre") === pre) apply(html);
+      });
+    }
+    return wrap;
+  }
+
+  override ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/** Split a fence's full source into (lang, inner code). */
+function parseFence(source: string): { lang: string; code: string } {
+  const lines = source.split("\n");
+  const lang = (lines[0].replace(/^[`~]+/, "").trim().split(/\s+/)[0] ?? "").toLowerCase();
+  const closed = lines.length > 1 && /^[`~]{3,}\s*$/.test(lines[lines.length - 1].trim());
+  const code = lines.slice(1, closed ? -1 : undefined).join("\n");
+  return { lang, code };
+}
+
 // ── StateField ───────────────────────────────────────────────────────────────
 
 function buildBlockDecorations(state: EditorState): DecorationSet {
@@ -194,7 +278,8 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
     );
   }
 
-  // GFM tables from the syntax tree
+  // GFM tables + fenced code from the syntax tree
+  const fenceRanges: [number, number][] = [];
   syntaxTree(state).iterate({
     enter(node) {
       if (node.name === "Table") {
@@ -208,16 +293,30 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
         }
         return false;
       }
+      if (node.name === "FencedCode") {
+        fenceRanges.push([node.from, node.to]);
+        if (!selectionTouches(state, node.from, node.to)) {
+          const { lang, code } = parseFence(state.doc.sliceString(node.from, node.to));
+          decorations.push(
+            Decoration.replace({ widget: new CodeFenceWidget(lang, code), block: true }).range(
+              node.from,
+              node.to,
+            ),
+          );
+        }
+        return false;
+      }
     },
   });
 
-  // $$ block math (may span lines; skip regions inside the frontmatter match)
+  // $$ block math (may span lines; skip regions inside frontmatter or code fences)
   const mathRe = /\$\$([\s\S]+?)\$\$/g;
   let m: RegExpExecArray | null;
   while ((m = mathRe.exec(doc)) !== null) {
     const start = m.index;
     const end = start + m[0].length;
     if (fm && start < fm[0].length) continue;
+    if (fenceRanges.some(([f, t]) => start < t && end > f)) continue;
     if (!selectionTouches(state, start, end)) {
       decorations.push(
         Decoration.replace({ widget: new BlockMathWidget(m[1].trim()), block: true }).range(start, end),
