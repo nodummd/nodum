@@ -50,7 +50,14 @@ export interface Note extends NoteMeta {
 
 export type TreeItem =
   | { type: "folder"; id: string; name: string; path: string; children: TreeItem[] }
-  | { type: "note"; id: string; title: string; path: string };
+  | {
+      type: "note";
+      id: string;
+      title: string;
+      path: string;
+      created_at: string;
+      updated_at: string;
+    };
 
 export interface VaultTree {
   vault_id: string;
@@ -104,6 +111,7 @@ export interface SearchResult {
   path: string;
   snippet: string;
   rank: number;
+  created_at: string;
   updated_at: string;
 }
 

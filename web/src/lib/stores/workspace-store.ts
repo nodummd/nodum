@@ -16,6 +16,14 @@ export type MainView =
 
 export type EditorMode = "live" | "source" | "reading";
 
+export type ExplorerSort =
+  | "title-asc"
+  | "title-desc"
+  | "updated-desc"
+  | "updated-asc"
+  | "created-desc"
+  | "created-asc";
+
 export interface Tab {
   id: string; // note id, or "graph"
   kind: "note" | "graph";
@@ -31,6 +39,7 @@ interface WorkspaceState {
   leftWidth: number;
   rightWidth: number;
   editorMode: EditorMode;
+  explorerSort: ExplorerSort;
   paletteOpen: boolean;
   switcherOpen: boolean;
 
@@ -44,6 +53,7 @@ interface WorkspaceState {
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
   setEditorMode: (mode: EditorMode) => void;
+  setExplorerSort: (sort: ExplorerSort) => void;
   setPaletteOpen: (open: boolean) => void;
   setSwitcherOpen: (open: boolean) => void;
 }
@@ -59,6 +69,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       leftWidth: 280,
       rightWidth: 300,
       editorMode: "live",
+      explorerSort: "title-asc",
       paletteOpen: false,
       switcherOpen: false,
 
@@ -92,6 +103,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setEditorMode: (mode) => set({ editorMode: mode }),
+      setExplorerSort: (sort) => set({ explorerSort: sort }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
     }),
@@ -106,6 +118,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         leftWidth: s.leftWidth,
         rightWidth: s.rightWidth,
         editorMode: s.editorMode,
+        explorerSort: s.explorerSort,
       }),
     },
   ),
