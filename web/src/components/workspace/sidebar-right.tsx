@@ -7,6 +7,7 @@ import { ArrowRight, ChevronRight, GitFork, Hash, Link2, List } from "lucide-rea
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { PagePreview, usePagePreview } from "@/components/editor/page-preview";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { linkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -138,11 +139,13 @@ function BacklinksPane({
     queryFn: () => linkApi.unlinkedMentions(vaultId, noteId as string),
     enabled: Boolean(noteId),
   });
+  const preview = usePagePreview();
 
   if (!noteId) return <EmptyHint>Open a note to see its backlinks.</EmptyHint>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" {...preview.handlers}>
+      {preview.anchor && <PagePreview vaultId={vaultId} anchor={preview.anchor} />}
       <div>
         <SectionLabel>Linked mentions {data ? `(${data.backlinks.length})` : ""}</SectionLabel>
         {data && data.backlinks.length === 0 && <EmptyHint>No backlinks yet.</EmptyHint>}
@@ -150,6 +153,7 @@ function BacklinksPane({
           <button
             key={b.note_id}
             type="button"
+            data-wikilink-target={b.title}
             onClick={() => onOpenNote(b.note_id, b.title)}
             className="block w-full rounded px-1.5 py-1 text-left hover:bg-ob-hover"
           >
