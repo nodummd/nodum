@@ -445,6 +445,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         {data && (
           <p className="pt-2 text-[11px] text-ob-faint">
             {filtered?.nodes.length ?? 0} nodes · {filtered?.edges.length ?? 0} links
+            {data.truncated ? " · capped" : ""}
           </p>
         )}
       </div>
