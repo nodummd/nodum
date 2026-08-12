@@ -285,19 +285,35 @@ async def get_unlinked_mentions(
     if note is None:
         return ServiceResponse.fail("not_found", "Note not found.")
 
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.constants import limits
+
     already_linking = select(Link.source_note_id).where(Link.vault_id == vault_id, Link.target_note_id == note_id)
-    rows = (
-        await db.execute(
-            select(Note.id, Note.title, Note.path, Note.content)
-            .where(
-                Note.vault_id == vault_id,
-                Note.id != note_id,
-                Note.id.not_in(already_linking),
-                Note.content.ilike(f"%{note.title}%"),
+    try:
+        # The %title% scan is sequential by design (no trigram index — too
+        # heavy for 2MB contents). LIMIT + a local statement timeout bound it.
+        await db.execute(sql_text(f"SET LOCAL statement_timeout = {int(limits.UNLINKED_MENTIONS_TIMEOUT_MS)}"))
+        rows = (
+            await db.execute(
+                select(Note.id, Note.title, Note.path, Note.content)
+                .where(
+                    Note.vault_id == vault_id,
+                    Note.id != note_id,
+                    Note.id.not_in(already_linking),
+                    Note.content.ilike(f"%{note.title}%"),
+                )
+                .limit(limit)
             )
-            .limit(limit)
-        )
-    ).all()
+        ).all()
+    except DBAPIError as exc:
+        origin = type(getattr(exc, "orig", exc)).__name__
+        if "QueryCanceled" not in origin and "QueryCanceled" not in str(exc):
+            raise
+        await db.rollback()
+        logger.warning("unlinked_mentions_timeout", vault_id=str(vault_id), note_id=str(note_id))
+        return ServiceResponse.ok({"note_id": str(note_id), "unlinked_mentions": [], "timed_out": True})
 
     mentions = []
     link_form = f"[[{note.title.lower()}"

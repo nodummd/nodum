@@ -19,3 +19,6 @@ MAX_PAGE_SIZE = 200
 MAX_TREE_ITEMS = 20_000
 MAX_GRAPH_NODES = 20_000
 MAX_BACKLINK_SOURCES = 200
+# Unlinked-mentions ILIKE scan budget — the pane degrades to empty on timeout
+# (decision: no pg_trgm GIN; 2MB contents make it enormous + write-heavy)
+UNLINKED_MENTIONS_TIMEOUT_MS = 2000

@@ -83,3 +83,31 @@ async def test_backlinks_cap_sources(client: AsyncClient, workspace: dict, monke
     data = resp.json()["data"]
     assert data["truncated"] is True
     assert len(data["backlinks"]) == 1
+
+
+async def test_unlinked_mentions_scan_is_time_bounded(
+    client: AsyncClient, workspace: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pane must answer 200 with a valid shape whether or not the local
+    statement timeout cancels the scan (tiny budget exercises SET LOCAL)."""
+    monkeypatch.setattr(limits, "UNLINKED_MENTIONS_TIMEOUT_MS", 1)
+    target = await _create(client, workspace, "Mentioned", "The mentioned one.")
+    await _create(client, workspace, "Mentioner", "I talk about Mentioned without linking.")
+
+    resp = await client.get(
+        f"/api/v1/vaults/{workspace['vault_id']}/notes/{target['id']}/unlinked-mentions",
+        headers=workspace["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert isinstance(data["unlinked_mentions"], list)
+
+    # A normal budget returns the mention and the session stays usable
+    monkeypatch.setattr(limits, "UNLINKED_MENTIONS_TIMEOUT_MS", 2000)
+    resp = await client.get(
+        f"/api/v1/vaults/{workspace['vault_id']}/notes/{target['id']}/unlinked-mentions",
+        headers=workspace["headers"],
+    )
+    assert resp.status_code == 200
+    titles = {m["title"] for m in resp.json()["data"]["unlinked_mentions"]}
+    assert "Mentioner" in titles

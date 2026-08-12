@@ -98,7 +98,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     Reuse of a spent JTI outside the grace window invalidates the whole
     session family (stolen-token defense).
     """
-    from app.core.redis import redis_client
+    from app.core.redis import redis_control
 
     payload = decode_token(refresh_token, expected_type="refresh")
     if payload is None:
@@ -116,7 +116,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
         # Recently-rotated JTI? Benign duplicate (second tab, racing reload).
         graced_session_id: str | None = None
         try:
-            graced_session_id = await redis_client.get(_GRACE_KEY.format(jti=jti))
+            graced_session_id = await redis_control.get(_GRACE_KEY.format(jti=jti))
         except Exception:
             logger.warning("refresh_grace_redis_unavailable")
         if graced_session_id:
@@ -162,7 +162,7 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     await db.commit()
 
     try:
-        await redis_client.set(_GRACE_KEY.format(jti=old_jti), str(session.id), ex=REFRESH_GRACE_SECONDS)
+        await redis_control.set(_GRACE_KEY.format(jti=old_jti), str(session.id), ex=REFRESH_GRACE_SECONDS)
     except Exception:
         logger.warning("refresh_grace_redis_unavailable")
 
@@ -185,10 +185,10 @@ async def logout(db: AsyncSession, *, refresh_token: str | None) -> ServiceRespo
                 session.invalidate("user_logout")
                 await db.commit()
                 try:
-                    from app.core.redis import redis_client
+                    from app.core.redis import redis_control
 
                     settings = get_settings()
-                    await redis_client.set(
+                    await redis_control.set(
                         f"revoked_sid:{session.id}",
                         "1",
                         ex=(settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 1) * 60,
@@ -246,10 +246,10 @@ async def change_password(
         s.invalidate("password_changed")
     await db.commit()
     try:
-        from app.core.redis import redis_client
+        from app.core.redis import redis_control
 
         settings = get_settings()
-        await redis_client.set(
+        await redis_control.set(
             f"auth_revoked_user:{user_id}",
             str(int(datetime.now(UTC).timestamp())),
             ex=(settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 1) * 60,

@@ -84,6 +84,9 @@ class CommonSettings(BaseSettings):
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
+    # Control-plane Redis (rate limits, auth revocation/grace). Defaults to the
+    # cache server's logical DB 3; point at a dedicated noeviction instance in prod.
+    REDIS_CONTROL_URL: str | None = None
     # Cache TTLs (seconds)
     CACHE_GRAPH_TTL: int = 300
     CACHE_TREE_TTL: int = 300

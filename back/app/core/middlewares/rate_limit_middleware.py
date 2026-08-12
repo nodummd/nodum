@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.logging import get_logger
-from app.core.redis import redis_client
+from app.core.redis import redis_control
 from app.settings import get_settings
 
 logger = get_logger("rate_limit")
@@ -51,11 +51,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             window = settings.USER_RATE_LIMIT_WINDOW_SECONDS
 
         try:
-            count = await redis_client.incr(key)
+            count = await redis_control.incr(key)
             if count == 1:
-                await redis_client.expire(key, window)
+                await redis_control.expire(key, window)
             if count > limit:
-                ttl = await redis_client.ttl(key)
+                ttl = await redis_control.ttl(key)
                 return JSONResponse(
                     status_code=429,
                     content={"error": {"code": "rate_limited", "message": "Too many requests."}},
