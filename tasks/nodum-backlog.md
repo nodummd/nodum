@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **58 backend + 37 e2e**. Feature branches
+> Suites must stay green: currently **58 backend + 38 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -98,7 +98,7 @@
 - [x] 2026-08-12 **S3.3 Page preview popover** (S–M) — Cmd/Ctrl+hover over a wikilink
   (editor + backlinks panel) shows a floating ReadingView excerpt.
   *Accept:* e2e: hover with modifier shows preview content.
-- [ ] **S3.4 Editable properties widget** (M–L) — field-level editing in the
+- [x] 2026-08-12 **S3.4 Editable properties widget** (M–L) — field-level editing in the
   live-preview properties card (text/number/checkbox/date/list pills) writing
   YAML back into the document.
   *Accept:* e2e: edit a value in the card → source frontmatter updated.

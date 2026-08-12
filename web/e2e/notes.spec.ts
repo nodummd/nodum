@@ -199,8 +199,8 @@ test.describe("block widgets (StateField)", () => {
     await expect(page.locator(".cm-table-widget td strong", { hasText: "two" })).toBeVisible();
     await expect(page.locator(".cm-math-block .katex")).toBeVisible();
 
-    // Clicking the properties card reveals raw YAML (reveal-on-cursor)
-    await page.locator(".cm-properties-widget").click();
+    // Clicking the card outside its editable fields reveals raw YAML
+    await page.locator(".cm-properties-heading").click();
     await expect(page.locator(".cm-properties-widget")).not.toBeVisible({ timeout: 5_000 });
     await expect(editorSurface(page)).toContainText("status: active");
   });
