@@ -25,10 +25,12 @@ export function SidebarRight({
   vaultId,
   noteId,
   onOpenNote,
+  drawer = false,
 }: {
   vaultId: string;
   noteId: string | null;
   onOpenNote: (noteId: string, title: string) => void;
+  drawer?: boolean;
 }) {
   const open = useWorkspaceStore((s) => s.rightSidebarOpen);
   const width = useWorkspaceStore((s) => s.rightWidth);
@@ -55,7 +57,7 @@ export function SidebarRight({
     [width, setWidth],
   );
 
-  if (!open) return null;
+  if (!drawer && !open) return null;
 
   const panes: { kind: PaneKind; label: string; icon: React.ReactNode }[] = [
     { kind: "backlinks", label: "Backlinks", icon: <Link2 className="size-4" strokeWidth={1.75} /> },
@@ -66,7 +68,10 @@ export function SidebarRight({
   ];
 
   return (
-    <div className="relative flex shrink-0 flex-col border-l border-ob-border bg-ob-sidebar" style={{ width }}>
+    <div
+      className="relative flex shrink-0 flex-col border-l border-ob-border bg-ob-sidebar"
+      style={drawer ? { width: "100%", height: "100%" } : { width }}
+    >
       <div className="flex items-center gap-0.5 border-b border-ob-border px-2 py-1">
         {panes.map((p) => (
           <Tooltip key={p.kind} delayDuration={300}>
@@ -194,10 +199,12 @@ function OutgoingPane({
   vaultId,
   noteId,
   onOpenNote,
+  drawer = false,
 }: {
   vaultId: string;
   noteId: string | null;
   onOpenNote: (noteId: string, title: string) => void;
+  drawer?: boolean;
 }) {
   const { data } = useQuery({
     queryKey: ["outgoing", vaultId, noteId],
@@ -371,10 +378,12 @@ function LocalGraphPane({
   vaultId,
   noteId,
   onOpenNote,
+  drawer = false,
 }: {
   vaultId: string;
   noteId: string | null;
   onOpenNote: (noteId: string, title: string) => void;
+  drawer?: boolean;
 }) {
   const [depth, setDepth] = useState(1);
 

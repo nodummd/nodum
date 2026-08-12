@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 42 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 43 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -170,7 +170,7 @@
 
 ## Sprint 7 — Reach: mobile + PWA (Phase D)
 
-- [ ] **S7.1 Mobile-responsive workspace** (M–L)
+- [x] 2026-08-12 **S7.1 Mobile-responsive workspace** (M–L)
   *Do:* < 768px: left/right sidebars become overlay drawers (hamburger +
   panel toggles), tab bar scrolls, editor padding tightens, graph controls
   collapse behind a gear button; touch-friendly hit areas (min 40px).
