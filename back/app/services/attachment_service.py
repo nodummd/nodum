@@ -1,6 +1,7 @@
 """Attachment service — S3-backed uploads with per-vault filename identity."""
 
 import asyncio
+import contextlib
 import os
 import re
 from typing import Any
@@ -79,7 +80,18 @@ async def upload(
         size_bytes=len(content),
     )
     db.add(attachment)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        # DB failed after the S3 put — clean up the orphaned object
+        await db.rollback()
+
+        def _cleanup() -> None:
+            get_s3_client().delete_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key)
+
+        with contextlib.suppress(Exception):  # orphan is tolerable; the DB failure is what matters
+            await asyncio.to_thread(_cleanup)
+        raise
     await db.refresh(attachment)
     return ServiceResponse.ok(attachment)
 
@@ -149,10 +161,14 @@ async def delete_attachment(
     settings = get_settings()
     s3_key = attachment.s3_key
 
+    # DB row first (a missing row with a stray S3 object is tolerable;
+    # a row pointing at a deleted object is not), then best-effort S3.
+    await db.delete(attachment)
+    await db.commit()
+
     def _delete() -> None:
         get_s3_client().delete_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key)
 
-    await asyncio.to_thread(_delete)
-    await db.delete(attachment)
-    await db.commit()
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(_delete)
     return ServiceResponse.ok(None)
