@@ -4,7 +4,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditorPane } from "./editor-pane";
 
@@ -32,7 +32,8 @@ import { TemplatePicker } from "./template-picker";
 import { Toaster } from "./toaster";
 import { dailyApi, noteApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
-import { toastError } from "@/lib/stores/toast-store";
+import { api } from "@/lib/api/client";
+import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -87,6 +88,38 @@ export function Workspace({ vault }: { vault: Vault }) {
 
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const exportVault = useCallback(() => {
+    // Same-origin proxy carries the cookie; access token not needed for a download
+    window.open(`/api/v1/vaults/${vault.id}/export`, "_blank");
+  }, [vault.id]);
+
+  const importVault = useCallback(
+    (file: File) => {
+      void (async () => {
+        try {
+          const form = new FormData();
+          form.append("file", file);
+          const stats = await api<{ imported: number; renamed: number }>(
+            `/vaults/${vault.id}/import`,
+            { method: "POST", body: form },
+          );
+          void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+          void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
+          void queryClient.invalidateQueries({ queryKey: ["tags", vault.id] });
+          useToastStore.getState().push(
+            `Imported ${String(stats.imported)} notes` +
+              (stats.renamed ? ` (${String(stats.renamed)} renamed)` : ""),
+            "info",
+          );
+        } catch (err) {
+          toastError(err, "Import failed.");
+        }
+      })();
+    },
+    [vault.id, queryClient],
+  );
 
   const openDailyNote = useCallback(() => {
     void (async () => {
@@ -182,6 +215,21 @@ export function Workspace({ vault }: { vault: Vault }) {
         onCloseActiveTab={closeActiveTab}
         onOpenDailyNote={openDailyNote}
         onInsertTemplate={() => setTemplatePickerOpen(true)}
+        onExportVault={exportVault}
+        onImportVault={() => importInputRef.current?.click()}
+      />
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".zip"
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) importVault(file);
+          e.target.value = "";
+        }}
       />
       <TemplatePicker
         vaultId={vault.id}
