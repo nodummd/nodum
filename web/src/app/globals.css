@@ -7,22 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-interface);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
+  --font-heading: var(--font-interface);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -43,88 +30,127 @@
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Obsidian workspace tokens exposed as Tailwind colors */
+  --color-ob-bg: var(--ob-background-primary);
+  --color-ob-bg-alt: var(--ob-background-primary-alt);
+  --color-ob-sidebar: var(--ob-background-secondary);
+  --color-ob-sidebar-alt: var(--ob-background-secondary-alt);
+  --color-ob-border: var(--ob-background-modifier-border);
+  --color-ob-hover: var(--ob-background-modifier-hover);
+  --color-ob-active: var(--ob-background-modifier-active);
+  --color-ob-text: var(--ob-text-normal);
+  --color-ob-muted: var(--ob-text-muted);
+  --color-ob-faint: var(--ob-text-faint);
+  --color-ob-accent: var(--ob-interactive-accent);
+  --color-ob-accent-hover: var(--ob-interactive-accent-hover);
 }
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
+/* ============================================================
+   Obsidian default dark theme palette (color-base scale)
+   Mirrors Obsidian's CSS variables so the workspace reads
+   pixel-faithful. Single dark theme for v1 (Obsidian's default).
+   ============================================================ */
+:root,
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* base scale (Obsidian dark) */
+  --ob-color-base-00: #1e1e1e;
+  --ob-color-base-10: #242424;
+  --ob-color-base-20: #262626;
+  --ob-color-base-25: #2a2a2a;
+  --ob-color-base-30: #363636;
+  --ob-color-base-35: #3f3f3f;
+  --ob-color-base-40: #555555;
+  --ob-color-base-50: #666666;
+  --ob-color-base-70: #b3b3b3;
+  --ob-color-base-100: #dadada;
+
+  --ob-background-primary: var(--ob-color-base-00);
+  --ob-background-primary-alt: var(--ob-color-base-10);
+  --ob-background-secondary: var(--ob-color-base-20);
+  --ob-background-secondary-alt: var(--ob-color-base-10);
+  --ob-background-modifier-border: var(--ob-color-base-30);
+  --ob-background-modifier-hover: rgba(255, 255, 255, 0.055);
+  --ob-background-modifier-active: rgba(255, 255, 255, 0.1);
+  --ob-text-normal: var(--ob-color-base-100);
+  --ob-text-muted: var(--ob-color-base-70);
+  --ob-text-faint: var(--ob-color-base-50);
+  --ob-text-on-accent: #ffffff;
+  --ob-interactive-accent: hsl(254, 80%, 68%);
+  --ob-interactive-accent-hover: hsl(254, 80%, 73%);
+  --ob-text-selection: hsla(254, 80%, 68%, 0.25);
+  --ob-link-color: hsl(254, 80%, 68%);
+  --ob-link-unresolved: hsla(254, 80%, 68%, 0.55);
+  --ob-tag-background: hsla(254, 80%, 68%, 0.12);
+
+  --font-interface: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  /* shadcn tokens mapped onto the Obsidian palette */
+  --radius: 8px;
+  --background: var(--ob-background-primary);
+  --foreground: var(--ob-text-normal);
+  --card: var(--ob-background-secondary);
+  --card-foreground: var(--ob-text-normal);
+  --popover: var(--ob-color-base-25);
+  --popover-foreground: var(--ob-text-normal);
+  --primary: var(--ob-interactive-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--ob-color-base-25);
+  --secondary-foreground: var(--ob-text-normal);
+  --muted: var(--ob-color-base-25);
+  --muted-foreground: var(--ob-text-muted);
+  --accent: var(--ob-color-base-25);
+  --accent-foreground: var(--ob-text-normal);
+  --destructive: #e93147;
+  --border: var(--ob-background-modifier-border);
+  --input: var(--ob-color-base-35);
+  --ring: var(--ob-interactive-accent);
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
+html,
+body {
+  height: 100%;
+  background: var(--ob-background-primary);
+  color: var(--ob-text-normal);
+  font-family: var(--font-interface);
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: var(--ob-text-selection);
+}
+
+/* Obsidian-style thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ob-color-base-35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ob-color-base-35);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus visibility (accessibility) without disturbing the chrome look */
+:focus-visible {
+  outline: 2px solid var(--ob-interactive-accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
