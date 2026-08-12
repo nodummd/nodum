@@ -206,7 +206,7 @@
   *Accept:* backend: publish vault → public endpoints list/serve notes
   without auth, unpublish 404s; e2e: browse published site nav.
 
-🏁 **Release v2.3.0** after Sprint 8.
+🏁 ~~**Release v2.3.0**~~ ✅ 2026-08-13 — dev→main merged, tagged, prod smoke passed (providers flag, vault site anonymous read).
 
 ## Sprint 9 — Canvas & long tail (Phase D)
 
