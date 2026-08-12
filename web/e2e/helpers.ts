@@ -15,8 +15,14 @@ export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<strin
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign up" }).click();
   await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
-  // Welcome vault is seeded — explorer shows the notes
-  await expect(page.getByText("Welcome to Nodum").first()).toBeVisible({ timeout: 15_000 });
+  // Welcome vault is seeded — explorer shows the notes (desktop) or the
+  // mobile top bar renders (drawer explorer starts closed)
+  await expect(
+    page
+      .getByText("Welcome to Nodum")
+      .first()
+      .or(page.getByRole("button", { name: "Open navigation" })),
+  ).toBeVisible({ timeout: 15_000 });
   return email;
 }
 
