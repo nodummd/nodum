@@ -120,7 +120,7 @@
 - [x] 2026-08-12 **S4.4 Web observability** — wire Sentry (env-gated) in web; add web
   container healthcheck + `depends_on: condition: service_healthy` in prod
   compose.
-- [ ] **S4.5 Deploy & backup docs** — `docs/deploy.md`: Caddy reference
+- [x] 2026-08-12 **S4.5 Deploy & backup docs** — `docs/deploy.md`: Caddy reference
   config for nodum.md (TLS, proxy to web:3000), prod checklist;
   `docs/backup.md`: pg_dump + MinIO mirror + restore drill.
 
