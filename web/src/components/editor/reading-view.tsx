@@ -26,9 +26,10 @@ interface ReadingViewProps {
 }
 
 /**
- * Convert [[wikilinks]] to markdown links with a nodum: scheme we intercept.
- * Code fences and inline code spans are left untouched — a [[link]] inside
- * code is literal text, not a link.
+ * Convert [[wikilinks]] to markdown links with a nodum: scheme we intercept,
+ * and strip %%comments%% (Obsidian hides them when reading; an unclosed %%
+ * comments out the rest of the chunk). Code fences and inline code spans are
+ * left untouched — a [[link]] or %% inside code is literal text.
  */
 function preprocessWikilinks(md: string): string {
   const CODE_SPLIT = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g;
@@ -36,6 +37,7 @@ function preprocessWikilinks(md: string): string {
     .split(CODE_SPLIT)
     .map((chunk, i) => {
       if (i % 2 === 1) return chunk; // code segment — leave verbatim
+      chunk = chunk.replace(/%%[\s\S]*?%%/g, "").replace(/%%[\s\S]*$/, "");
       return chunk.replace(/(!?)\[\[([^\][\n]+?)\]\]/g, (_m, embed: string, inner: string) => {
         const [body, alias] = inner.split("|");
         const target = body.split("#")[0].trim();
