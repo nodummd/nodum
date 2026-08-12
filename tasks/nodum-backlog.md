@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 39 e2e**. Feature branches
+> Suites must stay green: currently **68 backend + 40 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -141,7 +141,7 @@
 
 ## Sprint 6 — Parity core leftovers (Phase D)
 
-- [ ] **S6.1 Block references** (L) — `[[Note#^id]]` / `![[Note#^id]]`
+- [x] 2026-08-12 **S6.1 Block references** (L) — `[[Note#^id]]` / `![[Note#^id]]`
   end-to-end (also accept the loose `[[Note^id]]` form).
   *Do:* backend already resolves the note (target splits on `#`); add block
   slicing: shared block extractor (paragraph/list-item/blockquote ending in

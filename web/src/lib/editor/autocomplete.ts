@@ -2,10 +2,50 @@
 
 import type { CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 
-import { searchApi } from "@/lib/api/endpoints";
+import { noteApi, searchApi } from "@/lib/api/endpoints";
+import { listBlockIds } from "@/lib/editor/block-slice";
+
+async function fetchNoteContent(vaultId: string, target: string): Promise<string | null> {
+  try {
+    return (await noteApi.getByPath(vaultId, target)).content;
+  } catch {
+    const candidates = await searchApi.quickSwitch(vaultId, target, 3);
+    const exact = candidates.find((c) => c.title.toLowerCase() === target.toLowerCase());
+    if (!exact) return null;
+    return (await noteApi.get(vaultId, exact.id)).content;
+  }
+}
 
 export function wikiLinkCompletion(vaultId: string) {
   return async (context: CompletionContext): Promise<CompletionResult | null> => {
+    // "[[Note#^blo" / "[[Note#Head" → block-id / heading completion
+    const fragMatch = context.matchBefore(/\[\[([^\][\n#|]+)#(\^?[^\][\n#|]*)$/);
+    if (fragMatch) {
+      const inner = fragMatch.text.slice(2);
+      const hash = inner.indexOf("#");
+      const target = inner.slice(0, hash).trim();
+      const frag = inner.slice(hash + 1);
+      const content = await fetchNoteContent(vaultId, target);
+      if (content === null) return null;
+
+      const from = fragMatch.from + 2 + hash + 1;
+      if (frag.startsWith("^")) {
+        const query = frag.slice(1).toLowerCase();
+        const options = listBlockIds(content)
+          .filter((id) => !query || id.toLowerCase().startsWith(query))
+          .slice(0, 12)
+          .map((id) => ({ label: `^${id}`, type: "text", apply: `^${id}]]` }));
+        return options.length ? { from, options, filter: false } : null;
+      }
+      const query = frag.toLowerCase();
+      const headings = [...content.matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map((m) => m[1]);
+      const options = [...new Set(headings)]
+        .filter((h) => !query || h.toLowerCase().includes(query))
+        .slice(0, 12)
+        .map((h) => ({ label: h, type: "text", apply: `${h}]]` }));
+      return options.length ? { from, options, filter: false } : null;
+    }
+
     // Match "[[query" backwards from the cursor (no closing ]])
     const match = context.matchBefore(/\[\[([^\][\n]*)$/);
     if (!match) return null;

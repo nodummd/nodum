@@ -3,7 +3,7 @@
 /** Reading view — rendered markdown (gfm + math + callouts + wikilinks + embeds). */
 
 import { Children, isValidElement, useMemo, type ReactElement } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
@@ -41,12 +41,22 @@ function preprocessWikilinks(md: string): string {
       return chunk.replace(/(!?)\[\[([^\][\n]+?)\]\]/g, (_m, embed: string, inner: string) => {
         const [body, alias] = inner.split("|");
         const target = body.split("#")[0].trim();
+        // #Heading / #^block-id fragment rides along for slicing
+        const fragment = body.includes("#") ? body.slice(body.indexOf("#") + 1).trim() : "";
         const label = (alias ?? body).trim();
-        if (embed === "!") return `![${label}](nodum-embed:${encodeURIComponent(target)})`;
-        return `[${label}](nodum:${encodeURIComponent(target)})`;
+        const ref = fragment ? `${target}#${fragment}` : target;
+        if (embed === "!") return `![${label}](nodum-embed:${encodeURIComponent(ref)})`;
+        return `[${label}](nodum:${encodeURIComponent(ref)})`;
       });
     })
     .join("");
+}
+
+/** "Note#^id" → ["Note", "^id"]; "Note" → ["Note", null]. */
+function splitRef(ref: string): [string, string | null] {
+  const hash = ref.indexOf("#");
+  if (hash === -1) return [ref, null];
+  return [ref.slice(0, hash).trim(), ref.slice(hash + 1).trim() || null];
 }
 
 export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: ReadingViewProps) {
@@ -57,6 +67,10 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
       <ReactMarkdown
         remarkPlugins={[remarkFrontmatter, remarkGfm, remarkMath, remarkCallouts]}
         rehypePlugins={[rehypeKatex]}
+        // default transform strips unknown protocols — ours carry embed refs
+        urlTransform={(url) =>
+          url.startsWith("nodum:") || url.startsWith("nodum-embed:") ? url : defaultUrlTransform(url)
+        }
         components={{
           // @ts-expect-error -- custom hast node emitted by remarkCallouts
           callout: CalloutBox,
@@ -75,13 +89,15 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
           },
           a({ href, children, ...props }) {
             if (href?.startsWith("nodum:")) {
-              const target = decodeURIComponent(href.slice("nodum:".length));
+              const ref = decodeURIComponent(href.slice("nodum:".length));
+              const [target, fragment] = splitRef(ref);
               return (
                 <a
                   {...props}
                   href="#"
                   className="internal-link"
                   data-wikilink-target={target}
+                  data-wikilink-fragment={fragment ?? undefined}
                   onClick={(e) => {
                     e.preventDefault();
                     onNavigate(target);
@@ -99,7 +115,8 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
           },
           img({ src, alt, ...props }) {
             if (typeof src === "string" && src.startsWith("nodum-embed:")) {
-              const target = decodeURIComponent(src.slice("nodum-embed:".length));
+              const ref = decodeURIComponent(src.slice("nodum-embed:".length));
+              const [target, fragment] = splitRef(ref);
               if (isImageTarget(target)) {
                 const width = alt && /^\d+$/.test(alt) ? Number(alt) : null;
                 return <AttachmentImage vaultId={vaultId} filename={target} width={width} />;
@@ -108,6 +125,7 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
                 <NoteEmbed
                   vaultId={vaultId}
                   target={target}
+                  fragment={fragment}
                   onNavigate={onNavigate}
                   depth={depth}
                   renderContent={(embedContent, nextDepth) => (
