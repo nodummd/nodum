@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 from sqlalchemy import delete, select
 
 from app.core.custom_exceptions import NotFoundError
@@ -15,6 +15,7 @@ from app.services.vault_service import get_owned_vault
 
 router = APIRouter()
 public_router = APIRouter()
+site_router = APIRouter()
 
 
 async def _owned_note(db: SessionDep, vault_id: UUID, note_id: UUID, user_id: UUID) -> Note:
@@ -82,3 +83,46 @@ async def read_public_note(token: str, db: SessionDep) -> dict[str, Any]:
             "published_at": published_at.isoformat(),
         }
     }
+
+
+# ── Whole-vault sites ────────────────────────────────────────────────────────
+
+
+@site_router.post("/publish-site")
+async def publish_vault_site(vault_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    from app.services import vault_publish_service
+
+    data = (await vault_publish_service.publish_vault(db, vault_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@site_router.get("/publish-site")
+async def vault_site_status(vault_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    from app.services import vault_publish_service
+
+    data = (await vault_publish_service.publish_status(db, vault_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@site_router.delete("/publish-site")
+async def unpublish_vault_site(vault_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    from app.services import vault_publish_service
+
+    (await vault_publish_service.unpublish_vault(db, vault_id, user_id)).unwrap()
+    return {"data": {"message": "Vault site unpublished."}}
+
+
+@public_router.get("/sites/{slug}")
+async def read_public_site(slug: str, db: SessionDep) -> dict[str, Any]:
+    from app.services import vault_publish_service
+
+    data = (await vault_publish_service.public_site(db, slug)).unwrap()
+    return {"data": data}
+
+
+@public_router.get("/sites/{slug}/note")
+async def read_public_site_note(slug: str, db: SessionDep, path: str = Query(min_length=1)) -> dict[str, Any]:
+    from app.services import vault_publish_service
+
+    data = (await vault_publish_service.public_note(db, slug, path)).unwrap()
+    return {"data": data}

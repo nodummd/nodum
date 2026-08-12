@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **74 backend + 45 e2e**. Feature branches
+> Suites must stay green: currently **77 backend + 46 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -198,7 +198,7 @@
   *Accept:* backend tests with mocked Google endpoints: new-user create,
   existing-email link, state mismatch 400; UI button renders when enabled.
 
-- [ ] **S8.2 Whole-vault publishing** (L)
+- [x] 2026-08-13 **S8.2 Whole-vault publishing** (L)
   *Do:* vault_publications table (slug, vault_id, enabled); publish toggle
   in settings; public site at /s/{slug} (SSR): note list nav + rendered
   notes at /s/{slug}/{note-path}, wikilinks rewritten to site links,

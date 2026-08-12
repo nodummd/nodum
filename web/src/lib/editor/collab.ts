@@ -38,6 +38,11 @@ export function createCollabSession(
   noteId: string,
   token: string,
   user: { name: string; color: string },
+  /** Called when the socket drops after a successful sync. The caller must
+   * rebuild the session with a FRESH doc — re-syncing an old doc against a
+   * re-seeded server room merges two independent insertions of the same
+   * text and duplicates the note. */
+  onStale?: () => void,
 ): CollabSession {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   const base = `${proto}://${window.location.host}/api/v1/vaults/${vaultId}/notes`;
@@ -49,6 +54,13 @@ export function createCollabSession(
     name: user.name,
     color: user.color,
     colorLight: `${user.color}33`,
+  });
+  let syncedOnce = false;
+  provider.on("sync", (synced: boolean) => {
+    if (synced) syncedOnce = true;
+  });
+  provider.on("status", ({ status }: { status: string }) => {
+    if (status === "disconnected" && syncedOnce && onStale) onStale();
   });
   return {
     ydoc,
