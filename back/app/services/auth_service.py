@@ -62,6 +62,14 @@ async def login(
     if not user.is_active:
         return ServiceResponse.fail("forbidden", "This account is disabled.")
 
+    return ServiceResponse.ok(await mint_session(db, user, user_agent=user_agent, ip_address=ip_address))
+
+
+async def mint_session(
+    db: AsyncSession, user: User, *, user_agent: str | None = None, ip_address: str | None = None
+) -> TokenBundle:
+    """Create a session row and token pair for an already-authenticated user
+    (password login and OAuth callbacks share this)."""
     settings = get_settings()
     jti = new_jti()
     session = Session(
@@ -76,12 +84,10 @@ async def login(
     await db.commit()
     await db.refresh(session)
 
-    return ServiceResponse.ok(
-        TokenBundle(
-            access_token=create_access_token(user.id, session.id),
-            refresh_token=create_refresh_token(user.id, jti),
-            user=user,
-        )
+    return TokenBundle(
+        access_token=create_access_token(user.id, session.id),
+        refresh_token=create_refresh_token(user.id, jti),
+        user=user,
     )
 
 

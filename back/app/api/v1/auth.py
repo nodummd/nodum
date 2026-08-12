@@ -1,4 +1,4 @@
-"""Auth endpoints — signup, login, refresh, logout, profile."""
+"""Auth endpoints — signup, login, refresh, logout, profile, Google OAuth."""
 
 from typing import Any
 
@@ -118,3 +118,44 @@ async def change_password(body: ChangePasswordRequest, user_id: CurrentUserId, d
         )
     ).unwrap()
     return {"data": {"message": "Password changed. Please log in again."}}
+
+
+# ── Google OAuth ─────────────────────────────────────────────────────────────
+
+
+@router.get("/providers")
+async def auth_providers() -> dict[str, Any]:
+    """Which external sign-in providers are configured (drives UI buttons)."""
+    from app.services import oauth_service
+
+    return {"data": {"google": oauth_service.google_enabled()}}
+
+
+@router.get("/google/start")
+async def google_start() -> Any:
+    from fastapi.responses import RedirectResponse
+
+    from app.core.custom_exceptions import NotFoundError
+    from app.services import oauth_service
+
+    if not oauth_service.google_enabled():
+        raise NotFoundError("Google sign-in is not enabled.")
+    return RedirectResponse(await oauth_service.build_start_url(), status_code=307)
+
+
+@router.get("/google/callback")
+async def google_callback(request: Request, db: SessionDep, code: str = "", state: str = "") -> Any:
+    from fastapi.responses import RedirectResponse
+
+    from app.services import oauth_service
+    from app.settings import get_settings
+
+    base = get_settings().OAUTH_REDIRECT_BASE_URL.rstrip("/")
+    result = await oauth_service.handle_google_callback(
+        db, code=code, state=state, user_agent=request.headers.get("User-Agent")
+    )
+    if not result.success:
+        return RedirectResponse(f"{base}/login?error=oauth", status_code=307)
+    response = RedirectResponse(f"{base}/", status_code=307)
+    set_refresh_cookie(response, result.data.refresh_token)
+    return response
