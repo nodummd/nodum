@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **61 backend + 38 e2e**. Feature branches
+> Suites must stay green: currently **65 backend + 38 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > Created 2026-08-12 · supersedes the stale "queued" table in
@@ -112,10 +112,10 @@
   `truncated: true` markers (tree: 20k items; graph: 20k nodes; backlinks:
   200 sources) so 100k-note vaults degrade gracefully instead of shipping
   20MB JSON.
-- [ ] **S4.2 Unlinked-mentions cost** — only compute on explicit pane view
+- [x] 2026-08-12 **S4.2 Unlinked-mentions cost** (decided: no trigram index; LIMIT + SET LOCAL statement_timeout=2s, graceful timed_out response) — only compute on explicit pane view
   (already on-demand) + add `pg_trgm` GIN on content? Decide: measure first;
   if index too heavy, cap scan with `LIMIT` + `statement_timeout`.
-- [ ] **S4.3 Redis separation** — cache blobs vs rate-limit counters in
+- [x] 2026-08-12 **S4.3 Redis separation** — cache blobs vs rate-limit counters in
   different logical DBs; raise prod maxmemory guidance in compose comments.
 - [ ] **S4.4 Web observability** — wire Sentry (env-gated) in web; add web
   container healthcheck + `depends_on: condition: service_healthy` in prod

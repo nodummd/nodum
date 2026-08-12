@@ -91,10 +91,10 @@ async def test_refresh_rotates_with_grace_then_blocks_reuse(client: AsyncClient)
 
     # Simulate grace expiry, then reuse of a long-spent token must trip the
     # stolen-token defense and kill the whole session family.
-    from app.core.redis import redis_client
+    from app.core.redis import redis_control
 
-    async for key in redis_client.scan_iter("refresh_grace:*"):
-        await redis_client.delete(key)
+    async for key in redis_control.scan_iter("refresh_grace:*"):
+        await redis_control.delete(key)
 
     r3 = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
     assert r3.status_code == 401
