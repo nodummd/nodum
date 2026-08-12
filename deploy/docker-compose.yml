@@ -25,7 +25,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodum}
       POSTGRES_DB: ${POSTGRES_DB:-nodum}
     ports:
-      - "127.0.0.1:5432:5432"    # Loopback only — prevents external network exposure
+      - "127.0.0.1:15432:5432"    # Loopback only — prevents external network exposure
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -49,7 +49,7 @@ services:
       - "--save"
       - "60 1"
     ports:
-      - "127.0.0.1:6379:6379"    # Loopback only
+      - "127.0.0.1:16379:6379"    # Loopback only
     volumes:
       - redis_data:/data
     healthcheck:
@@ -68,8 +68,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "127.0.0.1:9000:9000"    # API — loopback only
-      - "127.0.0.1:9001:9001"    # Console — loopback only
+      - "127.0.0.1:19000:9000"    # API — loopback only
+      - "127.0.0.1:19001:9001"    # Console — loopback only
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
