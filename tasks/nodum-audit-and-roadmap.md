@@ -140,8 +140,12 @@ Full detail: workflow `wf_cfded3bb-7d0` output (session artifacts).
    ci-e2e.yml runs the Playwright suite on a real stack)
 7. README/docs polish + `.claude/skills/nodum-*` project skills ← LAST ITEM
 
-**Phase B — "v1.1 polish"**: embeds inline, properties UI, live-preview math,
-local graph panel, settings modal, hotkeys, bookmarks, virtualization.
+**Phase B — "v1.1 polish"**: ~~embeds inline~~ ✅ (images in both surfaces,
+note transclusion in reading view) · ~~live-preview math~~ ✅ (KaTeX inline +
+block, memo-cached) · also fixed: graced-refresh convergence (session-nuke
+race found live). REMAINING: properties UI (+ StateField migration for block
+widgets), local graph panel, tables in live preview, settings modal, hotkeys
+(⌘B/I/K), bookmarks, explorer virtualization + scale fixes.
 
 **Phase C — "v2.0 differentiators"**: publish → semantic search → collaboration.
 
