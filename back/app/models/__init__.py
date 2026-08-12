@@ -1,0 +1,10 @@
+"""Model registry — import all models so Base.metadata sees every table.
+
+Alembic's env.py does ``from app.models import *`` to autogenerate against
+the full schema. Add new model modules here as features land.
+"""
+
+from app.models.auth import Session, User
+from app.models.base import Base
+
+__all__ = ["Base", "Session", "User"]
