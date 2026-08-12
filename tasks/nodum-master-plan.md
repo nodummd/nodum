@@ -195,9 +195,9 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 | 2 | feature/backend-foundation | (folded into scaffold) settings, db, redis, logging, middlewares, exceptions, health | ✅ |
 | 3 | feature/auth | users+sessions models, signup/login/refresh/logout/me, JWT rotation, tests | ✅ |
 | 4 | feature/vaults-notes | vaults/folders/notes CRUD, tree endpoint, default-vault onboarding seed, tests | ✅ |
-| 5 | feature/links-graph | link parser, links table sync on save, backlinks/outgoing endpoints, graph endpoint + Redis cache, tests | ⬜ |
-| 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ⬜ |
-| 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ⬜ |
+| 5 | feature/links-graph | link parser, links table sync on save, backlinks/outgoing endpoints, graph endpoint + Redis cache, tests | ✅ |
+| 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ✅ |
+| 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ✅ |
 | 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ⬜ |
 | 9 | feature/web-vault-ui | file explorer tree, tabs, workspace layout, panels, settings modal, themes | ⬜ |
 | 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ⬜ |
@@ -235,6 +235,18 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
   Infra note: nodum dev ports remapped (pg 15432, redis 16379, minio 19000/1)
   to coexist with the hourly stack. Tests: 13 passing (auth 8, vaults 5).
   Next: feature/links-graph (link extraction, backlinks, graph endpoint).
+- **2026-08-12 (c)**: BACKEND v1 API COMPLETE — links/graph (wikilink parser,
+  backlinks+snippets, unlinked mentions, cached whole-vault graph, local BFS
+  graph), search (weighted tsvector + GIN, operators path:/file:/tag:,
+  ts_headline marks, pg_trgm quick switcher), tags (synced tables, nested
+  matching, tag pane counts), attachments (MinIO, ![[embed]] resolution).
+  35 tests green · migrations 0001-0005 · all merged to dev & pushed.
+  NEXT: frontend phase — feature/web-foundation (api client + auth + shell,
+  Next 16: READ web/AGENTS.md + node_modules/next/dist/docs first, add
+  /api/* rewrite → localhost:8000 so refresh cookie is first-party), then
+  web-vault-ui → web-editor → web-graph → web-search-palette. Use
+  docs/research/DECISIONS.md package versions. Consider parallel subagents
+  for independent component groups after the foundation lands.
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
