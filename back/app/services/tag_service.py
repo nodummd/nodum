@@ -14,7 +14,7 @@ from app.utils.markdown_parse import extract_tags, frontmatter_tags
 
 
 async def sync_note_tags(db: AsyncSession, note: Note) -> None:
-    """Recompute the note's tag set (inline #tags ∪ frontmatter tags). Caller commits."""
+    """Recompute the note's tag set (inline #tags union frontmatter tags). Caller commits."""
     wanted = extract_tags(note.content) | frontmatter_tags(note.properties or {})
 
     await db.execute(delete(NoteTag).where(NoteTag.note_id == note.id))
