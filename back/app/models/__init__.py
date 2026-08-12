@@ -11,12 +11,13 @@ from app.models.bookmarks import Bookmark
 from app.models.links import Link
 from app.models.publications import Publication, VaultPublication
 from app.models.tags import NoteTag, Tag
-from app.models.vaults import Folder, Note, NoteAlias, NoteVersion, Vault
+from app.models.vaults import Canvas, Folder, Note, NoteAlias, NoteVersion, Vault
 
 __all__ = [
     "Attachment",
     "Base",
     "Bookmark",
+    "Canvas",
     "Folder",
     "Link",
     "Note",

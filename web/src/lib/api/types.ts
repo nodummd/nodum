@@ -150,3 +150,42 @@ export interface AttachmentInfo {
   size_bytes: number;
   created_at: string;
 }
+
+// ── Canvas (JSON Canvas format) ─────────────────────────────────────────────
+
+export interface CanvasNode {
+  id: string;
+  type: "text" | "file" | "link";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text?: string;
+  file?: string;
+  url?: string;
+  color?: string;
+}
+
+export interface CanvasEdge {
+  id: string;
+  fromNode: string;
+  toNode: string;
+  fromSide?: "top" | "right" | "bottom" | "left";
+  toSide?: "top" | "right" | "bottom" | "left";
+  label?: string;
+}
+
+export interface CanvasData {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+export interface CanvasMeta {
+  id: string;
+  name: string;
+  updated_at: string;
+}
+
+export interface CanvasFull extends CanvasMeta {
+  data: CanvasData;
+}
