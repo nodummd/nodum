@@ -198,7 +198,7 @@ Branch model: `main` = prod · `dev` = integration · `feature/*` off dev, merge
 | 5 | feature/links-graph | link parser, links table sync on save, backlinks/outgoing endpoints, graph endpoint + Redis cache, tests | ✅ |
 | 6 | feature/search-tags | FTS + quick-switcher endpoints, tag extraction + tag endpoints, tests | ✅ |
 | 7 | feature/attachments | MinIO presigned upload/download, attachments CRUD | ✅ |
-| 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ⬜ |
+| 8 | feature/web-foundation | Next.js scaffold, Tailwind+shadcn, api client + auth flow (cookie refresh), landing/login/signup, app shell layout | ✅ |
 | 9 | feature/web-vault-ui | file explorer tree, tabs, workspace layout, panels, settings modal, themes | ⬜ |
 | 10 | feature/web-editor | CM6 editor, live preview, autocomplete, reading view, autosave | ⬜ |
 | 11 | feature/web-graph | global + local graph views with filters/groups/sliders | ⬜ |
@@ -247,6 +247,15 @@ suite green → no secrets in git history → pushed to github.com/vorreix/nodum
   web-vault-ui → web-editor → web-graph → web-search-palette. Use
   docs/research/DECISIONS.md package versions. Consider parallel subagents
   for independent component groups after the foundation lands.
+- **2026-08-12 (d)**: feature/web-foundation SHIPPED & BROWSER-VERIFIED —
+  /api/* rewrite proxy (first-party cookie auth), api client (in-memory token,
+  single-flight refresh), typed endpoints for all resources, zustand stores
+  (auth bootstrap + persisted workspace), shadcn radix-nova, landing/login/
+  signup/vault pages. Live test: signup → welcome vault tree renders; session
+  survives reload. Dev servers: API uvicorn :8000, web dev :3100 (3000 taken
+  by unrelated process). NEXT: feature/web-vault-ui (Obsidian layout: file
+  explorer + tabs + panels + settings + themes) then feature/web-editor
+  (CM6 live preview per docs/research/editor-stack.md), then graph.
 
 ## 7. Research Notes
 _(filled by research workflow — Obsidian behavioral details, library decisions)_
