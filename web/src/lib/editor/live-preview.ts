@@ -279,6 +279,7 @@ export function livePreview(callbacks: LivePreviewCallbacks = {}) {
       decorations: (v) => v.decorations,
       eventHandlers: {
         mousedown(event, view) {
+          if (event.button !== 0) return false; // left button only — never hijack right-click/middle-click
           const target = event.target as HTMLElement;
 
           // Checkbox toggle — resolve position at event time via posAtDOM
