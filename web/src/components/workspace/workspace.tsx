@@ -35,6 +35,9 @@ import { dailyApi, noteApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
 import { api } from "@/lib/api/client";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
+import { Menu, PanelRight } from "lucide-react";
+
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -46,6 +49,9 @@ export function Workspace({ vault }: { vault: Vault }) {
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
 
+  const isMobile = useIsMobile();
+  const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
+  const [mobileRightOpen, setMobileRightOpen] = useState(false);
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
@@ -53,6 +59,8 @@ export function Workspace({ vault }: { vault: Vault }) {
   const openNote = useCallback(
     (noteId: string, title: string) => {
       openTab({ id: noteId, kind: "note", title });
+      setMobileLeftOpen(false);
+      setMobileRightOpen(false);
     },
     [openTab],
   );
@@ -203,14 +211,43 @@ export function Workspace({ vault }: { vault: Vault }) {
   }, [setSwitcherOpen, switcherOpen, newNote, openGraph, closeActiveTab]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-ob-sidebar text-ob-text">
-      <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} onOpenDailyNote={openDailyNote} />
-      <SidebarLeft
-        vaultId={vault.id}
-        vaultName={vault.name}
-        activeNoteId={activeNoteId}
-        onOpenNote={openNote}
-      />
+    <div className="flex h-screen flex-col overflow-hidden bg-ob-sidebar text-ob-text md:flex-row">
+      {/* Mobile top bar — hamburger, vault name, panels */}
+      {isMobile && (
+        <header className="flex h-12 shrink-0 items-center gap-1 border-b border-ob-border bg-ob-sidebar px-2 md:hidden">
+          <button
+            type="button"
+            aria-label="Open navigation"
+            onClick={() => setMobileLeftOpen(true)}
+            className="flex size-10 items-center justify-center rounded-md text-ob-muted hover:bg-ob-hover"
+          >
+            <Menu className="size-5" strokeWidth={1.75} />
+          </button>
+          <span className="min-w-0 flex-1 truncate text-center text-[13px] font-medium">
+            {vault.name}
+          </span>
+          <button
+            type="button"
+            aria-label="Open panels"
+            onClick={() => setMobileRightOpen(true)}
+            className="flex size-10 items-center justify-center rounded-md text-ob-muted hover:bg-ob-hover"
+          >
+            <PanelRight className="size-5" strokeWidth={1.75} />
+          </button>
+        </header>
+      )}
+
+      {!isMobile && (
+        <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} onOpenDailyNote={openDailyNote} />
+      )}
+      {!isMobile && (
+        <SidebarLeft
+          vaultId={vault.id}
+          vaultName={vault.name}
+          activeNoteId={activeNoteId}
+          onOpenNote={openNote}
+        />
+      )}
 
       <main className="relative flex min-w-0 flex-1 border-l border-ob-border">
         {panes.map((pane, paneIndex) => {
@@ -249,7 +286,50 @@ export function Workspace({ vault }: { vault: Vault }) {
         })}
       </main>
 
-      <SidebarRight vaultId={vault.id} noteId={activeNoteId} onOpenNote={openNote} />
+      {!isMobile && (
+        <SidebarRight vaultId={vault.id} noteId={activeNoteId} onOpenNote={openNote} />
+      )}
+
+      {/* Mobile drawers */}
+      {isMobile && mobileLeftOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50"
+          role="presentation"
+          onClick={() => setMobileLeftOpen(false)}
+        >
+          <div
+            className="absolute top-0 left-0 h-full w-[85vw] max-w-[320px] shadow-2xl"
+            role="dialog"
+            aria-label="Navigation drawer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SidebarLeft
+              drawer
+              vaultId={vault.id}
+              vaultName={vault.name}
+              activeNoteId={activeNoteId}
+              onOpenNote={openNote}
+            />
+          </div>
+        </div>
+      )}
+      {isMobile && mobileRightOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50"
+          role="presentation"
+          onClick={() => setMobileRightOpen(false)}
+        >
+          <div
+            className="absolute top-0 right-0 h-full w-[85vw] max-w-[320px] shadow-2xl"
+            role="dialog"
+            aria-label="Panels drawer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SidebarRight drawer vaultId={vault.id} noteId={activeNoteId} onOpenNote={openNote} />
+          </div>
+        </div>
+      )}
+
       <QuickSwitcher vaultId={vault.id} onOpenNote={openNote} />
       <CommandPalette
         onNewNote={() => newNote.mutate()}

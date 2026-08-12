@@ -26,12 +26,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { folderApi, noteApi, vaultApi } from "@/lib/api/endpoints";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem } from "@/lib/api/types";
 import { toastError } from "@/lib/stores/toast-store";
 import { type ExplorerSort, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 26;
+const ROW_HEIGHT_TOUCH = 40;
 
 interface ExplorerProps {
   vaultId: string;
@@ -139,10 +141,11 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     [tree, collapsed, creating, explorerSort],
   );
 
+  const isMobile = useIsMobile();
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => (isMobile ? ROW_HEIGHT_TOUCH : ROW_HEIGHT),
     overscan: 12,
   });
 

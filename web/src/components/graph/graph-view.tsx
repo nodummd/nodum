@@ -11,11 +11,18 @@ import { Graph as CosmosGraph } from "@cosmos.gl/graph";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Settings2 } from "lucide-react";
+
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, type GraphGroup } from "@/lib/graph/groups";
 
 const LABELS_SHOWN = 28;
+
+/** Mobile: card hidden unless toggled; desktop: always visible. */
+function cnControls(open: boolean, base: string): string {
+  return `${open ? "block" : "hidden"} md:block ${base}`;
+}
 
 /** Shape stored under vaults.settings.graph (all keys optional). */
 interface PersistedGraph {
@@ -61,6 +68,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const graphRef = useRef<CosmosGraph | null>(null);
   const rafRef = useRef<number>(0);
   const [hovered, setHovered] = useState<{ title: string; x: number; y: number } | null>(null);
+  const [controlsOpen, setControlsOpen] = useState(false);
   const queryClient = useQueryClient();
 
   // Settings persist per vault under settings.graph. Local edits are drafts
@@ -370,9 +378,24 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         </div>
       )}
 
-      {/* Controls — Obsidian's graph settings card */}
+      {/* Controls — Obsidian's graph settings card (behind a gear on mobile) */}
       {!compact && (
-      <div className="absolute top-3 right-3 z-10 w-52 rounded-lg border border-ob-border bg-ob-sidebar/95 p-3 text-[12px] backdrop-blur">
+        <button
+          type="button"
+          aria-label="Graph settings"
+          onClick={() => setControlsOpen((v) => !v)}
+          className="absolute right-3 bottom-16 z-10 flex size-11 items-center justify-center rounded-full border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur md:hidden"
+        >
+          <Settings2 className="size-5" strokeWidth={1.75} />
+        </button>
+      )}
+      {!compact && (
+      <div
+        className={cnControls(
+          controlsOpen,
+          "absolute top-3 right-3 z-10 w-52 rounded-lg border border-ob-border bg-ob-sidebar/95 p-3 text-[12px] backdrop-blur",
+        )}
+      >
         <p className="pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Filters</p>
         <label className="flex items-center justify-between py-0.5 text-ob-muted">
           Existing files only
