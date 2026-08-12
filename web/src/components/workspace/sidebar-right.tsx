@@ -1,0 +1,272 @@
+"use client";
+
+/** Right sidebar — Backlinks / Outgoing / Tags / Outline panes (Obsidian style). */
+
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, Hash, Link2, List } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { linkApi, noteApi, searchApi } from "@/lib/api/endpoints";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { cn } from "@/lib/utils";
+
+type PaneKind = "backlinks" | "outgoing" | "tags" | "outline";
+
+export function SidebarRight({
+  vaultId,
+  noteId,
+  onOpenNote,
+}: {
+  vaultId: string;
+  noteId: string | null;
+  onOpenNote: (noteId: string, title: string) => void;
+}) {
+  const open = useWorkspaceStore((s) => s.rightSidebarOpen);
+  const width = useWorkspaceStore((s) => s.rightWidth);
+  const setWidth = useWorkspaceStore((s) => s.setRightWidth);
+  const [pane, setPane] = useState<PaneKind>("backlinks");
+  const dragging = useRef(false);
+
+  const onDragStart = useCallback(
+    (e: React.PointerEvent) => {
+      dragging.current = true;
+      const startX = e.clientX;
+      const startWidth = width;
+      const onMove = (ev: PointerEvent) => {
+        if (dragging.current) setWidth(startWidth - (ev.clientX - startX));
+      };
+      const onUp = () => {
+        dragging.current = false;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [width, setWidth],
+  );
+
+  if (!open) return null;
+
+  const panes: { kind: PaneKind; label: string; icon: React.ReactNode }[] = [
+    { kind: "backlinks", label: "Backlinks", icon: <Link2 className="size-4" strokeWidth={1.75} /> },
+    { kind: "outgoing", label: "Outgoing links", icon: <ArrowRight className="size-4" strokeWidth={1.75} /> },
+    { kind: "tags", label: "Tags", icon: <Hash className="size-4" strokeWidth={1.75} /> },
+    { kind: "outline", label: "Outline", icon: <List className="size-4" strokeWidth={1.75} /> },
+  ];
+
+  return (
+    <div className="relative flex shrink-0 flex-col border-l border-ob-border bg-ob-sidebar" style={{ width }}>
+      <div className="flex items-center gap-0.5 border-b border-ob-border px-2 py-1">
+        {panes.map((p) => (
+          <Tooltip key={p.kind} delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={p.label}
+                aria-pressed={pane === p.kind}
+                onClick={() => setPane(p.kind)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-md transition-colors duration-150",
+                  pane === p.kind
+                    ? "bg-ob-active text-ob-text"
+                    : "text-ob-faint hover:bg-ob-hover hover:text-ob-text",
+                )}
+              >
+                {p.icon}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{p.label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {pane === "backlinks" && <BacklinksPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
+        {pane === "outgoing" && <OutgoingPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
+        {pane === "tags" && <TagsPane vaultId={vaultId} />}
+        {pane === "outline" && <OutlinePane vaultId={vaultId} noteId={noteId} />}
+      </div>
+
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize right sidebar"
+        onPointerDown={onDragStart}
+        className="absolute top-0 left-0 z-10 h-full w-1 cursor-col-resize hover:bg-ob-accent/40"
+      />
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-1 pb-1 text-[11px] font-medium tracking-wide text-ob-faint uppercase">{children}</p>
+  );
+}
+
+function EmptyHint({ children }: { children: React.ReactNode }) {
+  return <p className="px-1 text-[12px] text-ob-faint">{children}</p>;
+}
+
+function BacklinksPane({
+  vaultId,
+  noteId,
+  onOpenNote,
+}: {
+  vaultId: string;
+  noteId: string | null;
+  onOpenNote: (noteId: string, title: string) => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ["backlinks", vaultId, noteId],
+    queryFn: () => linkApi.backlinks(vaultId, noteId as string),
+    enabled: Boolean(noteId),
+  });
+  const { data: mentions } = useQuery({
+    queryKey: ["unlinked", vaultId, noteId],
+    queryFn: () => linkApi.unlinkedMentions(vaultId, noteId as string),
+    enabled: Boolean(noteId),
+  });
+
+  if (!noteId) return <EmptyHint>Open a note to see its backlinks.</EmptyHint>;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <SectionLabel>Linked mentions {data ? `(${data.backlinks.length})` : ""}</SectionLabel>
+        {data && data.backlinks.length === 0 && <EmptyHint>No backlinks yet.</EmptyHint>}
+        {data?.backlinks.map((b) => (
+          <button
+            key={b.note_id}
+            type="button"
+            onClick={() => onOpenNote(b.note_id, b.title)}
+            className="block w-full rounded px-1.5 py-1 text-left hover:bg-ob-hover"
+          >
+            <span className="block truncate text-[13px] text-ob-accent">{b.title}</span>
+            {b.snippets[0] && (
+              <span className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-ob-muted">
+                {b.snippets[0]}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <div>
+        <SectionLabel>Unlinked mentions {mentions ? `(${mentions.unlinked_mentions.length})` : ""}</SectionLabel>
+        {mentions && mentions.unlinked_mentions.length === 0 && <EmptyHint>None found.</EmptyHint>}
+        {mentions?.unlinked_mentions.map((m) => (
+          <button
+            key={m.note_id}
+            type="button"
+            onClick={() => onOpenNote(m.note_id, m.title)}
+            className="block w-full rounded px-1.5 py-1 text-left hover:bg-ob-hover"
+          >
+            <span className="block truncate text-[13px] text-ob-text">{m.title}</span>
+            {m.snippets[0] && (
+              <span className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-ob-muted">
+                {m.snippets[0]}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OutgoingPane({
+  vaultId,
+  noteId,
+  onOpenNote,
+}: {
+  vaultId: string;
+  noteId: string | null;
+  onOpenNote: (noteId: string, title: string) => void;
+}) {
+  const { data } = useQuery({
+    queryKey: ["outgoing", vaultId, noteId],
+    queryFn: () => linkApi.outgoing(vaultId, noteId as string),
+    enabled: Boolean(noteId),
+  });
+
+  if (!noteId) return <EmptyHint>Open a note to see its outgoing links.</EmptyHint>;
+
+  return (
+    <div>
+      <SectionLabel>Outgoing links {data ? `(${data.outgoing.length})` : ""}</SectionLabel>
+      {data && data.outgoing.length === 0 && <EmptyHint>This note has no links yet.</EmptyHint>}
+      {data?.outgoing.map((l) => (
+        <button
+          key={`${l.target_title}-${String(l.is_embed)}`}
+          type="button"
+          disabled={!l.target_note_id}
+          onClick={() =>
+            l.target_note_id && onOpenNote(l.target_note_id, l.resolved_title ?? l.target_title)
+          }
+          className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[13px] hover:bg-ob-hover disabled:hover:bg-transparent"
+        >
+          <span className={cn("truncate", l.target_note_id ? "text-ob-accent" : "text-ob-accent/55 italic")}>
+            {l.resolved_title ?? l.target_title}
+          </span>
+          {!l.target_note_id && <span className="text-[11px] text-ob-faint">(unresolved)</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TagsPane({ vaultId }: { vaultId: string }) {
+  const { data } = useQuery({ queryKey: ["tags", vaultId], queryFn: () => searchApi.tags(vaultId) });
+
+  return (
+    <div>
+      <SectionLabel>Tags {data ? `(${data.length})` : ""}</SectionLabel>
+      {data && data.length === 0 && <EmptyHint>No tags in this vault yet.</EmptyHint>}
+      <div className="flex flex-wrap gap-1.5 px-1 pt-1">
+        {data?.map((t) => (
+          <span
+            key={t.name}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--ob-tag-background)] px-2 py-0.5 text-[12px] text-ob-accent"
+          >
+            #{t.name}
+            <span className="text-[10px] text-ob-faint">{t.count}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OutlinePane({ vaultId, noteId }: { vaultId: string; noteId: string | null }) {
+  const { data: note } = useQuery({
+    queryKey: ["note", vaultId, noteId],
+    queryFn: () => noteApi.get(vaultId, noteId as string),
+    enabled: Boolean(noteId),
+  });
+
+  if (!noteId || !note) return <EmptyHint>Open a note to see its outline.</EmptyHint>;
+
+  const headings = [...note.content.matchAll(/^(#{1,6})\s+(.+)$/gm)].map((m) => ({
+    level: m[1].length,
+    text: m[2].replace(/[*_`[\]]/g, ""),
+  }));
+
+  if (headings.length === 0) return <EmptyHint>No headings in this note.</EmptyHint>;
+
+  return (
+    <div>
+      <SectionLabel>Outline</SectionLabel>
+      {headings.map((h, i) => (
+        <p
+          key={`${h.text}-${String(i)}`}
+          className="truncate py-0.5 text-[13px] text-ob-muted"
+          style={{ paddingLeft: 4 + (h.level - 1) * 12 }}
+        >
+          {h.text}
+        </p>
+      ))}
+    </div>
+  );
+}
