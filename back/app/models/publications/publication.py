@@ -38,3 +38,23 @@ class Publication(UUIDMixin, TimestampMixin, Base):
     token: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True, default=new_share_token)
 
     __table_args__ = (UniqueConstraint("note_id", name="uq_publications_note"),)
+
+
+class VaultPublication(UUIDMixin, TimestampMixin, Base):
+    """A published vault site: /s/{slug} serves every note not marked
+    ``publish: false`` in frontmatter."""
+
+    __tablename__ = "vault_publications"
+
+    vault_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("vaults.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("vault_id", name="uq_vault_publications_vault"),
+        UniqueConstraint("slug", name="uq_vault_publications_slug"),
+    )

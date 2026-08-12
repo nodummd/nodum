@@ -30,6 +30,7 @@ export const authApi = {
   refresh: () => apiJson<TokenPair>("/auth/refresh", "POST"),
   logout: () => apiJson<{ message: string }>("/auth/logout", "POST"),
   me: () => api<User>("/auth/me"),
+  providers: () => api<{ google: boolean }>("/auth/providers"),
   updateMe: (body: { name?: string; avatar_url?: string; settings?: Record<string, unknown> }) =>
     apiJson<User>("/auth/me", "PATCH", body),
   changePassword: (body: { current_password: string; new_password: string }) =>
@@ -149,6 +150,26 @@ export const dailyApi = {
 };
 
 // ── Publish ──────────────────────────────────────────────────────────────────
+
+export interface PublicSite {
+  slug: string;
+  vault_name: string;
+  notes: { title: string; path: string }[];
+}
+
+export const siteApi = {
+  publish: (vaultId: string) =>
+    apiJson<{ slug: string; enabled: boolean }>(`/vaults/${vaultId}/publish-site`, "POST"),
+  status: (vaultId: string) =>
+    api<{ enabled: boolean; slug: string | null }>(`/vaults/${vaultId}/publish-site`),
+  unpublish: (vaultId: string) =>
+    apiJson<{ message: string }>(`/vaults/${vaultId}/publish-site`, "DELETE"),
+  readSite: (slug: string) => api<PublicSite>(`/public/sites/${slug}`),
+  readNote: (slug: string, path: string) =>
+    api<{ title: string; path: string; content: string; updated_at: string }>(
+      `/public/sites/${slug}/note?path=${encodeURIComponent(path)}`,
+    ),
+};
 
 export const publishApi = {
   publish: (vaultId: string, noteId: string) =>

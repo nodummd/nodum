@@ -83,14 +83,22 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // the state below — never the ref
   const collabRef = useRef<CollabSession | null>(null);
   const [syncedSession, setSyncedSession] = useState<CollabSession | null>(null);
+  // bumped when the socket drops post-sync → rebuild with a fresh doc
+  const [collabEpoch, setCollabEpoch] = useState(0);
   useEffect(() => {
     if (!collabEnabled) return;
     const token = getAccessToken();
     if (!token) return;
-    const session = createCollabSession(vaultId, note.id, token, {
-      name: user?.name ?? "Someone",
-      color: presenceColor(user?.email ?? note.id),
-    });
+    const session = createCollabSession(
+      vaultId,
+      note.id,
+      token,
+      {
+        name: user?.name ?? "Someone",
+        color: presenceColor(user?.email ?? note.id),
+      },
+      () => setCollabEpoch((n) => n + 1),
+    );
     collabRef.current = session;
     const onSync = (synced: boolean) => {
       if (synced) setSyncedSession(session);
@@ -103,7 +111,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     };
     // user identity is stable within a mounted editor session
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collabEnabled, vaultId, note.id]);
+  }, [collabEnabled, vaultId, note.id, collabEpoch]);
   // gate on the flag so a just-disabled vault never reuses a destroyed session
   const activeCollab = collabEnabled ? syncedSession : null;
 
@@ -239,7 +247,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
             <p className="pt-2 text-[13px] text-ob-faint">Connecting live session…</p>
           ) : (
             <MarkdownEditor
-              key={activeCollab ? `collab-${note.id}` : editorEpoch}
+              key={activeCollab ? `collab-${note.id}-${collabEpoch}` : editorEpoch}
               vaultId={vaultId}
               initialContent={draft}
               mode={mode}

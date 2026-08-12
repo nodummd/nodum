@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **68 backend + 45 e2e**. Feature branches
+> Suites must stay green: currently **77 backend + 46 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -185,11 +185,11 @@
   *Accept:* manifest served + installable (lighthouse-ish check via
   headers), e2e: POST to share-target creates the clipping note.
 
-🏁 **Release v2.2.0** after Sprint 7.
+🏁 ~~**Release v2.2.0**~~ ✅ 2026-08-13 — dev→main merged, tagged, prod smoke passed (PWA manifest/sw/clip served, clippings flow via API, web healthy).
 
 ## Sprint 8 — Accounts & publishing (Phase D)
 
-- [ ] **S8.1 Google OAuth** (M) — hourly's oauth_connection pattern.
+- [x] 2026-08-13 **S8.1 Google OAuth** (M) — hourly's oauth_connection pattern.
   *Do:* oauth_connections table (migration), /auth/google/start (state in
   Redis) + /auth/google/callback (code→token→userinfo, link-or-create user,
   set refresh cookie, redirect to app); frontend "Continue with Google"
@@ -198,7 +198,7 @@
   *Accept:* backend tests with mocked Google endpoints: new-user create,
   existing-email link, state mismatch 400; UI button renders when enabled.
 
-- [ ] **S8.2 Whole-vault publishing** (L)
+- [x] 2026-08-13 **S8.2 Whole-vault publishing** (L)
   *Do:* vault_publications table (slug, vault_id, enabled); publish toggle
   in settings; public site at /s/{slug} (SSR): note list nav + rendered
   notes at /s/{slug}/{note-path}, wikilinks rewritten to site links,
