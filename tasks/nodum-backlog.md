@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **80 backend + 50 e2e**. Feature branches
+> Suites must stay green: currently **80 backend + 51 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -269,7 +269,7 @@
 
 ## Sprint 11 — Settings depth
 
-- [ ] **S11.1 Tabbed settings window** (M)
+- [x] **S11.1 Tabbed settings window** (M) — 2026-08-13
   *Do:* rebuild the settings modal as an Obsidian-style vertical-tab
   layout (General · Editor · Appearance · Files & links · Hotkeys · Vault
   · Publish · Collab); migrate every existing option into the right tab;
