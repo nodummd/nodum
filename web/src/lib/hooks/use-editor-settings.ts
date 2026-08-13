@@ -53,3 +53,30 @@ export function useEditorSettings(): EditorSettings {
   const user = useAuthStore((s) => s.user);
   return parseEditorSettings(user?.settings);
 }
+
+// ── App-wide prefs (S11.3: appearance, files & links, page preview) ─────────
+
+export interface UserPrefs {
+  /** Hex accent colour override, null = theme default. */
+  accentColor: string | null;
+  /** Page preview only triggers with ⌘/Ctrl held (Obsidian default). */
+  previewRequireCmd: boolean;
+  /** Ask before deleting notes, folders and canvases. */
+  confirmDelete: boolean;
+}
+
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+export function parseUserPrefs(raw: Record<string, unknown> | undefined): UserPrefs {
+  const s = raw ?? {};
+  return {
+    accentColor: typeof s.accentColor === "string" && HEX_RE.test(s.accentColor) ? s.accentColor : null,
+    previewRequireCmd: typeof s.previewRequireCmd === "boolean" ? s.previewRequireCmd : true,
+    confirmDelete: typeof s.confirmDelete === "boolean" ? s.confirmDelete : true,
+  };
+}
+
+export function useUserPrefs(): UserPrefs {
+  const user = useAuthStore((s) => s.user);
+  return parseUserPrefs(user?.settings);
+}

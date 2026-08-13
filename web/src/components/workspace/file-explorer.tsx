@@ -25,6 +25,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { confirmDelete } from "./confirm-dialog";
 import { folderApi, noteApi, vaultApi } from "@/lib/api/endpoints";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem } from "@/lib/api/types";
@@ -181,7 +182,11 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   });
   const deleteNote = useMutation({
     mutationFn: (id: string) => noteApi.remove(vaultId, id),
-    onSuccess: invalidate,
+    onSuccess: (_res, id) => {
+      // Obsidian closes the file's view on delete — drop the tab everywhere
+      useWorkspaceStore.getState().closeTab(id);
+      invalidate();
+    },
     onError: (err) => toastError(err, "Could not delete note."),
   });
   const deleteFolder = useMutation({
@@ -339,7 +344,14 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       >
                         Rename…
                       </ContextMenuItem>
-                      <ContextMenuItem variant="destructive" onClick={() => deleteFolder.mutate(row.id)}>
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() =>
+                          void confirmDelete(
+                            `Delete the folder “${row.name}” and everything inside it?`,
+                          ).then((ok) => ok && deleteFolder.mutate(row.id))
+                        }
+                      >
                         Delete
                       </ContextMenuItem>
                     </ContextMenuContent>
@@ -381,7 +393,14 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                         Rename…
                       </ContextMenuItem>
                       <ContextMenuSeparator />
-                      <ContextMenuItem variant="destructive" onClick={() => deleteNote.mutate(row.id)}>
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() =>
+                          void confirmDelete(`Delete “${row.title}”?`).then(
+                            (ok) => ok && deleteNote.mutate(row.id),
+                          )
+                        }
+                      >
                         Delete
                       </ContextMenuItem>
                     </ContextMenuContent>
