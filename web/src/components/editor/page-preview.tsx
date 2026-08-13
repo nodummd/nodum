@@ -12,6 +12,7 @@ import { useState } from "react";
 
 import { noteApi, searchApi } from "@/lib/api/endpoints";
 import { sliceFragment } from "@/lib/editor/block-slice";
+import { useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { ReadingView } from "./reading-view";
 
 export interface PreviewAnchor {
@@ -33,10 +34,12 @@ function excerpt(content: string): string {
 
 export function usePagePreview() {
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
+  // "Require ⌘/Ctrl while hovering" (S11.3) — Obsidian's page-preview toggle
+  const requireCmd = useUserPrefs().previewRequireCmd;
 
   const handlers = {
     onMouseOver: (e: React.MouseEvent) => {
-      if (!e.metaKey && !e.ctrlKey) return;
+      if (requireCmd && !e.metaKey && !e.ctrlKey) return;
       const el = (e.target as HTMLElement).closest?.("[data-wikilink-target]");
       const target = el?.getAttribute("data-wikilink-target");
       const fragment = el?.getAttribute("data-wikilink-fragment") ?? null;

@@ -69,8 +69,10 @@ export const folderApi = {
 // ── Notes ────────────────────────────────────────────────────────────────────
 
 export const noteApi = {
-  create: (vaultId: string, body: { title: string; folder_id?: string | null; content?: string }) =>
-    apiJson<Note>(`/vaults/${vaultId}/notes`, "POST", body),
+  create: (
+    vaultId: string,
+    body: { title: string; folder_id?: string | null; folder_path?: string; content?: string },
+  ) => apiJson<Note>(`/vaults/${vaultId}/notes`, "POST", body),
   get: (vaultId: string, noteId: string) => api<Note>(`/vaults/${vaultId}/notes/${noteId}`),
   getByPath: (vaultId: string, path: string) =>
     api<Note>(`/vaults/${vaultId}/notes/by-path?path=${encodeURIComponent(path)}`),

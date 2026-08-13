@@ -17,7 +17,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.vaults import Folder, Note
+from app.models.vaults import Note
 from app.services import folder_service, note_service
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault
@@ -54,22 +54,8 @@ def apply_template_vars(content: str, *, title: str, when: datetime) -> str:
 
 
 async def _ensure_folder(db: AsyncSession, vault_id: UUID, user_id: UUID, path: str) -> UUID | None:
-    """Get or create the (possibly nested) folder for a path; None = root."""
-    if not path:
-        return None
-    parent_id: UUID | None = None
-    walked = ""
-    for segment in path.split("/"):
-        walked = f"{walked}/{segment}" if walked else segment
-        existing = await db.scalar(select(Folder).where(Folder.vault_id == vault_id, Folder.path == walked))
-        if existing:
-            parent_id = existing.id
-            continue
-        created = await folder_service.create_folder(db, vault_id, user_id, name=segment, parent_id=parent_id)
-        if not created.success or created.data is None:
-            return parent_id
-        parent_id = created.data.id
-    return parent_id
+    """Get or create the folder for a path (delegates to folder_service)."""
+    return await folder_service.ensure_folder_path(db, vault_id, user_id, path)
 
 
 async def open_daily_note(

@@ -19,7 +19,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
-import { useEditorSettings, type EditorViewMode } from "@/lib/hooks/use-editor-settings";
+import {
+  useEditorSettings,
+  useUserPrefs,
+  type EditorViewMode,
+} from "@/lib/hooks/use-editor-settings";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { cn } from "@/lib/utils";
@@ -49,6 +53,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
   const toast = useToastStore((s) => s.push);
   const [tab, setTab] = useState<SettingsTab>("General");
   const editorSettings = useEditorSettings();
+  const userPrefs = useUserPrefs();
 
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list, enabled: open });
   const vault = vaults?.find((v) => v.id === vaultId);
@@ -147,6 +152,34 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
     },
     onError: (e) => toastError(e, "Could not update collaboration."),
   });
+
+  // Files & links vault-level prefs — immediate patch saves
+  const saveVaultPatch = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => vaultApi.update(vaultId, { settings: patch }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["vaults"] });
+      toast("Vault settings saved.", "info");
+    },
+    onError: (e) => toastError(e, "Could not save vault settings."),
+  });
+  const [newNoteFolderDraft, setNewNoteFolderDraft] = useState<string | null>(null);
+  const newNoteFolderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onNewNoteFolderChange = (value: string) => {
+    setNewNoteFolderDraft(value);
+    if (newNoteFolderTimer.current) clearTimeout(newNoteFolderTimer.current);
+    newNoteFolderTimer.current = setTimeout(
+      () => saveVaultPatch.mutate({ newNoteFolder: value.trim() }),
+      500,
+    );
+  };
+  // Accent colour drags fire per-frame — debounce like the font slider
+  const [accentDraft, setAccentDraft] = useState<string | null>(null);
+  const accentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onAccentChange = (value: string) => {
+    setAccentDraft(value);
+    if (accentTimer.current) clearTimeout(accentTimer.current);
+    accentTimer.current = setTimeout(() => saveEditorSettings.mutate({ accentColor: value }), 400);
+  };
 
   const changePassword = useMutation({
     mutationFn: () => authApi.changePassword({ current_password: currentPw, new_password: newPw }),
@@ -321,17 +354,89 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             )}
 
             {tab === "Appearance" && (
-              <PlaceholderTab
-                title="Appearance"
-                text="Accent colour and theme options are coming soon."
-              />
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                  Appearance
+                </h3>
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="accent-color" className="font-normal text-ob-muted">
+                    Accent colour
+                    <span className="block text-[11px] font-normal text-ob-faint">
+                      Used for buttons, links and highlights.
+                    </span>
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="accent-color"
+                      type="color"
+                      aria-label="Accent colour"
+                      value={accentDraft ?? userPrefs.accentColor ?? "#8b78e6"}
+                      onChange={(e) => onAccentChange(e.target.value)}
+                      className="h-7 w-10 cursor-pointer rounded border border-ob-border bg-transparent"
+                    />
+                    {(accentDraft ?? userPrefs.accentColor) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setAccentDraft(null);
+                          saveEditorSettings.mutate({ accentColor: null });
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </section>
             )}
 
             {tab === "Files & links" && (
-              <PlaceholderTab
-                title="Files & links"
-                text="Default location for new notes and delete confirmation are coming soon."
-              />
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                  Files &amp; links
+                </h3>
+
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="new-note-location" className="font-normal text-ob-muted">
+                    Default location for new notes
+                  </Label>
+                  <select
+                    id="new-note-location"
+                    value={(settings.newNoteLocation as string) ?? "root"}
+                    onChange={(e) => saveVaultPatch.mutate({ newNoteLocation: e.target.value })}
+                    className="rounded-md border border-ob-border bg-ob-primary px-2 py-1 text-[13px] text-ob-text"
+                  >
+                    <option value="root">Vault root</option>
+                    <option value="current">Same folder as current note</option>
+                    <option value="folder">In the folder specified below</option>
+                  </select>
+                </div>
+                {((settings.newNoteLocation as string) ?? "root") === "folder" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="new-note-folder">New note folder</Label>
+                    <Input
+                      id="new-note-folder"
+                      placeholder="Inbox"
+                      value={newNoteFolderDraft ?? (settings.newNoteFolder as string) ?? ""}
+                      onChange={(e) => onNewNoteFolderChange(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <SettingToggle
+                  label="Confirm before deleting"
+                  hint="Ask for confirmation when deleting notes, folders and canvases."
+                  checked={userPrefs.confirmDelete}
+                  onChange={(v) => saveEditorSettings.mutate({ confirmDelete: v })}
+                />
+                <SettingToggle
+                  label="Page preview requires ⌘/Ctrl"
+                  hint="Only show the hover preview while the modifier key is held."
+                  checked={userPrefs.previewRequireCmd}
+                  onChange={(v) => saveEditorSettings.mutate({ previewRequireCmd: v })}
+                />
+              </section>
             )}
 
             {tab === "Hotkeys" && (

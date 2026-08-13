@@ -171,3 +171,31 @@ async def test_folders_and_notes_lifecycle(client: AsyncClient, auth: dict) -> N
     items = tree.json()["data"]["items"]
     root_titles = {i.get("title") for i in items if i["type"] == "note"}
     assert "Nodum roadmap" in root_titles
+
+
+async def test_note_create_with_folder_path_creates_missing_folders(
+    client: AsyncClient, auth: dict
+) -> None:
+    vaults = (await client.get("/api/v1/vaults", headers=auth)).json()["data"]
+    vault_id = vaults[0]["id"]
+
+    resp = await client.post(
+        f"/api/v1/vaults/{vault_id}/notes",
+        json={"title": "Filed note", "folder_path": "Projects/Ideas"},
+        headers=auth,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data"]["path"] == "Projects/Ideas/Filed note"
+
+    # The nested folders now exist in the tree; a second create reuses them
+    again = await client.post(
+        f"/api/v1/vaults/{vault_id}/notes",
+        json={"title": "Second filed note", "folder_path": "/Projects/Ideas/"},
+        headers=auth,
+    )
+    assert again.status_code == 201
+    assert again.json()["data"]["path"] == "Projects/Ideas/Second filed note"
+
+    tree = (await client.get(f"/api/v1/vaults/{vault_id}/tree", headers=auth)).json()["data"]
+    top = {i["name"] for i in tree["items"] if i["type"] == "folder"}
+    assert "Projects" in top
