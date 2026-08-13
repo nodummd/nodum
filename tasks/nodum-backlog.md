@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **80 backend + 48 e2e**. Feature branches
+> Suites must stay green: currently **80 backend + 49 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -246,7 +246,7 @@
 
 ## Sprint 10 — Graph smoothness
 
-- [ ] **S10.1 Incremental graph engine** (L)
+- [x] 2026-08-13 **S10.1 Incremental graph engine** (L)
   *Do:* per-vault position map (ref, survives refetches) keyed by node id;
   on data change diff old/new node sets — reuse kept positions, seed new
   nodes at the centroid of their linked neighbors (+small jitter, fallback
