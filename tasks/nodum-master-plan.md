@@ -223,6 +223,13 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13 (post-v3.1.0)** — Tab keyboard UX: ⌘/Ctrl+W closes the
+  active tab reliably (works in the installed PWA / standalone window;
+  browser tabs still reserve the chord). Closing the active tab now
+  activates its neighbor (right, else left) instead of jumping to the
+  rightmost, and a key-repeat guard stops a held ⌘W from nuking a burst
+  of tabs. Pinned tabs stay protected. e2e: e2e/tab-hotkeys.spec.ts.
+
 - **2026-08-13 (later)** — Phase E fully executed → **v3.1.0** ("the
   Obsidian feel", driven by a live CDP study of Obsidian 1.13.7 —
   docs/research/obsidian-study-2.md): incremental never-jumping graph

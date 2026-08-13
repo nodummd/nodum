@@ -174,15 +174,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       closeTab: (tabId, paneIndex) => {
         const panes = get().panes.map((p, i) => {
           if (paneIndex !== undefined && i !== paneIndex) return p;
-          const tab = p.tabs.find((t) => t.id === tabId);
+          const idx = p.tabs.findIndex((t) => t.id === tabId);
+          const tab = p.tabs[idx];
           if (!tab || tab.pinned) return p;
           const remaining = p.tabs.filter((t) => t.id !== tabId);
-          return {
-            ...p,
-            tabs: remaining,
-            activeTabId:
-              p.activeTabId === tabId ? (remaining.at(-1)?.id ?? null) : p.activeTabId,
-          };
+          // On closing the active tab, activate its neighbor — the tab that
+          // slid into the freed slot (right neighbor), else the one to its
+          // left (Obsidian-style, keeps focus near where you were).
+          const activeTabId =
+            p.activeTabId === tabId
+              ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
+              : p.activeTabId;
+          return { ...p, tabs: remaining, activeTabId };
         });
         // a second pane that runs out of tabs disappears
         const kept = panes.filter((p, i) => i === 0 || p.tabs.length > 0);
