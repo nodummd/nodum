@@ -6,7 +6,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
+import { useEditorSettings, type EditorViewMode } from "@/lib/hooks/use-editor-settings";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { cn } from "@/lib/utils";
@@ -44,8 +45,10 @@ interface SettingsModalProps {
 export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProps) {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
   const toast = useToastStore((s) => s.push);
   const [tab, setTab] = useState<SettingsTab>("General");
+  const editorSettings = useEditorSettings();
 
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list, enabled: open });
   const vault = vaults?.find((v) => v.id === vaultId);
@@ -102,6 +105,37 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
     },
     onError: (e) => toastError(e, "Could not save vault settings."),
   });
+
+  // Editor prefs save themselves on change (users.settings is shallow-merged).
+  // Applied optimistically so the editor updates the instant a toggle flips;
+  // the server response (or an error rollback) reconciles afterwards.
+  const saveEditorSettings = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => authApi.updateMe({ settings: patch }),
+    onMutate: (patch) => {
+      const current = useAuthStore.getState().user;
+      if (current) setUser({ ...current, settings: { ...current.settings, ...patch } });
+      return { previous: current };
+    },
+    onSuccess: (updated) => {
+      setUser(updated);
+      toast("Editor settings saved.", "info");
+    },
+    onError: (e, _patch, ctx) => {
+      if (ctx?.previous) setUser(ctx.previous);
+      toastError(e, "Could not save editor settings.");
+    },
+  });
+  // Slider drags fire per-step — debounce so one release = one PATCH
+  const [fontSizeDraft, setFontSizeDraft] = useState<number | null>(null);
+  const fontSizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onFontSizeChange = (value: number) => {
+    setFontSizeDraft(value);
+    if (fontSizeTimer.current) clearTimeout(fontSizeTimer.current);
+    fontSizeTimer.current = setTimeout(
+      () => saveEditorSettings.mutate({ editorFontSize: value }),
+      400,
+    );
+  };
 
   // Collab lives on its own tab, so the toggle saves itself (backend merges patches)
   const saveCollab = useMutation({
@@ -219,10 +253,71 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             )}
 
             {tab === "Editor" && (
-              <PlaceholderTab
-                title="Editor"
-                text="Default view mode, readable line length, line numbers, spellcheck and font size are coming soon."
-              />
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                  Editor
+                </h3>
+
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="default-view-mode" className="font-normal text-ob-muted">
+                    Default view for new tabs
+                  </Label>
+                  <select
+                    id="default-view-mode"
+                    value={editorSettings.defaultViewMode}
+                    onChange={(e) =>
+                      saveEditorSettings.mutate({
+                        defaultViewMode: e.target.value as EditorViewMode,
+                      })
+                    }
+                    className="rounded-md border border-ob-border bg-ob-primary px-2 py-1 text-[13px] text-ob-text"
+                  >
+                    <option value="live">Live preview</option>
+                    <option value="source">Source mode</option>
+                    <option value="reading">Reading view</option>
+                  </select>
+                </div>
+
+                <SettingToggle
+                  label="Readable line length"
+                  hint="Limit the editing column to a comfortable width."
+                  checked={editorSettings.readableLineLength}
+                  onChange={(v) => saveEditorSettings.mutate({ readableLineLength: v })}
+                />
+                <SettingToggle
+                  label="Show line numbers"
+                  hint="Display a line-number gutter in the editor."
+                  checked={editorSettings.showLineNumbers}
+                  onChange={(v) => saveEditorSettings.mutate({ showLineNumbers: v })}
+                />
+                <SettingToggle
+                  label="Spellcheck"
+                  hint="Underline misspelled words while editing."
+                  checked={editorSettings.spellcheck}
+                  onChange={(v) => saveEditorSettings.mutate({ spellcheck: v })}
+                />
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="editor-font-size" className="font-normal text-ob-muted">
+                      Editor font size
+                    </Label>
+                    <span className="text-[12px] text-ob-faint">
+                      {fontSizeDraft ?? editorSettings.editorFontSize}px
+                    </span>
+                  </div>
+                  <input
+                    id="editor-font-size"
+                    type="range"
+                    min={14}
+                    max={24}
+                    step={1}
+                    value={fontSizeDraft ?? editorSettings.editorFontSize}
+                    onChange={(e) => onFontSizeChange(Number(e.target.value))}
+                    className="w-full accent-[var(--ob-interactive-accent)]"
+                  />
+                </div>
+              </section>
             )}
 
             {tab === "Appearance" && (
@@ -370,6 +465,34 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SettingToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-2 text-[13px] text-ob-muted">
+      <span>
+        {label}
+        <span className="block text-[11px] text-ob-faint">{hint}</span>
+      </span>
+      <input
+        type="checkbox"
+        aria-label={label}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-[var(--ob-interactive-accent)]"
+      />
+    </label>
   );
 }
 

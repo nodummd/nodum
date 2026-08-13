@@ -66,6 +66,8 @@ interface WorkspaceState {
   leftWidth: number;
   rightWidth: number;
   editorMode: EditorMode;
+  /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
+  defaultEditorMode: EditorMode;
   explorerSort: ExplorerSort;
   paletteOpen: boolean;
   switcherOpen: boolean;
@@ -75,7 +77,8 @@ interface WorkspaceState {
   searchSeed: string | null;
 
   setActiveVault: (vaultId: string | null) => void;
-  openTab: (tab: Tab) => void;
+  /** adoptDefaultMode=false: in-editor link navigation keeps the current view mode. */
+  openTab: (tab: Tab, opts?: { adoptDefaultMode?: boolean }) => void;
   openTabBackground: (tab: Tab) => void;
   /** paneIndex omitted → close in every pane (e.g. the note was deleted). */
   closeTab: (tabId: string, paneIndex?: number) => void;
@@ -92,6 +95,7 @@ interface WorkspaceState {
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
   setEditorMode: (mode: EditorMode) => void;
+  setDefaultEditorMode: (mode: EditorMode) => void;
   setExplorerSort: (sort: ExplorerSort) => void;
   setPaletteOpen: (open: boolean) => void;
   setSwitcherOpen: (open: boolean) => void;
@@ -111,6 +115,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       leftWidth: 280,
       rightWidth: 300,
       editorMode: "live",
+      defaultEditorMode: "live",
       explorerSort: "title-asc",
       paletteOpen: false,
       switcherOpen: false,
@@ -124,9 +129,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }
       },
 
-      openTab: (tab) => {
-        const { panes, activePane } = get();
+      openTab: (tab, opts) => {
+        const { panes, activePane, editorMode, defaultEditorMode } = get();
+        // Obsidian's "default view for new tabs": a genuinely new tab adopts
+        // the configured mode; re-activating an open tab keeps the current one,
+        // and link-follow navigation (adoptDefaultMode: false) keeps it too.
+        const adopt = opts?.adoptDefaultMode ?? true;
+        const isNew = !panes[activePane].tabs.some((t) => t.id === tab.id);
         set({
+          editorMode: adopt && isNew && tab.kind === "note" ? defaultEditorMode : editorMode,
           panes: panes.map((p, i) =>
             i === activePane
               ? {
@@ -270,6 +281,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setEditorMode: (mode) => set({ editorMode: mode }),
+      setDefaultEditorMode: (mode) => set({ defaultEditorMode: mode }),
       setExplorerSort: (sort) => set({ explorerSort: sort }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
