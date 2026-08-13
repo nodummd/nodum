@@ -223,6 +223,14 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13** — Phase D fully executed → **v3.0.0**: block references,
+  split panes, pinned tabs + nav history (v2.1.0); mobile workspace, PWA +
+  share-target clipper (v2.2.0); Google OAuth, whole-vault publishing
+  (v2.3.0); Canvas MVP (JSON Canvas), graph time-travel replay, importer
+  attachments + .obsidian mapping (v3.0.0). Also fixed a collab reconnect
+  duplication bug found in live verification. Suites: 80 backend + 48 e2e.
+  Owner-side setup steps: docs/OWNER-SETUP.md.
+
 - **2026-08-12 (evening)** — Backlog fully executed: Sprint 1 hardening,
   Sprint 2 parity core → **v1.2.0**, Sprint 3 polish (graph groups, nested
   tags, page preview, editable properties, hover dim), Sprint 4 scale & ops

@@ -6,8 +6,8 @@
 > Suites must stay green: currently **80 backend + 48 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
-> ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
-> ideas live in the Icebox. Created 2026-08-12 · supersedes the stale "queued" table in
+> ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
+> Phase D shipped v2.1.0→v3.0.0. Remaining ideas live in the Icebox. Created 2026-08-12 · supersedes the stale "queued" table in
 > `nodum-audit-and-roadmap.md` (kept for history/context).
 
 **Status legend:** `[ ]` todo · `[x] YYYY-MM-DD` done · `[~]` in progress
@@ -230,7 +230,7 @@
   *Accept:* backend test: zip with png + .obsidian config → attachment
   exists, settings mapped.
 
-🏁 **Release v3.0.0** after Sprint 9.
+🏁 ~~**Release v3.0.0**~~ ✅ 2026-08-13 — dev→main merged, tagged, prod smoke passed (canvas round-trip, graph created_at, web healthy).
 
 ## Icebox (still later)
 - Cross-pane tab drag & drop · graph clustering by folder
