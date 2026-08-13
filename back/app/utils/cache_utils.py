@@ -18,7 +18,7 @@ def vault_tree_key(vault_id: Any) -> str:
 
 
 def vault_graph_key(vault_id: Any) -> str:
-    return f"graph:v2:{vault_id}"
+    return f"graph:v3:{vault_id}"
 
 
 async def cache_get_json(key: str) -> Any | None:

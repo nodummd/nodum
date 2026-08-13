@@ -351,7 +351,7 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
 
     note_rows = (
         await db.execute(
-            select(Note.id, Note.title, Note.path)
+            select(Note.id, Note.title, Note.path, Note.created_at)
             .where(Note.vault_id == vault_id)
             .order_by(Note.updated_at.desc())
             .limit(limits.MAX_GRAPH_NODES + 1)
@@ -380,7 +380,7 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
     nodes: list[dict[str, Any]] = []
     index_of: dict[str, int] = {}
 
-    for note_id, title, path in note_rows:
+    for note_id, title, path, created_at in note_rows:
         index_of[str(note_id)] = len(nodes)
         folder = path.rsplit("/", 1)[0] if "/" in path else ""
         nodes.append(
@@ -392,6 +392,7 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
                 "degree": 0,
                 "unresolved": False,
                 "tags": sorted(tags_by_note.get(str(note_id), [])),
+                "created_at": created_at.isoformat(),
             }
         )
 
@@ -422,6 +423,7 @@ async def get_graph(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceR
                         "degree": 0,
                         "unresolved": True,
                         "tags": [],
+                        "created_at": None,
                     }
                 )
         edges.append([src, dst])

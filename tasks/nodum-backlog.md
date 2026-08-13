@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **77 backend + 46 e2e**. Feature branches
+> Suites must stay green: currently **80 backend + 48 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
@@ -206,11 +206,11 @@
   *Accept:* backend: publish vault → public endpoints list/serve notes
   without auth, unpublish 404s; e2e: browse published site nav.
 
-🏁 **Release v2.3.0** after Sprint 8.
+🏁 ~~**Release v2.3.0**~~ ✅ 2026-08-13 — dev→main merged, tagged, prod smoke passed (providers flag, vault site anonymous read).
 
 ## Sprint 9 — Canvas & long tail (Phase D)
 
-- [ ] **S9.1 Canvas MVP** (XL) — Obsidian-compatible .canvas boards.
+- [x] 2026-08-13 **S9.1 Canvas MVP** (XL) — Obsidian-compatible .canvas boards.
   *Do:* canvases table (vault_id, name, data JSONB in Obsidian's
   JSON Canvas format: nodes[text|file|link], edges); CRUD API; canvas tab
   kind in workspace; renderer: pan/zoom stage (CSS transform), draggable/
@@ -219,12 +219,12 @@
   *Accept:* backend CRUD tests; e2e: create canvas, add text card + note
   card, connect edge, reload persists.
 
-- [ ] **S9.2 Graph time-travel replay** (S–M) — time slider on the graph
+- [x] 2026-08-13 **S9.2 Graph time-travel replay** (creation-ordered reveal — deterministic even with same-second timestamps) (S–M) — time slider on the graph
   filtering nodes by note created_at (play button animates the vault
   growing).
   *Accept:* e2e: slider hides newer notes; play reaches full graph.
 
-- [ ] **S9.3 Importer niceties** (S–M) — zip import: extract binary files
+- [x] 2026-08-13 **S9.3 Importer niceties** (S–M) — zip import: extract binary files
   into attachments (wire into vault_io), map .obsidian/app.json basics
   (daily-note format/folder) into vault settings when present.
   *Accept:* backend test: zip with png + .obsidian config → attachment

@@ -60,3 +60,33 @@ test.describe("graph groups", () => {
     ).toHaveCSS("color", "rgb(235, 59, 90)", { timeout: 10_000 });
   });
 });
+
+test.describe("graph time travel", () => {
+  test("slider hides newer notes; play restores the full graph", async ({ page }) => {
+    await signupFreshUser(page, "timetravel");
+
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    const counts = page.getByText(/\d+ nodes · \d+ links/);
+    await expect(counts).toBeVisible({ timeout: 10_000 });
+    const fullText = (await counts.textContent()) ?? "";
+    const fullNodes = Number(/(\d+) nodes/.exec(fullText)?.[1] ?? "0");
+    expect(fullNodes).toBeGreaterThan(2);
+
+    // Reveal only the first quarter of the vault's history
+    await page.getByLabel("Time travel").fill("25");
+    await expect(async () => {
+      const text = (await counts.textContent()) ?? "";
+      const nodes = Number(/(\d+) nodes/.exec(text)?.[1] ?? "0");
+      expect(nodes).toBeLessThan(fullNodes);
+      expect(nodes).toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 10_000 });
+
+    // Play runs the reveal back to the present
+    await page.getByRole("button", { name: "Replay vault growth" }).click();
+    await expect(async () => {
+      const text = (await counts.textContent()) ?? "";
+      expect(Number(/(\d+) nodes/.exec(text)?.[1] ?? "0")).toBe(fullNodes);
+    }).toPass({ timeout: 20_000 });
+  });
+});

@@ -29,6 +29,7 @@ import { SidebarLeft } from "./sidebar-left";
 import { SidebarRight } from "./sidebar-right";
 import { StatusBar } from "./status-bar";
 import { TabBar } from "./tab-bar";
+import { CanvasView } from "@/components/canvas/canvas-view";
 import { TemplatePicker } from "./template-picker";
 import { Toaster } from "./toaster";
 import { dailyApi, noteApi } from "@/lib/api/endpoints";
@@ -276,6 +277,9 @@ export function Workspace({ vault }: { vault: Vault }) {
                     onOpenNote={openNote}
                     onCreateNote={createFromGraph}
                   />
+                )}
+                {paneTab?.kind === "canvas" && (
+                  <CanvasView vaultId={vault.id} canvasId={paneTab.id} />
                 )}
                 {paneIndex === panes.length - 1 && (
                   <StatusBar vaultId={vault.id} noteId={activeNoteId} />
