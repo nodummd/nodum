@@ -77,3 +77,29 @@ test.describe("settings tabs", () => {
     await expect(page.getByText("Collaboration setting saved.")).toBeVisible({ timeout: 10_000 });
   });
 });
+
+test.describe("hotkeys reference", () => {
+  test("search narrows the hotkey list", async ({ page }) => {
+    await signupFreshUser(page, "hotkeys-e2e");
+
+    await page.keyboard.press("ControlOrMeta+Comma");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+    await dialog.getByRole("button", { name: "Hotkeys", exact: true }).click();
+
+    const rows = dialog.locator("[data-hotkey-row]");
+    const total = await rows.count();
+    expect(total).toBeGreaterThan(15);
+
+    await dialog.getByLabel("Search hotkeys").fill("graph");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Open graph view");
+
+    await dialog.getByLabel("Search hotkeys").fill("bold");
+    await expect(rows.first()).toContainText("⌘B");
+
+    await dialog.getByLabel("Search hotkeys").fill("zzz-no-match");
+    await expect(rows).toHaveCount(0);
+    await expect(dialog.getByText("No hotkeys match.")).toBeVisible();
+  });
+});
