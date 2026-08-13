@@ -32,6 +32,9 @@ services:
       - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?set in deploy/.env}
       - SECRET_KEY=${SECRET_KEY:?set in deploy/.env}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set in deploy/.env}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - OAUTH_REDIRECT_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3100}
       - BACKEND_BASE_URL=${BACKEND_BASE_URL:?set in deploy/.env}
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:?set in deploy/.env}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:?set in deploy/.env}
