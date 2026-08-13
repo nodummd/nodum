@@ -19,12 +19,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
+import { APP_VERSION, HELP_URL } from "@/lib/app-meta";
 import { filterHotkeys, HOTKEY_SECTIONS } from "@/lib/hotkeys";
 import {
+  FONT_CHOICES,
   useEditorSettings,
   useUserPrefs,
   type EditorViewMode,
+  type FontChoice,
 } from "@/lib/hooks/use-editor-settings";
+import { useVaultSettings } from "@/lib/hooks/use-vault-settings";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { cn } from "@/lib/utils";
@@ -33,6 +37,7 @@ const TABS = [
   "General",
   "Editor",
   "Appearance",
+  "Interface",
   "Files & links",
   "Hotkeys",
   "Vault",
@@ -57,6 +62,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
   const [hotkeyQuery, setHotkeyQuery] = useState("");
   const editorSettings = useEditorSettings();
   const userPrefs = useUserPrefs();
+  const vaultSettings = useVaultSettings(vaultId);
 
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list, enabled: open });
   const vault = vaults?.find((v) => v.id === vaultId);
@@ -175,6 +181,33 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
       500,
     );
   };
+  // Text inputs on the Files & links tab debounce their PATCH like above.
+  const [attachmentDraft, setAttachmentDraft] = useState<string | null>(null);
+  const attachmentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onAttachmentFolderChange = (value: string) => {
+    setAttachmentDraft(value);
+    if (attachmentTimer.current) clearTimeout(attachmentTimer.current);
+    attachmentTimer.current = setTimeout(
+      () => saveVaultPatch.mutate({ attachmentFolder: value.trim() }),
+      500,
+    );
+  };
+  const [excludedDraft, setExcludedDraft] = useState<string | null>(null);
+  const excludedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onExcludedChange = (value: string) => {
+    setExcludedDraft(value);
+    if (excludedTimer.current) clearTimeout(excludedTimer.current);
+    excludedTimer.current = setTimeout(
+      () =>
+        saveVaultPatch.mutate({
+          excludedPaths: value
+            .split("\n")
+            .map((p) => p.trim())
+            .filter(Boolean),
+        }),
+      500,
+    );
+  };
   // Accent colour drags fire per-frame — debounce like the font slider
   const [accentDraft, setAccentDraft] = useState<string | null>(null);
   const accentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -230,7 +263,27 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             {tab === "General" && (
               <>
-                <section className="space-y-3">
+                <section className="space-y-2">
+                  <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                    About
+                  </h3>
+                  <div className="flex items-center justify-between gap-4 text-[13px] text-ob-muted">
+                    <span>
+                      Version {APP_VERSION}
+                      <span className="block text-[11px] text-ob-faint">nodum — open-source</span>
+                    </span>
+                    <a
+                      href={HELP_URL}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                    >
+                      Help
+                    </a>
+                  </div>
+                </section>
+
+                <section className="space-y-3 border-t border-ob-border pt-4">
                   <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
                     Account
                   </h3>
@@ -391,6 +444,62 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                     )}
                   </div>
                 </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="scheme" className="font-normal text-ob-muted">
+                    Colour scheme
+                    <span className="block text-[11px] font-normal text-ob-faint">
+                      Light theme is not available yet — nodum is dark-only.
+                    </span>
+                  </Label>
+                  <select
+                    id="scheme"
+                    disabled
+                    value="dark"
+                    className="rounded-md border border-ob-border bg-ob-primary px-2 py-1 text-[13px] text-ob-faint"
+                  >
+                    <option value="dark">Dark</option>
+                  </select>
+                </div>
+
+                <FontSelect
+                  id="font-interface"
+                  label="Interface font"
+                  value={userPrefs.fontInterface}
+                  onChange={(v) => saveEditorSettings.mutate({ fontInterface: v })}
+                />
+                <FontSelect
+                  id="font-text"
+                  label="Text font"
+                  value={userPrefs.fontText}
+                  onChange={(v) => saveEditorSettings.mutate({ fontText: v })}
+                />
+                <FontSelect
+                  id="font-monospace"
+                  label="Monospace font"
+                  value={userPrefs.fontMonospace}
+                  onChange={(v) => saveEditorSettings.mutate({ fontMonospace: v })}
+                />
+              </section>
+            )}
+
+            {tab === "Interface" && (
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                  Interface
+                </h3>
+                <SettingToggle
+                  label="Show ribbon"
+                  hint="The narrow icon strip on the far left."
+                  checked={userPrefs.showRibbon}
+                  onChange={(v) => saveEditorSettings.mutate({ showRibbon: v })}
+                />
+                <SettingToggle
+                  label="Show tab title bar"
+                  hint="The row of tabs above each editor pane."
+                  checked={userPrefs.showTabTitleBar}
+                  onChange={(v) => saveEditorSettings.mutate({ showTabTitleBar: v })}
+                />
               </section>
             )}
 
@@ -427,6 +536,38 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                   </div>
                 )}
 
+                <div className="space-y-2">
+                  <Label htmlFor="attachment-folder">Attachment folder</Label>
+                  <Input
+                    id="attachment-folder"
+                    placeholder="Attachments"
+                    value={attachmentDraft ?? vaultSettings.attachmentFolder}
+                    onChange={(e) => onAttachmentFolderChange(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="link-format" className="font-normal text-ob-muted">
+                    New link format
+                  </Label>
+                  <select
+                    id="link-format"
+                    value={vaultSettings.linkFormat}
+                    onChange={(e) => saveVaultPatch.mutate({ linkFormat: e.target.value })}
+                    className="rounded-md border border-ob-border bg-ob-primary px-2 py-1 text-[13px] text-ob-text"
+                  >
+                    <option value="shortest">Shortest path</option>
+                    <option value="relative">Relative path</option>
+                    <option value="absolute">Absolute path</option>
+                  </select>
+                </div>
+
+                <SettingToggle
+                  label="Use [[Wikilinks]]"
+                  hint="Generate wikilinks instead of Markdown links."
+                  checked={vaultSettings.useWikilinks}
+                  onChange={(v) => saveVaultPatch.mutate({ useWikilinks: v })}
+                />
                 <SettingToggle
                   label="Confirm before deleting"
                   hint="Ask for confirmation when deleting notes, folders and canvases."
@@ -439,6 +580,18 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                   checked={userPrefs.previewRequireCmd}
                   onChange={(v) => saveEditorSettings.mutate({ previewRequireCmd: v })}
                 />
+
+                <div className="space-y-2">
+                  <Label htmlFor="excluded-paths">Excluded files</Label>
+                  <textarea
+                    id="excluded-paths"
+                    rows={3}
+                    placeholder={"One path per line\nArchive/\nprivate.md"}
+                    value={excludedDraft ?? vaultSettings.excludedPaths.join("\n")}
+                    onChange={(e) => onExcludedChange(e.target.value)}
+                    className="w-full rounded-md border border-ob-border bg-ob-primary px-2 py-1.5 text-[13px] text-ob-text outline-none placeholder:text-ob-faint"
+                  />
+                </div>
               </section>
             )}
 
@@ -647,6 +800,39 @@ function HotkeysTab({ query, onQuery }: { query: string; onQuery: (q: string) =>
         </div>
       ))}
     </section>
+  );
+}
+
+function FontSelect({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: FontChoice;
+  onChange: (value: FontChoice) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <Label htmlFor={id} className="font-normal text-ob-muted">
+        {label}
+      </Label>
+      <select
+        id={id}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value as FontChoice)}
+        className="rounded-md border border-ob-border bg-ob-primary px-2 py-1 text-[13px] text-ob-text"
+      >
+        {Object.keys(FONT_CHOICES).map((key) => (
+          <option key={key} value={key}>
+            {key === "default" ? "Default" : key}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

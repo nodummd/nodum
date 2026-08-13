@@ -39,7 +39,7 @@ import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { Menu, PanelRight } from "lucide-react";
 
 import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
-import { useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
+import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -92,8 +92,9 @@ export function Workspace({ vault }: { vault: Vault }) {
     useWorkspaceStore.getState().setDefaultEditorMode(defaultViewMode);
   }, [defaultViewMode]);
 
-  // Accent colour override (S11.3) — applied on boot and live on change.
-  const accentColor = useUserPrefs().accentColor;
+  // Appearance (S11.3 + S15.1) — accent + font overrides, on boot and live.
+  const prefs = useUserPrefs();
+  const { accentColor, fontInterface, fontText, fontMonospace, showRibbon } = prefs;
   useEffect(() => {
     const root = document.documentElement;
     if (accentColor) {
@@ -106,11 +107,25 @@ export function Workspace({ vault }: { vault: Vault }) {
       root.style.removeProperty("--ob-interactive-accent");
       root.style.removeProperty("--ob-interactive-accent-hover");
     }
+    // Fonts: an empty stack (default) removes the override → globals.css wins
+    const setFont = (varName: string, key: keyof typeof FONT_CHOICES) => {
+      const stack = FONT_CHOICES[key];
+      if (stack) root.style.setProperty(varName, stack);
+      else root.style.removeProperty(varName);
+    };
+    setFont("--font-interface", fontInterface);
+    setFont("--font-text", fontText);
+    setFont("--font-monospace", fontMonospace);
     return () => {
       root.style.removeProperty("--ob-interactive-accent");
       root.style.removeProperty("--ob-interactive-accent-hover");
     };
-  }, [accentColor]);
+  }, [accentColor, fontInterface, fontText, fontMonospace]);
+
+  // Ribbon visibility lives on the user (cross-device); mirror into the store.
+  useEffect(() => {
+    useWorkspaceStore.setState({ ribbonVisible: showRibbon });
+  }, [showRibbon]);
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
@@ -342,7 +357,9 @@ export function Workspace({ vault }: { vault: Vault }) {
                   : "flex min-w-0 flex-1 flex-col"
               }
             >
-              <TabBar paneIndex={paneIndex} onNewNote={() => newNote.mutate()} />
+              {prefs.showTabTitleBar && (
+                <TabBar paneIndex={paneIndex} onNewNote={() => newNote.mutate()} />
+              )}
               <div className="relative min-h-0 flex-1 bg-ob-bg">
                 {paneTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
                 {paneTab?.kind === "note" && (
