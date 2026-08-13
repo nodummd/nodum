@@ -300,7 +300,7 @@
 - [x] **S12.1 Hotkeys reference tab** (S) — 2026-08-13 — searchable read-only list of
   every nodum shortcut (editor, workspace, graph, canvas).
   *Accept:* e2e: search narrows the list.
-- [ ] **S12.2 🏁 Release v3.1.0** — full suites green, merge dev→main,
+- [x] **S12.2 🏁 Release v3.1.0** — 2026-08-13 — full suites green, merge dev→main,
   tag, prod-compose smoke (incl. a settings round-trip), backlog + master
   plan close-out.
 
