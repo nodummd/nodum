@@ -37,3 +37,35 @@ test.describe("split panes", () => {
     await expect(page.locator(".cm-content")).toHaveCount(1);
   });
 });
+
+test.describe("split divider", () => {
+  test("dragging the seam resizes panes and the ratio persists", async ({ page }) => {
+    await signupFreshUser(page, "split-divider");
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    await page.keyboard.press("ControlOrMeta+\\");
+
+    const pane1 = page.getByRole("region", { name: "Editor pane 1" });
+    const pane2 = page.getByRole("region", { name: "Editor pane 2" });
+    await expect(pane2).toBeVisible({ timeout: 10_000 });
+    const before = (await pane1.boundingBox())!.width;
+
+    const sep = page.getByRole("separator", { name: "Resize split" });
+    const box = (await sep.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x - 200, box.y + box.height / 2, { steps: 10 });
+    await page.mouse.up();
+
+    const after = (await pane1.boundingBox())!.width;
+    expect(after).toBeLessThan(before - 80);
+
+    // Ratio survives a reload
+    await page.reload();
+    await expect(page.getByRole("separator", { name: "Resize split" })).toBeVisible({
+      timeout: 15_000,
+    });
+    const afterReload = (await page.getByRole("region", { name: "Editor pane 1" }).boundingBox())!
+      .width;
+    expect(Math.abs(afterReload - after)).toBeLessThan(48);
+  });
+});
