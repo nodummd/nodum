@@ -7,7 +7,7 @@ export const nodumEditorTheme = EditorView.theme(
     "&": {
       backgroundColor: "transparent",
       color: "var(--ob-text-normal)",
-      fontSize: "16px",
+      fontSize: "var(--editor-font-size, 16px)",
     },
     "&.cm-focused": { outline: "none" },
     ".cm-content": {

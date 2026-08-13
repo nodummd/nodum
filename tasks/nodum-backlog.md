@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **80 backend + 51 e2e**. Feature branches
+> Suites must stay green: currently **80 backend + 52 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -276,7 +276,7 @@
   wider modal, per-tab scroll.
   *Accept:* e2e navigates 3+ tabs and finds migrated options.
 
-- [ ] **S11.2 Editor settings that actually work** (M-L)
+- [x] **S11.2 Editor settings that actually work** (M-L) — 2026-08-13
   *Do:* user-level settings (users.settings JSONB via authApi.updateMe):
   defaultViewMode for new tabs (live/source/reading), readableLineLength
   (toggle → editor max-width), showLineNumbers (CM6 lineNumbers()),

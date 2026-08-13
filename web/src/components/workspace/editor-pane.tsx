@@ -22,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ApiError } from "@/lib/api/client";
 import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
+import { useEditorSettings } from "@/lib/hooks/use-editor-settings";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +60,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
 
   const versionsOpen = useWorkspaceStore((s) => s.versionsOpen);
   const setVersionsOpen = useWorkspaceStore((s) => s.setVersionsOpen);
+  const editorSettings = useEditorSettings();
   const preview = usePagePreview();
 
   const [title, setTitle] = useState(note.title);
@@ -182,7 +184,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     async (target: string) => {
       try {
         const found = await noteApi.getByPath(vaultId, target);
-        openTab({ id: found.id, kind: "note", title: found.title });
+        openTab({ id: found.id, kind: "note", title: found.title }, { adoptDefaultMode: false });
         return;
       } catch {
         /* not an exact path — resolve by title below */
@@ -190,12 +192,12 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
       const candidates = await searchApi.quickSwitch(vaultId, target, 5);
       const exact = candidates.find((c) => c.title.toLowerCase() === target.toLowerCase());
       if (exact) {
-        openTab({ id: exact.id, kind: "note", title: exact.title });
+        openTab({ id: exact.id, kind: "note", title: exact.title }, { adoptDefaultMode: false });
         return;
       }
       const created = await noteApi.create(vaultId, { title: target });
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
-      openTab({ id: created.id, kind: "note", title: created.title });
+      openTab({ id: created.id, kind: "note", title: created.title }, { adoptDefaultMode: false });
     },
     [vaultId, openTab, queryClient],
   );
@@ -226,7 +228,18 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
-        <div className="mx-auto min-h-full max-w-[44rem] px-4 pt-4 pb-24 md:px-8">
+        <div
+          className={cn(
+            "mx-auto min-h-full px-4 pt-4 pb-24 md:px-8",
+            editorSettings.readableLineLength ? "max-w-[44rem]" : "max-w-none",
+          )}
+          style={
+            {
+              "--editor-font-size": `${editorSettings.editorFontSize}px`,
+              fontSize: "var(--editor-font-size)",
+            } as React.CSSProperties
+          }
+        >
           <input
             value={title}
             aria-label="Note title"
@@ -254,6 +267,8 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
               onChange={onChange}
               onNavigate={(t) => void navigate(t)}
               collab={activeCollab ?? undefined}
+              showLineNumbers={editorSettings.showLineNumbers}
+              spellcheck={editorSettings.spellcheck}
             />
           )}
         </div>

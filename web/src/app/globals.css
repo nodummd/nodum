@@ -159,7 +159,7 @@ body {
    Reading view — rendered markdown matching Obsidian
    ============================================================ */
 .nodum-reading {
-  font-size: 16px;
+  font-size: var(--editor-font-size, 16px);
   line-height: 1.6;
   color: var(--ob-text-normal);
 }

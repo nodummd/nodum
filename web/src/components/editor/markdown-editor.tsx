@@ -7,7 +7,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { searchKeymap } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
-import { EditorView, keymap, placeholder } from "@codemirror/view";
+import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
 import { tagCompletion, wikiLinkCompletion } from "@/lib/editor/autocomplete";
@@ -26,6 +26,9 @@ export interface MarkdownEditorProps {
   onNavigate: (target: string) => void;
   /** When set, the doc binds to the Yjs session (parent remounts by key). */
   collab?: CollabSession;
+  /** User editor prefs (S11.2) — gutter line numbers + native spellcheck. */
+  showLineNumbers?: boolean;
+  spellcheck?: boolean;
 }
 
 export function MarkdownEditor({
@@ -35,6 +38,8 @@ export function MarkdownEditor({
   onChange,
   onNavigate,
   collab,
+  showLineNumbers = false,
+  spellcheck = false,
 }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -73,6 +78,8 @@ export function MarkdownEditor({
       nodumEditorTheme,
       placeholder("Start writing…"),
       EditorView.lineWrapping,
+      EditorView.contentAttributes.of({ spellcheck: String(spellcheck) }),
+      ...(showLineNumbers ? [lineNumbers()] : []),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChangeRef.current(update.state.doc.toString());
       }),
@@ -98,10 +105,11 @@ export function MarkdownEditor({
       view.destroy();
       viewRef.current = null;
     };
-    // Recreate only when the note identity or mode changes — content updates
-    // flow through the editor itself; external resets use the key prop.
+    // Recreate only when the note identity, mode, or editor prefs change —
+    // content updates flow through the editor itself; external resets use the
+    // key prop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, vaultId]);
+  }, [mode, vaultId, showLineNumbers, spellcheck]);
 
   return <div ref={containerRef} className="min-h-[60vh]" />;
 }
