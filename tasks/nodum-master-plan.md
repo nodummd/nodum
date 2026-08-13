@@ -223,6 +223,19 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13 (later)** — Phase E fully executed → **v3.1.0** ("the
+  Obsidian feel", driven by a live CDP study of Obsidian 1.13.7 —
+  docs/research/obsidian-study-2.md): incremental never-jumping graph
+  engine (persistent positions, neighbor-seeded insertions, settled-sim
+  freeze, camera restore) + graph panel parity (search, arrows, node
+  size, link thickness, link force); Obsidian-style tabbed settings
+  window with working options — editor prefs (default view mode,
+  readable line length, line numbers, spellcheck, font size), accent
+  colour, default new-note location (backend folder_path create),
+  confirm-before-delete, page-preview modifier toggle, searchable
+  hotkeys reference. Google OAuth verified live with real credentials;
+  logo integrated (app icons, PWA, README). Suites: 81 backend + 56 e2e.
+
 - **2026-08-13** — Phase D fully executed → **v3.0.0**: block references,
   split panes, pinned tabs + nav history (v2.1.0); mobile workspace, PWA +
   share-target clipper (v2.2.0); Google OAuth, whole-vault publishing
