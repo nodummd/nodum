@@ -97,6 +97,8 @@ export interface GraphNode {
   degree: number;
   unresolved: boolean;
   tags: string[];
+  /** ISO time; null for ghost nodes. */
+  created_at: string | null;
 }
 
 export interface Graph {
