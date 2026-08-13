@@ -38,6 +38,7 @@ import { api } from "@/lib/api/client";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { Menu, PanelRight } from "lucide-react";
 
+import { useEditorSettings } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -53,6 +54,13 @@ export function Workspace({ vault }: { vault: Vault }) {
   const isMobile = useIsMobile();
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
+
+  // Mirror the user's "default view for new tabs" pref into the store so
+  // openTab can apply it without reaching into React state.
+  const defaultViewMode = useEditorSettings().defaultViewMode;
+  useEffect(() => {
+    useWorkspaceStore.getState().setDefaultEditorMode(defaultViewMode);
+  }, [defaultViewMode]);
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
