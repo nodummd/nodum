@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **81 backend + 67 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 68 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -362,7 +362,7 @@
   community plugins, keychain, licence) as N/A.
   *Accept:* e2e navigates the new tabs and a new option round-trips + reload.
 
-- [ ] **S15.2 Canvas background (dots/grid/blank), user-choosable** (M)
+- [x] **S15.2 Canvas background (dots/grid/blank), user-choosable** (M) — 2026-08-13
   *Do:* a Canvas settings section + a per-canvas/user background style
   (dots · grid · blank) applied in canvas-view.tsx and persisted.
   *Accept:* e2e sets the background to dots, asserts the canvas style, survives
