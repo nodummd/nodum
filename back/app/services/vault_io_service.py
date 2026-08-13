@@ -8,6 +8,7 @@ Obsidian-style ``<name> 1`` suffix. Non-markdown entries are counted and
 skipped (attachment import is a follow-up).
 """
 
+import contextlib
 import io
 import posixpath
 import zipfile
@@ -17,7 +18,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.limits import MAX_IMPORT_ZIP_SIZE_BYTES, MAX_NOTE_SIZE_BYTES
+from app.constants.limits import MAX_ATTACHMENT_SIZE_BYTES, MAX_IMPORT_ZIP_SIZE_BYTES, MAX_NOTE_SIZE_BYTES
 from app.core.logging import get_logger
 from app.models.vaults import Note
 from app.services import note_service
@@ -29,6 +30,8 @@ from app.utils.cache_utils import cache_delete, vault_graph_key
 from app.utils.path_utils import validate_segment
 
 logger = get_logger("vault_io")
+
+_ATTACHMENT_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".mp3", ".mp4", ".webm", ".wav"}
 
 
 async def export_zip(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceResponse[bytes]:
@@ -68,6 +71,9 @@ async def import_zip(
 
     imported = 0
     renamed = 0
+    imported_attachments = 0
+    obsidian_configs: dict[str, Any] = {}
+    attachment_entries: list[tuple[str, zipfile.ZipInfo]] = []
     skipped_non_md = 0
     skipped_too_large = 0
     created_notes: list[Note] = []
@@ -81,6 +87,20 @@ async def import_zip(
         if raw_path.startswith(("..", "/")) or "__MACOSX" in raw_path or raw_path.endswith(".DS_Store"):
             continue
         if not raw_path.lower().endswith(".md"):
+            lower = raw_path.lower()
+            base = posixpath.basename(raw_path)
+            if lower in (".obsidian/daily-notes.json", ".obsidian/app.json"):
+                import json as _json
+
+                with contextlib.suppress(Exception):
+                    obsidian_configs[base] = _json.loads(zf.read(entry).decode("utf-8", errors="replace"))
+                continue
+            if lower.startswith(".obsidian/"):
+                continue
+            ext = posixpath.splitext(base)[1].lower()
+            if ext in _ATTACHMENT_EXTS and entry.file_size <= MAX_ATTACHMENT_SIZE_BYTES:
+                attachment_entries.append((base, entry))
+                continue
             skipped_non_md += 1
             continue
         if entry.file_size > MAX_NOTE_SIZE_BYTES:
@@ -139,14 +159,60 @@ async def import_zip(
         await resolve_links_for_new_note(db, note)
 
     await db.commit()
+
+    # Binary files → attachments (best-effort per file)
+    import mimetypes
+
+    from app.services import attachment_service
+
+    for base, entry in attachment_entries:
+        with contextlib.suppress(Exception):
+            result = await attachment_service.upload(
+                db,
+                vault_id,
+                user_id,
+                filename=base,
+                content=zf.read(entry),
+                mime_type=mimetypes.guess_type(base)[0] or "application/octet-stream",
+            )
+            if result.success:
+                imported_attachments += 1
+
+    # .obsidian config → vault settings (daily notes + templates basics)
+    settings_mapped = False
+    daily = obsidian_configs.get("daily-notes.json") or {}
+    app_cfg = obsidian_configs.get("app.json") or {}
+    patch: dict[str, Any] = {}
+    if isinstance(daily.get("format"), str) and daily["format"]:
+        patch["dailyNoteFormat"] = daily["format"]
+    if isinstance(daily.get("folder"), str) and daily["folder"]:
+        patch["dailyNoteFolder"] = daily["folder"]
+    if isinstance(daily.get("template"), str) and daily["template"]:
+        patch["dailyNoteTemplate"] = daily["template"]
+    if isinstance(app_cfg.get("attachmentFolderPath"), str):
+        pass  # attachments are flat in nodum; path mapping not needed
+    if patch:
+        from app.services.vault_service import update_vault_settings
+
+        result = await update_vault_settings(db, vault_id, user_id, settings_patch=patch)
+        settings_mapped = result.success
+
     await invalidate_tree_cache(vault_id)
     await cache_delete(vault_graph_key(vault_id))
 
-    logger.info("vault_imported", vault_id=str(vault_id), imported=imported, renamed=renamed)
+    logger.info(
+        "vault_imported",
+        vault_id=str(vault_id),
+        imported=imported,
+        renamed=renamed,
+        attachments=imported_attachments,
+    )
     return ServiceResponse.ok(
         {
             "imported": imported,
             "renamed": renamed,
+            "imported_attachments": imported_attachments,
+            "settings_mapped": settings_mapped,
             "skipped_non_markdown": skipped_non_md,
             "skipped_too_large": skipped_too_large,
         }
