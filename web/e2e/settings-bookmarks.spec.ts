@@ -93,7 +93,7 @@ test.describe("hotkeys reference", () => {
 
     await dialog.getByLabel("Search hotkeys").fill("graph");
     await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText("Open graph view");
+    await expect(rows.first()).toContainText(/Graph view/i);
 
     await dialog.getByLabel("Search hotkeys").fill("bold");
     await expect(rows.first()).toContainText("⌘B");

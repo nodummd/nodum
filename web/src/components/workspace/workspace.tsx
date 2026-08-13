@@ -245,6 +245,10 @@ export function Workspace({ vault }: { vault: Vault }) {
       } else if (e.key === "]") {
         e.preventDefault();
         useWorkspaceStore.getState().navigateForward();
+      } else if (e.key >= "1" && e.key <= "9" && !e.shiftKey) {
+        // ⌘1–8 jump to that tab, ⌘9 to the last (Obsidian's tab-index chords).
+        e.preventDefault();
+        useWorkspaceStore.getState().goToTabIndex(e.key === "9" ? -1 : Number(e.key) - 1);
       }
     };
     window.addEventListener("keydown", onKey);
