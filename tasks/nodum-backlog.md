@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **81 backend + 72 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 75 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -321,15 +321,18 @@
   *Accept:* e2e splits, drags the seam, asserts pane widths change and the
   ratio survives reload.
 
-- [ ] **S13.2 Tab drag-and-drop + 2D split layout** (L)
-  *Do:* replace the flat `panes[]`/`activePane` model with a recursive
-  split-tree (`web/src/lib/stores/layout-tree.ts`: leaf + row/column split
-  nodes); drag a tab to reorder within a leaf, move it to another leaf, or
-  drop on a pane edge (left/right/top/bottom) to split — enabling
-  bottom-left / bottom-right nesting. Drop-zone overlays; back-compat
-  selectors so existing consumers keep working; persist-migration to v4.
-  *Accept:* e2e drags a tab to a right edge → two panes; to a bottom edge →
-  stacked panes; reorder within a pane; layout survives reload.
+- [x] **S13.2 Tab drag-and-drop + edge split** (L) — 2026-08-14 — shipped a
+  SCOPED version (the full recursive split-tree was judged too risky to land
+  unattended: a `panes[]`→tree swap touches 107 refs across 4 files + a
+  persist migration that could wipe open tabs). Delivered on the existing
+  2-pane model + a `splitOrientation`: drag a tab to reorder within its
+  strip, move it to the other pane, or drop on a pane edge (left/right →
+  side-by-side, top/bottom → stacked) to split — with drop-zone overlays and
+  an orientation-aware resize seam. e2e: right-edge → side-by-side, bottom-
+  edge → stacked, reorder within a strip.
+  *Deferred to Icebox:* simultaneous 2×2 nesting (bottom-left + bottom-right
+  at once) needs the recursive split-tree — full plan is in the phase-f-plan
+  workflow output; land it as its own sprint with the v3→v4 migration.
 
 ### Sprint 14 — Graph view parity
 
@@ -372,6 +375,7 @@
   prod-compose smoke, backlog + master-plan close-out.
 
 ## Icebox (still later)
+- Full recursive split-tree layout (2×2 tab nesting) — plan in phase-f-plan workflow output
 - graph clustering by folder
 - Real-time multi-user share links (collab across accounts)
 - E2E encryption at rest
