@@ -223,6 +223,20 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13 (post-v3.1.0, 4)** — Command palette raised (top 15%,
+  centered) and filled out with the full Obsidian-style command set
+  (~55 commands): duplicate file, copy file path, bookmark / bookmark
+  all tabs, new canvas, new folder, create-note-to-the-right, go-to-tab
+  #1–8 / last, close/focus tab group, show backlinks/outgoing/outline/
+  tags/local-graph (right sidebar), toggle ribbon, zoom in/out/reset,
+  toggle default new-tab mode, reload. Store gained rightPane/setRightPane
+  (right sidebar pane lifted from local state), ribbonVisible/toggleRibbon,
+  and a generalized closePane. Genuinely N/A on web and left out (noted):
+  themes/light-dark, sync, bases, stacked tabs, split-down, multi-window,
+  Finder/OS reveal, canvas image export, move-to-folder picker (backend
+  ready, needs a picker UI). e2e: palette-commands spec covers duplicate,
+  new canvas, outline panel, zoom, ribbon.
+
 - **2026-08-13 (post-v3.1.0, 3)** — Command palette restyled to match
   Obsidian's: alphabetical flat list (no group heading, no per-row
   icons), "Category: action" labels, "Select a command…" placeholder,

@@ -91,9 +91,9 @@ test.describe("hotkeys reference", () => {
     const total = await rows.count();
     expect(total).toBeGreaterThan(15);
 
-    await dialog.getByLabel("Search hotkeys").fill("graph");
+    await dialog.getByLabel("Search hotkeys").fill("spellcheck");
     await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText(/Graph view/i);
+    await expect(rows.first()).toContainText(/spellcheck/i);
 
     await dialog.getByLabel("Search hotkeys").fill("bold");
     await expect(rows.first()).toContainText("⌘B");
