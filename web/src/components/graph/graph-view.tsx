@@ -7,7 +7,7 @@
  * clicking one creates the note (Obsidian semantics).
  */
 
-import { Graph as CosmosGraph } from "@cosmos.gl/graph";
+import { Graph as CosmosGraph, TransitionEasing } from "@cosmos.gl/graph";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -300,6 +300,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const didFitRef = useRef(false);
   const labelRef = useRef<{ overlay: HTMLDivElement; els: Map<number, HTMLDivElement> } | null>(null);
   const dimRafRef = useRef(0);
+  const enterRafRef = useRef(0);
   const currentColorsRef = useRef<Float32Array>(new Float32Array(0));
   // camera rect tracked every frame — the container is already detached by
   // cleanup time, so an unmount-time read would see a zero-size viewport
@@ -332,6 +333,41 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       if (t < 1) dimRafRef.current = requestAnimationFrame(step);
     };
     dimRafRef.current = requestAnimationFrame(step);
+  };
+
+  /** Fade + scale newly-added nodes (and their links) in over ~320ms so a
+   *  created note pops in beside its neighbors instead of appearing at once. */
+  const runEnterAnimation = (
+    addedPoints: number[],
+    addedLinks: number[],
+    targetColors: Float32Array,
+    targetSizes: Float32Array,
+    targetLinkColors: Float32Array,
+  ) => {
+    cancelAnimationFrame(enterRafRef.current);
+    if (addedPoints.length === 0 && addedLinks.length === 0) return;
+    const colors = targetColors.slice();
+    const sizes = targetSizes.slice();
+    const linkColors = targetLinkColors.slice();
+    const t0 = performance.now();
+    const DURATION = 320;
+    const step = (now: number) => {
+      const graph = graphRef.current;
+      if (!graph) return;
+      const t = Math.min(1, (now - t0) / DURATION);
+      const eased = t * (2 - t); // ease-out
+      for (const i of addedPoints) {
+        sizes[i] = targetSizes[i] * eased;
+        colors[i * 4 + 3] = targetColors[i * 4 + 3] * eased;
+      }
+      for (const i of addedLinks) linkColors[i * 4 + 3] = targetLinkColors[i * 4 + 3] * eased;
+      graph.setPointSizes(sizes);
+      graph.setPointColors(colors);
+      graph.setLinkColors(linkColors);
+      graph.render(0);
+      if (t < 1) enterRafRef.current = requestAnimationFrame(step);
+    };
+    enterRafRef.current = requestAnimationFrame(step);
   };
 
   /** Copy the live layout + camera into the per-view stores. */
@@ -369,6 +405,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       pointSizeScale: 1,
       hoveredPointCursor: "pointer",
       hoveredPointRingColor: toRgba(accent, 0.9),
+      renderHoveredPointRing: true,
+      transitionDuration: 350,
+      transitionEasing: TransitionEasing.QuadInOut,
       simulationGravity: 0.1,
       simulationCenter: 0.55,
       simulationRepulsion: 1.1,
@@ -457,6 +496,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       container.removeEventListener("pointerup", onUp);
       cancelAnimationFrame(rafRef.current);
       cancelAnimationFrame(dimRafRef.current);
+      cancelAnimationFrame(enterRafRef.current);
       overlay.remove();
       labelRef.current = null;
       graph.destroy();
@@ -567,18 +607,52 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     const baseLinkColors = new Float32Array(filtered.edges.length * 4);
     for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
 
-    graph.setPointPositions(positions, true);
-    graph.setPointColors(colors);
-    graph.setPointSizes(sizes);
-    graph.setLinks(links);
-    graph.setLinkColors(baseLinkColors);
-
-    // energy: settle a brand-new layout, restore a known one statically,
-    // and give incremental changes only a gentle local reheat
+    // Detect nodes/links added since the last apply → fade them in. Only a
+    // small, genuine growth animates (not the first build, not filter
+    // reshuffles) so toggling ghosts/orphans/time-travel never fade-storms.
+    cancelAnimationFrame(enterRafRef.current);
     const isFirst = !didFitRef.current;
     const restored = n > 0 && reused / n >= 0.5;
+    const prevIdSet = new Set(prevIdsRef.current);
+    const addedPoints: number[] = [];
+    filtered.nodes.forEach((node, i) => {
+      if (!prevIdSet.has(node.id)) addedPoints.push(i);
+    });
+    const addedPointSet = new Set(addedPoints);
+    const addedLinks: number[] = [];
+    filtered.edges.forEach(([s, t], i) => {
+      if (addedPointSet.has(s) || addedPointSet.has(t)) addedLinks.push(i);
+    });
+    const animateEnter = !isFirst && restored && addedPoints.length > 0 && addedPoints.length <= 8;
+
+    graph.setPointPositions(positions, true);
+    if (animateEnter) {
+      // seed the added indices invisible; runEnterAnimation ramps them up
+      const initColors = colors.slice();
+      const initSizes = sizes.slice();
+      const initLinks = baseLinkColors.slice();
+      for (const i of addedPoints) {
+        initSizes[i] = 0;
+        initColors[i * 4 + 3] = 0;
+      }
+      for (const i of addedLinks) initLinks[i * 4 + 3] = 0;
+      graph.setPointColors(initColors);
+      graph.setPointSizes(initSizes);
+      graph.setLinks(links);
+      graph.setLinkColors(initLinks);
+    } else {
+      graph.setPointColors(colors);
+      graph.setPointSizes(sizes);
+      graph.setLinks(links);
+      graph.setLinkColors(baseLinkColors);
+    }
+
+    // energy: settle a brand-new layout, restore a known one statically,
+    // and give incremental changes only a gentle, eased local reheat
     graph.unpause();
-    graph.render(isFirst ? (restored ? 0 : 0.9) : 0.04);
+    if (isFirst) graph.render(restored ? 0 : 0.9);
+    else graph.render(0.04, 350);
+    if (animateEnter) runEnterAnimation(addedPoints, addedLinks, colors, sizes, baseLinkColors);
     if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     pauseTimerRef.current = setTimeout(
       () => graphRef.current?.pause(),
@@ -649,7 +723,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     const firstRun = prevForcesRef.current === "";
     // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
     prevForcesRef.current = key;
-    graph.setConfig({
+    graph.setConfigPartial({
       simulationCenter: applied.centerForce,
       simulationRepulsion: applied.repelForce,
       simulationLinkDistance: applied.linkDistance,
@@ -668,7 +742,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     if (prevDisplayRef.current === key) return;
     // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
     prevDisplayRef.current = key;
-    graph.setConfig({
+    graph.setConfigPartial({
       linkDefaultArrows: arrows,
       pointSizeScale: nodeSize,
       linkWidthScale: linkThickness,
