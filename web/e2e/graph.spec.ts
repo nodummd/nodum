@@ -154,3 +154,18 @@ test.describe("graph panel parity", () => {
     await expect(page.getByLabel("Node size")).toHaveValue("1", { timeout: 10_000 });
   });
 });
+
+test.describe("graph config stability", () => {
+  test("changing a force keeps the graph alive (setConfigPartial, not reset)", async ({ page }) => {
+    await signupFreshUser(page, "graphforce");
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
+
+    // Previously setConfig() wiped the whole config (callbacks, bg, forces);
+    // setConfigPartial keeps the graph rendering + counting after a force change.
+    await page.getByLabel("Center force").fill("0.9");
+    await expect(page.locator("main canvas").first()).toBeVisible();
+    await expect(page.getByText(/\d+ nodes · \d+ links/)).toBeVisible({ timeout: 10_000 });
+  });
+});
