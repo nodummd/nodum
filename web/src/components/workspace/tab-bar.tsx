@@ -21,11 +21,42 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const togglePin = useWorkspaceStore((s) => s.togglePin);
   const splitRight = useWorkspaceStore((s) => s.splitRight);
+  const setDragging = useWorkspaceStore((s) => s.setDragging);
+  const reorderTab = useWorkspaceStore((s) => s.reorderTab);
+  const moveTabToPane = useWorkspaceStore((s) => s.moveTabToPane);
 
   if (!pane) return null;
 
+  // Drop onto the strip: reorder within this pane, or move a tab in from
+  // another pane. Insertion index = the tab whose midpoint the cursor passed.
+  const onStripDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const drag = useWorkspaceStore.getState().dragging;
+    if (!drag) return;
+    const tabEls = [
+      ...(e.currentTarget as HTMLElement).querySelectorAll('[role="tab"]'),
+    ] as HTMLElement[];
+    let toIndex = tabEls.length;
+    for (let i = 0; i < tabEls.length; i++) {
+      const r = tabEls[i].getBoundingClientRect();
+      if (e.clientX < r.left + r.width / 2) {
+        toIndex = i;
+        break;
+      }
+    }
+    if (drag.fromPaneIndex === paneIndex) reorderTab(drag.tabId, paneIndex, toIndex);
+    else moveTabToPane(drag.tabId, drag.fromPaneIndex, paneIndex, toIndex);
+    setDragging(null);
+  };
+
   return (
     <div
+      onDragOver={(e) => {
+        if (!useWorkspaceStore.getState().dragging) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={onStripDrop}
       className={cn(
         "flex h-9 shrink-0 items-stretch gap-px overflow-x-auto border-b bg-ob-sidebar-alt px-1 pt-1",
         isActivePane ? "border-ob-border" : "border-ob-border opacity-80",
@@ -40,6 +71,13 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
                 role="tab"
                 aria-selected={active && isActivePane}
                 tabIndex={0}
+                draggable
+                onDragStart={(e) => {
+                  setDragging({ tabId: tab.id, fromPaneIndex: paneIndex });
+                  e.dataTransfer.setData("text/plain", tab.id);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onDragEnd={() => setDragging(null)}
                 onClick={() => setActiveTab(tab.id, paneIndex)}
                 onKeyDown={(e) => e.key === "Enter" && setActiveTab(tab.id, paneIndex)}
                 onAuxClick={(e) => {
