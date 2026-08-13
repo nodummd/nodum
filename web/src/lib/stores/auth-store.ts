@@ -16,6 +16,8 @@ interface AuthState {
   /** Try to restore the session from the refresh cookie (app boot). */
   bootstrap: () => Promise<void>;
   applyTokens: (pair: TokenPair) => void;
+  /** Replace the cached user (e.g. after PATCH /auth/me). */
+  setUser: (user: User) => void;
   logout: () => Promise<void>;
 }
 
@@ -44,6 +46,8 @@ export const useAuthStore = create<AuthState>((set) => {
     setAccessToken(pair.access_token);
     set({ status: "authenticated", user: pair.user });
   },
+
+  setUser: (user) => set({ user }),
 
   logout: async () => {
     try {
