@@ -17,7 +17,11 @@ import {
 import { ApiError } from "@/lib/api/client";
 import { authApi, bookmarkApi, canvasApi, folderApi, noteApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
-import { EDITOR_SETTING_DEFAULTS, parseEditorSettings } from "@/lib/hooks/use-editor-settings";
+import {
+  EDITOR_SETTING_DEFAULTS,
+  parseEditorSettings,
+  parseUserPrefs,
+} from "@/lib/hooks/use-editor-settings";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
@@ -259,7 +263,7 @@ export function CommandPalette({
     { id: "show-tags", label: "Tags view: Show tags", run: () => setRightPanel("tags") },
     { id: "toggle-left", label: "Toggle left sidebar", run: toggleLeft },
     { id: "toggle-right", label: "Toggle right sidebar", run: toggleRight },
-    { id: "toggle-ribbon", label: "Toggle ribbon", run: () => useWorkspaceStore.getState().toggleRibbon() },
+    { id: "toggle-ribbon", label: "Toggle ribbon", run: () => toggleSetting({ showRibbon: !parseUserPrefs(user?.settings).showRibbon }) },
     { id: "show-file-explorer", label: "Files: Show file explorer", run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "files" }) },
     { id: "show-bookmarks", label: "Bookmarks: Show bookmarks", run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "bookmarks" }) },
     { id: "settings", label: "Open settings", hotkey: "⌘,", run: onOpenSettings },
