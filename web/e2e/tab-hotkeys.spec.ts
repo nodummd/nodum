@@ -1,0 +1,52 @@
+import { expect, test } from "@playwright/test";
+
+import { openNoteFromExplorer, signupFreshUser } from "./helpers";
+
+/** ⌘/Ctrl+W closes the active tab, even with many tabs open. */
+test.describe("tab keyboard shortcuts", () => {
+  test("⌘W closes the active tab and activates its neighbor", async ({ page }) => {
+    await signupFreshUser(page, "tab-hotkeys-e2e");
+
+    // Open the three seeded notes as tabs, in order → [Welcome, Linking, Formatting]
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    await openNoteFromExplorer(page, "Linking your thinking");
+    await openNoteFromExplorer(page, "Formatting showcase");
+
+    const tabs = page.getByRole("tab");
+    await expect(tabs).toHaveCount(3);
+
+    // Activate the middle tab, then close it with the keyboard
+    await page.getByRole("tab", { name: /Linking your thinking/ }).click();
+    const title = page.getByRole("textbox", { name: "Note title" });
+    await expect(title).toHaveValue("Linking your thinking");
+
+    await page.keyboard.press("ControlOrMeta+w");
+
+    // The closed tab is gone and its right neighbor becomes active
+    await expect(page.getByRole("tab", { name: /Linking your thinking/ })).toHaveCount(0);
+    await expect(tabs).toHaveCount(2);
+    await expect(title).toHaveValue("Formatting showcase");
+
+    // Closing the last tab falls back to its left neighbor
+    await page.keyboard.press("ControlOrMeta+w");
+    await expect(tabs).toHaveCount(1);
+    await expect(title).toHaveValue("Welcome to Nodum");
+  });
+
+  test("⌘W leaves a pinned tab open", async ({ page }) => {
+    await signupFreshUser(page, "tab-pin-e2e");
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    await openNoteFromExplorer(page, "Linking your thinking");
+
+    // Pin the active tab via its context menu
+    await page.getByRole("tab", { name: /Linking your thinking/ }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Pin" }).click();
+    const pinned = page.getByRole("tab", { name: /Linking your thinking/ });
+    await expect(pinned).toBeVisible();
+
+    // Re-activate it and try to close — pinned tabs are protected
+    await pinned.click();
+    await page.keyboard.press("ControlOrMeta+w");
+    await expect(pinned).toHaveCount(1);
+  });
+});
