@@ -56,6 +56,19 @@ export function useEditorSettings(): EditorSettings {
 
 // ── App-wide prefs (S11.3: appearance, files & links, page preview) ─────────
 
+/** Font stacks offered in Appearance — the value is validated against these
+ *  keys, so nothing user-supplied ever reaches the CSS var (no injection). */
+export const FONT_CHOICES: Record<string, string> = {
+  default: "",
+  Inter: "Inter, sans-serif",
+  System: "system-ui, sans-serif",
+  Serif: "Georgia, 'Times New Roman', serif",
+  Mono: "'JetBrains Mono', ui-monospace, monospace",
+};
+export type FontChoice = keyof typeof FONT_CHOICES;
+const isFontChoice = (v: unknown): v is FontChoice =>
+  typeof v === "string" && Object.prototype.hasOwnProperty.call(FONT_CHOICES, v);
+
 export interface UserPrefs {
   /** Hex accent colour override, null = theme default. */
   accentColor: string | null;
@@ -63,6 +76,13 @@ export interface UserPrefs {
   previewRequireCmd: boolean;
   /** Ask before deleting notes, folders and canvases. */
   confirmDelete: boolean;
+  /** Font stack keys (validated against FONT_CHOICES). */
+  fontInterface: FontChoice;
+  fontText: FontChoice;
+  fontMonospace: FontChoice;
+  /** Interface: left icon ribbon + tab title bar. */
+  showRibbon: boolean;
+  showTabTitleBar: boolean;
 }
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
@@ -73,6 +93,11 @@ export function parseUserPrefs(raw: Record<string, unknown> | undefined): UserPr
     accentColor: typeof s.accentColor === "string" && HEX_RE.test(s.accentColor) ? s.accentColor : null,
     previewRequireCmd: typeof s.previewRequireCmd === "boolean" ? s.previewRequireCmd : true,
     confirmDelete: typeof s.confirmDelete === "boolean" ? s.confirmDelete : true,
+    fontInterface: isFontChoice(s.fontInterface) ? s.fontInterface : "default",
+    fontText: isFontChoice(s.fontText) ? s.fontText : "default",
+    fontMonospace: isFontChoice(s.fontMonospace) ? s.fontMonospace : "default",
+    showRibbon: typeof s.showRibbon === "boolean" ? s.showRibbon : true,
+    showTabTitleBar: typeof s.showTabTitleBar === "boolean" ? s.showTabTitleBar : true,
   };
 }
 
