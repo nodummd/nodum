@@ -11,8 +11,9 @@ import { Graph as CosmosGraph } from "@cosmos.gl/graph";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Pause, Play, Settings2 } from "lucide-react";
+import { Pause, Play, RotateCcw, Settings2 } from "lucide-react";
 
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
@@ -33,11 +34,6 @@ function getPositionStore(key: string): Map<string, [number, number]> {
 // Viewport-center space point + zoom per view — restores the exact camera.
 const cameraStores = new Map<string, [number, number, number]>();
 
-/** Mobile: card hidden unless toggled; desktop: always visible. */
-function cnControls(open: boolean, base: string): string {
-  return `${open ? "block" : "hidden"} md:block ${base}`;
-}
-
 /** Shape stored under vaults.settings.graph (all keys optional). */
 interface PersistedGraph {
   groups?: GraphGroup[];
@@ -51,6 +47,21 @@ interface PersistedGraph {
   nodeSize?: number;
   linkThickness?: number;
 }
+
+/** Single source of truth for graph defaults (used by the fallback chain,
+ *  the applied-forces seed, and the reset-to-defaults button). */
+const GRAPH_DEFAULTS: Required<PersistedGraph> = {
+  groups: [],
+  showGhosts: true,
+  showOrphans: true,
+  centerForce: 0.55,
+  repelForce: 1.1,
+  linkDistance: 12,
+  linkForce: 1.1,
+  arrows: false,
+  nodeSize: 1,
+  linkThickness: 1,
+};
 
 interface GraphViewProps {
   vaultId: string;
@@ -86,7 +97,6 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const graphRef = useRef<CosmosGraph | null>(null);
   const rafRef = useRef<number>(0);
   const [hovered, setHovered] = useState<{ title: string; x: number; y: number } | null>(null);
-  const [controlsOpen, setControlsOpen] = useState(false);
   // Time travel: reveal the first p% of nodes in creation order (100 = now)
   const [timePercent, setTimePercent] = useState(100);
   const [playing, setPlaying] = useState(false);
@@ -119,24 +129,48 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const [appliedSearch, setAppliedSearch] = useState("");
   const [groupsDraft, setGroupsDraft] = useState<GraphGroup[] | null>(null);
 
-  const showGhosts = ghostsDraft ?? persisted.showGhosts ?? true;
-  const showOrphans = orphansDraft ?? persisted.showOrphans ?? true;
-  const centerForce = centerDraft ?? persisted.centerForce ?? 0.55;
-  const repelForce = repelDraft ?? persisted.repelForce ?? 1.1;
-  const linkDistance = distDraft ?? persisted.linkDistance ?? 12;
-  const linkForce = linkForceDraft ?? persisted.linkForce ?? 1.1;
-  const arrows = arrowsDraft ?? persisted.arrows ?? false;
-  const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? 1;
-  const linkThickness = thicknessDraft ?? persisted.linkThickness ?? 1;
+  const showGhosts = ghostsDraft ?? persisted.showGhosts ?? GRAPH_DEFAULTS.showGhosts;
+  const showOrphans = orphansDraft ?? persisted.showOrphans ?? GRAPH_DEFAULTS.showOrphans;
+  const centerForce = centerDraft ?? persisted.centerForce ?? GRAPH_DEFAULTS.centerForce;
+  const repelForce = repelDraft ?? persisted.repelForce ?? GRAPH_DEFAULTS.repelForce;
+  const linkDistance = distDraft ?? persisted.linkDistance ?? GRAPH_DEFAULTS.linkDistance;
+  const linkForce = linkForceDraft ?? persisted.linkForce ?? GRAPH_DEFAULTS.linkForce;
+  const arrows = arrowsDraft ?? persisted.arrows ?? GRAPH_DEFAULTS.arrows;
+  const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? GRAPH_DEFAULTS.nodeSize;
+  const linkThickness = thicknessDraft ?? persisted.linkThickness ?? GRAPH_DEFAULTS.linkThickness;
   const groups = useMemo(
-    () => groupsDraft ?? persisted.groups ?? [],
+    () => groupsDraft ?? persisted.groups ?? GRAPH_DEFAULTS.groups,
     [groupsDraft, persisted.groups],
   );
+
+  // One-click restore of every filter/display/force/group to the defaults.
+  // Setting drafts (not null) marks `touched`, so the persist + apply effects
+  // write and re-render the defaults automatically.
+  const resetToDefaults = () => {
+    setGhostsDraft(GRAPH_DEFAULTS.showGhosts);
+    setOrphansDraft(GRAPH_DEFAULTS.showOrphans);
+    setCenterDraft(GRAPH_DEFAULTS.centerForce);
+    setRepelDraft(GRAPH_DEFAULTS.repelForce);
+    setDistDraft(GRAPH_DEFAULTS.linkDistance);
+    setLinkForceDraft(GRAPH_DEFAULTS.linkForce);
+    setArrowsDraft(GRAPH_DEFAULTS.arrows);
+    setNodeSizeDraft(GRAPH_DEFAULTS.nodeSize);
+    setThicknessDraft(GRAPH_DEFAULTS.linkThickness);
+    setGroupsDraft([]);
+    setSearchQuery("");
+    setTimePercent(100);
+    setPlaying(false);
+  };
 
   // Slider/group values update instantly for the UI; the WebGL graph only
   // rebuilds against the debounced copies (300ms idle) — dragging a slider or
   // typing a group query would otherwise tear down the simulation per tick.
-  const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12, linkForce: 1.1 });
+  const [applied, setApplied] = useState({
+    centerForce: GRAPH_DEFAULTS.centerForce,
+    repelForce: GRAPH_DEFAULTS.repelForce,
+    linkDistance: GRAPH_DEFAULTS.linkDistance,
+    linkForce: GRAPH_DEFAULTS.linkForce,
+  });
   const [appliedGroups, setAppliedGroups] = useState<GraphGroup[]>([]);
   const groupsJson = JSON.stringify(groups);
 
@@ -654,24 +688,33 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         </div>
       )}
 
-      {/* Controls — Obsidian's graph settings card (behind a gear on mobile) */}
+      {/* Controls — Obsidian's floating gear popover + reset (top-right) */}
       {!compact && (
-        <button
-          type="button"
-          aria-label="Graph settings"
-          onClick={() => setControlsOpen((v) => !v)}
-          className="absolute right-3 bottom-16 z-10 flex size-11 items-center justify-center rounded-full border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur md:hidden"
-        >
-          <Settings2 className="size-5" strokeWidth={1.75} />
-        </button>
-      )}
-      {!compact && (
-      <div
-        className={cnControls(
-          controlsOpen,
-          "absolute top-3 right-3 z-10 w-52 rounded-lg border border-ob-border bg-ob-sidebar/95 p-3 text-[12px] backdrop-blur",
-        )}
-      >
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Reset graph settings"
+            onClick={resetToDefaults}
+            className="flex size-8 items-center justify-center rounded-md border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur transition-colors hover:text-ob-text"
+          >
+            <RotateCcw className="size-4" strokeWidth={1.75} />
+          </button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Graph settings"
+                className="flex size-8 items-center justify-center rounded-md border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur transition-colors hover:text-ob-text"
+              >
+                <Settings2 className="size-4" strokeWidth={1.75} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={6}
+              onOpenAutoFocus={(e) => e.preventDefault()}
+              className="max-h-[70vh] w-64 overflow-y-auto border-ob-border bg-ob-sidebar p-3 text-[12px]"
+            >
         <p className="pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Filters</p>
         <input
           value={searchQuery}
@@ -796,7 +839,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
             {data.truncated ? " · capped" : ""}
           </p>
         )}
-      </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       )}
     </div>
   );
