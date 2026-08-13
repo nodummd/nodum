@@ -47,6 +47,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm rounded-xl border bg-card p-8">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="Nodum" className="mb-4 size-12" />
         <h1 className="text-xl font-semibold">
           {mode === "signup" ? "Create your vault" : "Welcome back"}
         </h1>
