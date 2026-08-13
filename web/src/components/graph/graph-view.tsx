@@ -11,7 +11,7 @@ import { Graph as CosmosGraph } from "@cosmos.gl/graph";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Settings2 } from "lucide-react";
+import { Pause, Play, Settings2 } from "lucide-react";
 
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
@@ -69,6 +69,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const rafRef = useRef<number>(0);
   const [hovered, setHovered] = useState<{ title: string; x: number; y: number } | null>(null);
   const [controlsOpen, setControlsOpen] = useState(false);
+  // Time travel: reveal the first p% of nodes in creation order (100 = now)
+  const [timePercent, setTimePercent] = useState(100);
+  const [playing, setPlaying] = useState(false);
   const queryClient = useQueryClient();
 
   // Settings persist per vault under settings.graph. Local edits are drafts
@@ -107,6 +110,20 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12 });
   const [appliedGroups, setAppliedGroups] = useState<GraphGroup[]>([]);
   const groupsJson = JSON.stringify(groups);
+
+  useEffect(() => {
+    if (!playing) return;
+    const timer = setInterval(() => {
+      setTimePercent((p) => {
+        if (p >= 100) {
+          setPlaying(false);
+          return 100;
+        }
+        return Math.min(100, p + 4);
+      });
+    }, 200);
+    return () => clearInterval(timer);
+  }, [playing]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -163,12 +180,22 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       centerNoteId ? linkApi.localGraph(vaultId, centerNoteId, depth) : linkApi.graph(vaultId),
   });
 
-  /** Filtered view of the payload (ghosts/orphans toggles). */
+  /** Filtered view of the payload (ghosts/orphans toggles + time travel). */
   const filtered = useMemo(() => {
     if (!data) return null;
+    // creation-ordered reveal set (ghosts count as newest)
+    let revealed: Set<number> | null = null;
+    if (timePercent < 100) {
+      const order = data.nodes
+        .map((node, i) => ({ i, at: node.created_at ?? "9999" }))
+        .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.i - b.i));
+      const count = Math.max(1, Math.ceil((timePercent / 100) * order.length));
+      revealed = new Set(order.slice(0, count).map((x) => x.i));
+    }
     const keep: number[] = [];
     const remap = new Map<number, number>();
     data.nodes.forEach((node, i) => {
+      if (revealed && !revealed.has(i)) return;
       if (!showGhosts && node.unresolved) return;
       if (!showOrphans && node.degree === 0) return;
       remap.set(i, keep.length);
@@ -179,7 +206,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       .filter(([s, t]) => remap.has(s) && remap.has(t))
       .map(([s, t]) => [remap.get(s) as number, remap.get(t) as number] as [number, number]);
     return { nodes, edges };
-  }, [data, showGhosts, showOrphans]);
+  }, [data, showGhosts, showOrphans, timePercent]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -464,6 +491,34 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         >
           + Add group
         </button>
+
+        <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Time travel</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={playing ? "Pause replay" : "Replay vault growth"}
+            onClick={() => {
+              if (!playing && timePercent >= 100) setTimePercent(0);
+              setPlaying((v) => !v);
+            }}
+            className="flex size-6 shrink-0 items-center justify-center rounded text-ob-muted hover:bg-ob-hover hover:text-ob-text"
+          >
+            {playing ? <Pause className="size-3.5" strokeWidth={2} /> : <Play className="size-3.5" strokeWidth={2} />}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={timePercent}
+            aria-label="Time travel"
+            onChange={(e) => {
+              setPlaying(false);
+              setTimePercent(Number(e.target.value));
+            }}
+            className="w-full accent-[var(--ob-interactive-accent)]"
+          />
+        </div>
 
         {data && (
           <p className="pt-2 text-[11px] text-ob-faint">
