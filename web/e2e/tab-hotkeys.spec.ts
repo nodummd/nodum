@@ -43,13 +43,13 @@ test.describe("tab keyboard shortcuts", () => {
 
     // Go to previous tab via the command palette (browser-proof path)
     await page.keyboard.press("ControlOrMeta+p");
-    await page.getByPlaceholder("Type a command…").fill("previous tab");
+    await page.getByPlaceholder("Select a command...").fill("previous tab");
     await page.getByRole("option", { name: "Go to previous tab" }).click();
     await expect(title).toHaveValue("Linking your thinking");
 
     // Close all other tabs → only the active one remains
     await page.keyboard.press("ControlOrMeta+p");
-    await page.getByPlaceholder("Type a command…").fill("Close all other");
+    await page.getByPlaceholder("Select a command...").fill("Close all other");
     await page.getByRole("option", { name: "Close all other tabs" }).click();
     await expect(page.getByRole("tab")).toHaveCount(1);
     await expect(title).toHaveValue("Linking your thinking");

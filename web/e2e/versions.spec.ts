@@ -18,8 +18,8 @@ test.describe("version history", () => {
 
     await page.keyboard.press("ControlOrMeta+p");
     const palette = page.getByRole("dialog");
-    await palette.getByPlaceholder(/type a command/i).fill("version");
-    await palette.getByText("Version history").click();
+    await palette.getByPlaceholder(/select a command/i).fill("version");
+    await palette.getByText("Version history: Show version history").click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("Version history")).toBeVisible({ timeout: 10_000 });
