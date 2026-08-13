@@ -212,7 +212,8 @@ export function Workspace({ vault }: { vault: Vault }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
+      // Auto-repeat (key held down) must not fire these — one ⌘W = one closed tab.
+      if (!mod || e.repeat) return;
       if (e.key === "o") {
         e.preventDefault();
         setSwitcherOpen(!switcherOpen);
