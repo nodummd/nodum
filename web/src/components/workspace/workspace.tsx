@@ -54,6 +54,7 @@ export function Workspace({ vault }: { vault: Vault }) {
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
 
   const isMobile = useIsMobile();
+  const ribbonVisible = useWorkspaceStore((s) => s.ribbonVisible);
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
 
@@ -282,7 +283,7 @@ export function Workspace({ vault }: { vault: Vault }) {
         </header>
       )}
 
-      {!isMobile && (
+      {!isMobile && ribbonVisible && (
         <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} onOpenDailyNote={openDailyNote} />
       )}
       {!isMobile && (
@@ -380,6 +381,7 @@ export function Workspace({ vault }: { vault: Vault }) {
 
       <QuickSwitcher vaultId={vault.id} onOpenNote={openNote} />
       <CommandPalette
+        vaultId={vault.id}
         onNewNote={() => newNote.mutate()}
         onOpenGraph={openGraph}
         onDeleteActiveNote={deleteActiveNote}

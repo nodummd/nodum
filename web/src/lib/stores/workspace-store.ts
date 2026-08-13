@@ -16,6 +16,9 @@ export type MainView =
 
 export type EditorMode = "live" | "source" | "reading";
 
+/** Right-sidebar panels (mirrors sidebar-right.tsx). */
+export type RightPaneKind = "backlinks" | "outgoing" | "tags" | "outline" | "local-graph";
+
 export type ExplorerSort =
   | "title-asc"
   | "title-desc"
@@ -63,6 +66,10 @@ interface WorkspaceState {
   activePane: number;
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
+  /** Which right-sidebar panel is showing. */
+  rightPane: RightPaneKind;
+  /** Left icon ribbon visibility (Obsidian's "Toggle ribbon"). */
+  ribbonVisible: boolean;
   leftWidth: number;
   rightWidth: number;
   editorMode: EditorMode;
@@ -98,6 +105,8 @@ interface WorkspaceState {
   navigateForward: () => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
+  setRightPane: (pane: RightPaneKind) => void;
+  toggleRibbon: () => void;
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
   setEditorMode: (mode: EditorMode) => void;
@@ -118,6 +127,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       activePane: 0,
       leftSidebarOpen: true,
       rightSidebarOpen: true,
+      rightPane: "backlinks",
+      ribbonVisible: true,
       leftWidth: 280,
       rightWidth: 300,
       editorMode: "live",
@@ -265,10 +276,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
       },
 
+      // Close a whole tab group (pane). With a single pane this is a no-op —
+      // there's always at least one; otherwise drop it and keep the survivor.
       closePane: (index) => {
         const { panes } = get();
-        if (panes.length < 2 || index === 0) return;
-        set({ panes: panes.slice(0, 1), activePane: 0 });
+        if (panes.length < 2) return;
+        set({ panes: panes.filter((_, i) => i !== index), activePane: 0 });
       },
 
       togglePin: (tabId, paneIndex) =>
@@ -315,6 +328,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       toggleLeftSidebar: () => set({ leftSidebarOpen: !get().leftSidebarOpen }),
       toggleRightSidebar: () => set({ rightSidebarOpen: !get().rightSidebarOpen }),
+      setRightPane: (pane) => set({ rightPane: pane }),
+      toggleRibbon: () => set({ ribbonVisible: !get().ribbonVisible }),
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setEditorMode: (mode) => set({ editorMode: mode }),
@@ -354,6 +369,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         activePane: s.activePane,
         leftSidebarOpen: s.leftSidebarOpen,
         rightSidebarOpen: s.rightSidebarOpen,
+        ribbonVisible: s.ribbonVisible,
         leftWidth: s.leftWidth,
         rightWidth: s.rightWidth,
         editorMode: s.editorMode,
