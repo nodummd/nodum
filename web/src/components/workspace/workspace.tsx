@@ -53,8 +53,35 @@ export function Workspace({ vault }: { vault: Vault }) {
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
 
+  const splitRatio = useWorkspaceStore((s) => s.splitRatio);
+  const setSplitRatio = useWorkspaceStore((s) => s.setSplitRatio);
+  const mainRef = useRef<HTMLElement>(null);
+
   const isMobile = useIsMobile();
   const ribbonVisible = useWorkspaceStore((s) => s.ribbonVisible);
+
+  // Drag the seam between split panes; ratio follows the cursor, store clamps.
+  const onSplitDragStart = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const el = mainRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const prevSelect = document.body.style.userSelect;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      const onMove = (ev: PointerEvent) => setSplitRatio((ev.clientX - rect.left) / rect.width);
+      const onUp = () => {
+        document.body.style.userSelect = prevSelect;
+        document.body.style.cursor = "";
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [setSplitRatio],
+  );
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
 
@@ -295,7 +322,7 @@ export function Workspace({ vault }: { vault: Vault }) {
         />
       )}
 
-      <main className="relative flex min-w-0 flex-1 border-l border-ob-border">
+      <main ref={mainRef} className="relative flex min-w-0 flex-1 border-l border-ob-border">
         {panes.map((pane, paneIndex) => {
           const paneTab = pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
           return (
@@ -304,6 +331,11 @@ export function Workspace({ vault }: { vault: Vault }) {
               aria-label={`Editor pane ${String(paneIndex + 1)}`}
               onFocusCapture={() => setActivePane(paneIndex)}
               onClickCapture={() => setActivePane(paneIndex)}
+              style={
+                panes.length === 2
+                  ? { flexGrow: paneIndex === 0 ? splitRatio : 1 - splitRatio, flexBasis: 0 }
+                  : undefined
+              }
               className={
                 paneIndex > 0
                   ? "flex min-w-0 flex-1 flex-col border-l border-ob-border"
@@ -333,6 +365,18 @@ export function Workspace({ vault }: { vault: Vault }) {
             </section>
           );
         })}
+        {panes.length === 2 && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize split"
+            aria-valuenow={Math.round(splitRatio * 100)}
+            onPointerDown={onSplitDragStart}
+            onDoubleClick={() => setSplitRatio(0.5)}
+            style={{ left: `${splitRatio * 100}%` }}
+            className="absolute top-0 z-20 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-ob-accent/40"
+          />
+        )}
       </main>
 
       {!isMobile && (
