@@ -82,7 +82,13 @@ interface WorkspaceState {
   openTabBackground: (tab: Tab) => void;
   /** paneIndex omitted → close in every pane (e.g. the note was deleted). */
   closeTab: (tabId: string, paneIndex?: number) => void;
+  /** Close every tab in the active pane except the active one and pinned tabs. */
+  closeOtherTabs: () => void;
   setActiveTab: (tabId: string, paneIndex?: number) => void;
+  /** Activate the tab at index in the active pane; -1 selects the last tab. */
+  goToTabIndex: (index: number) => void;
+  /** Cycle the active pane's tab selection (+1 next, -1 previous, wraps). */
+  goToRelativeTab: (dir: 1 | -1) => void;
   renameTab: (tabId: string, title: string) => void;
   setActivePane: (index: number) => void;
   splitRight: () => void;
@@ -192,6 +198,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ panes: kept, activePane: Math.min(get().activePane, kept.length - 1) });
       },
 
+      closeOtherTabs: () => {
+        const { panes, activePane } = get();
+        set({
+          panes: panes.map((p, i) =>
+            i === activePane
+              ? { ...p, tabs: p.tabs.filter((t) => t.id === p.activeTabId || t.pinned) }
+              : p,
+          ),
+        });
+      },
+
       setActiveTab: (tabId, paneIndex) => {
         const { panes, activePane } = get();
         const target =
@@ -203,6 +220,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           ),
           activePane: index,
         });
+      },
+
+      goToTabIndex: (index) => {
+        const { panes, activePane } = get();
+        const p = panes[activePane];
+        if (!p || p.tabs.length === 0) return;
+        const target = index === -1 ? p.tabs.at(-1) : p.tabs[index];
+        if (target) get().setActiveTab(target.id, activePane);
+      },
+
+      goToRelativeTab: (dir) => {
+        const { panes, activePane } = get();
+        const p = panes[activePane];
+        if (!p || p.tabs.length === 0) return;
+        const cur = p.tabs.findIndex((t) => t.id === p.activeTabId);
+        const next = ((cur < 0 ? 0 : cur) + dir + p.tabs.length) % p.tabs.length;
+        get().setActiveTab(p.tabs[next].id, activePane);
       },
 
       renameTab: (tabId, title) =>

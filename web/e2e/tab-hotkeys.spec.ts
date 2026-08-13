@@ -33,6 +33,43 @@ test.describe("tab keyboard shortcuts", () => {
     await expect(title).toHaveValue("Welcome to Nodum");
   });
 
+  test("palette moves between tabs and closes the others", async ({ page }) => {
+    await signupFreshUser(page, "tab-nav-e2e");
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    await openNoteFromExplorer(page, "Linking your thinking");
+    await openNoteFromExplorer(page, "Formatting showcase");
+    const title = page.getByRole("textbox", { name: "Note title" });
+    await expect(title).toHaveValue("Formatting showcase"); // last opened is active
+
+    // Go to previous tab via the command palette (browser-proof path)
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByPlaceholder("Type a command…").fill("previous tab");
+    await page.getByRole("option", { name: "Go to previous tab" }).click();
+    await expect(title).toHaveValue("Linking your thinking");
+
+    // Close all other tabs → only the active one remains
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByPlaceholder("Type a command…").fill("Close all other");
+    await page.getByRole("option", { name: "Close all other tabs" }).click();
+    await expect(page.getByRole("tab")).toHaveCount(1);
+    await expect(title).toHaveValue("Linking your thinking");
+  });
+
+  test("⌘1 and ⌘9 jump to the first and last tab", async ({ page }) => {
+    await signupFreshUser(page, "tab-index-e2e");
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    await openNoteFromExplorer(page, "Linking your thinking");
+    await openNoteFromExplorer(page, "Formatting showcase");
+    const title = page.getByRole("textbox", { name: "Note title" });
+    await expect(title).toHaveValue("Formatting showcase");
+
+    await page.keyboard.press("ControlOrMeta+1");
+    await expect(title).toHaveValue("Welcome to Nodum");
+
+    await page.keyboard.press("ControlOrMeta+9"); // ⌘9 = last tab
+    await expect(title).toHaveValue("Formatting showcase");
+  });
+
   test("⌘W leaves a pinned tab open", async ({ page }) => {
     await signupFreshUser(page, "tab-pin-e2e");
     await openNoteFromExplorer(page, "Welcome to Nodum");

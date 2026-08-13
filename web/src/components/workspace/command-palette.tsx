@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   ArrowRight,
   BookOpen,
+  Bookmark,
   CalendarDays,
   Code2,
   Columns2,
@@ -16,15 +17,19 @@ import {
   FileStack,
   GitFork,
   History,
+  ListOrdered,
   LogOut,
   PanelLeft,
   PanelRight,
   Pencil,
+  Pin,
   Search,
   Settings,
+  SpellCheck,
   SquarePen,
   Trash2,
   Upload,
+  WrapText,
   X,
 } from "lucide-react";
 
@@ -38,7 +43,10 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { authApi } from "@/lib/api/endpoints";
+import { parseEditorSettings } from "@/lib/hooks/use-editor-settings";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { toastError } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export interface PaletteCommand {
@@ -49,6 +57,8 @@ export interface PaletteCommand {
   run: () => void | Promise<void>;
   /** Only shown when a note tab is active. */
   needsNote?: boolean;
+  /** Only shown when any tab is open. */
+  needsTab?: boolean;
 }
 
 interface CommandPaletteProps {
@@ -87,8 +97,19 @@ export function CommandPalette({
   const tabs = panes[activePane]?.tabs ?? [];
   const activeTabId = panes[activePane]?.activeTabId ?? null;
   const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const hasActiveNote = tabs.some((t) => t.id === activeTabId && t.kind === "note");
+  const hasTab = activeTabId !== null;
+  const editorPrefs = parseEditorSettings(user?.settings);
+
+  // Optimistic user-setting toggle (editor prefs are read live from the store).
+  const toggleSetting = (patch: Record<string, unknown>) => {
+    const current = useAuthStore.getState().user;
+    if (current) setUser({ ...current, settings: { ...current.settings, ...patch } });
+    authApi.updateMe({ settings: patch }).catch((e) => toastError(e, "Could not save setting."));
+  };
 
   const commands: PaletteCommand[] = [
     { id: "new-note", label: "Create new note", hotkey: "⌘N", icon: <SquarePen className="size-4" />, run: onNewNote },
@@ -106,10 +127,19 @@ export function CommandPalette({
     { id: "mode-live", label: "Editor: Live Preview", icon: <Pencil className="size-4" />, run: () => setMode("live"), needsNote: true },
     { id: "mode-source", label: "Editor: Source mode", icon: <Code2 className="size-4" />, run: () => setMode("source"), needsNote: true },
     { id: "mode-reading", label: "Editor: Reading view", icon: <BookOpen className="size-4" />, run: () => setMode("reading"), needsNote: true },
+    { id: "toggle-line-numbers", label: "Toggle line numbers", icon: <ListOrdered className="size-4" />, run: () => toggleSetting({ showLineNumbers: !editorPrefs.showLineNumbers }) },
+    { id: "toggle-spellcheck", label: "Toggle spellcheck", icon: <SpellCheck className="size-4" />, run: () => toggleSetting({ spellcheck: !editorPrefs.spellcheck }) },
+    { id: "toggle-readable-width", label: "Toggle readable line length", icon: <WrapText className="size-4" />, run: () => toggleSetting({ readableLineLength: !editorPrefs.readableLineLength }) },
     { id: "toggle-left", label: "Toggle left sidebar", icon: <PanelLeft className="size-4" />, run: toggleLeft },
     { id: "toggle-right", label: "Toggle right sidebar", icon: <PanelRight className="size-4" />, run: toggleRight },
-    { id: "close-tab", label: "Close current tab", hotkey: "⌘W", icon: <X className="size-4" />, run: onCloseActiveTab },
-    { id: "new-file-explorer", label: "Reveal file explorer", icon: <FilePlus2 className="size-4" />, run: () => useWorkspaceStore.setState({ leftSidebarOpen: true }) },
+    { id: "close-tab", label: "Close current tab", hotkey: "⌘W", icon: <X className="size-4" />, run: onCloseActiveTab, needsTab: true },
+    { id: "close-others", label: "Close all other tabs", icon: <X className="size-4" />, run: () => useWorkspaceStore.getState().closeOtherTabs(), needsTab: true },
+    { id: "next-tab", label: "Go to next tab", icon: <ArrowRight className="size-4" />, run: () => useWorkspaceStore.getState().goToRelativeTab(1), needsTab: true },
+    { id: "prev-tab", label: "Go to previous tab", icon: <ArrowLeft className="size-4" />, run: () => useWorkspaceStore.getState().goToRelativeTab(-1), needsTab: true },
+    { id: "toggle-pin", label: "Toggle pin on current tab", icon: <Pin className="size-4" />, run: () => activeTabId && useWorkspaceStore.getState().togglePin(activeTabId, activePane), needsTab: true },
+    { id: "show-file-explorer", label: "Show file explorer", icon: <FilePlus2 className="size-4" />, run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "files" }) },
+    { id: "search-files", label: "Search in all files", icon: <Search className="size-4" />, run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "search" }) },
+    { id: "show-bookmarks", label: "Show bookmarks", icon: <Bookmark className="size-4" />, run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "bookmarks" }) },
     { id: "switch-vault", label: "Switch vault…", icon: <ArrowLeftRight className="size-4" />, run: () => router.push("/vault") },
     { id: "delete-note", label: "Delete current note", icon: <Trash2 className="size-4" />, run: onDeleteActiveNote, needsNote: true },
     {
@@ -121,7 +151,7 @@ export function CommandPalette({
         router.replace("/");
       },
     },
-  ].filter((c) => !c.needsNote || hasActiveNote);
+  ].filter((c) => (!c.needsNote || hasActiveNote) && (!c.needsTab || hasTab));
 
   return (
     <CommandDialog
