@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutDashboard, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { confirmDelete } from "./confirm-dialog";
 import { canvasApi } from "@/lib/api/endpoints";
 import { toastError } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -85,7 +86,11 @@ export function CanvasesSection({ vaultId }: { vaultId: string }) {
             <button
               type="button"
               aria-label={`Delete canvas ${c.name}`}
-              onClick={() => remove.mutate(c.id)}
+              onClick={() =>
+                void confirmDelete(`Delete the canvas “${c.name}”?`).then(
+                  (ok) => ok && remove.mutate(c.id),
+                )
+              }
               className="flex size-5 shrink-0 items-center justify-center rounded text-ob-faint opacity-0 group-hover:opacity-100 hover:text-[#ff8a95]"
             >
               <Trash2 className="size-3.5" strokeWidth={1.75} />

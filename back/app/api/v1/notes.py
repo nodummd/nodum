@@ -14,7 +14,7 @@ from app.schemas.vaults import (
     NoteOut,
     NoteRenameRequest,
 )
-from app.services import note_service
+from app.services import folder_service, note_service
 
 router = APIRouter()
 
@@ -23,9 +23,12 @@ router = APIRouter()
 async def create_note(
     vault_id: UUID, body: NoteCreateRequest, user_id: CurrentUserId, db: SessionDep
 ) -> dict[str, Any]:
+    folder_id = body.folder_id
+    if folder_id is None and body.folder_path:
+        folder_id = await folder_service.ensure_folder_path(db, vault_id, user_id, body.folder_path)
     note = (
         await note_service.create_note(
-            db, vault_id, user_id, title=body.title, folder_id=body.folder_id, content=body.content
+            db, vault_id, user_id, title=body.title, folder_id=folder_id, content=body.content
         )
     ).unwrap()
     return {"data": NoteOut.model_validate(note).model_dump()}

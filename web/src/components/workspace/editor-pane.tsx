@@ -23,6 +23,7 @@ import { ApiError } from "@/lib/api/client";
 import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
 import { useEditorSettings } from "@/lib/hooks/use-editor-settings";
+import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
@@ -195,11 +196,18 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
         openTab({ id: exact.id, kind: "note", title: exact.title }, { adoptDefaultMode: false });
         return;
       }
-      const created = await noteApi.create(vaultId, { title: target });
+      // A pathless ghost link honors the vault's default new-note location;
+      // an explicit [[Folder/Note]] path keeps its own placement (title-as-path).
+      const created = await noteApi.create(vaultId, {
+        title: target,
+        folder_path: target.includes("/")
+          ? undefined
+          : resolveNewNoteFolder(queryClient, vaultId, note.path),
+      });
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
       openTab({ id: created.id, kind: "note", title: created.title }, { adoptDefaultMode: false });
     },
-    [vaultId, openTab, queryClient],
+    [vaultId, openTab, queryClient, note.path],
   );
 
   return (

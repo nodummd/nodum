@@ -61,6 +61,8 @@ class FolderOut(BaseModel):
 class NoteCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=MAX_TITLE_LENGTH)
     folder_id: UUID | None = None
+    # Alternative to folder_id: slash path, missing folders are created
+    folder_path: str | None = Field(default=None, max_length=1024)
     content: str = Field(default="", max_length=MAX_NOTE_SIZE_BYTES)
 
 

@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **80 backend + 52 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 55 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -285,7 +285,7 @@
   *Accept:* e2e: toggle line numbers → .cm-gutters visible; font size
   slider changes computed font-size; new tab opens in configured mode.
 
-- [ ] **S11.3 Appearance + files & links + preview toggle** (M)
+- [x] **S11.3 Appearance + files & links + preview toggle** (M) — 2026-08-13
   *Do:* accent colour picker (user setting; overrides the accent CSS vars
   live and on boot); default new-note location (vault setting: root |
   current-folder | named folder — used by ⌘N, switcher create, wikilink
