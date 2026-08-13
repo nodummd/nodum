@@ -94,6 +94,7 @@ export function Workspace({ vault }: { vault: Vault }) {
     },
     onSuccess: (note) => {
       void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+      void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
       openNote(note.id, note.title);
     },
   });
@@ -139,6 +140,7 @@ export function Workspace({ vault }: { vault: Vault }) {
       try {
         const note = await dailyApi.openDailyNote(vault.id);
         void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+        void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
         openNote(note.id, note.title);
       } catch (err) {
         toastError(err, "Could not open today's daily note.");

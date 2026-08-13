@@ -39,7 +39,11 @@ async def _start_state(client: AsyncClient) -> str:
     return parse_qs(urlparse(location).query)["state"][0]
 
 
-async def test_start_404_when_disabled(client: AsyncClient) -> None:
+async def test_start_404_when_disabled(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    # real credentials may exist in .env — force-disable for this test
+    s = get_settings()
+    monkeypatch.setattr(s, "GOOGLE_CLIENT_ID", "")
+    monkeypatch.setattr(s, "GOOGLE_CLIENT_SECRET", "")
     resp = await client.get("/api/v1/auth/google/start", follow_redirects=False)
     assert resp.status_code == 404
 

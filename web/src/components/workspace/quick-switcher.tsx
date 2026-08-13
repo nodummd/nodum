@@ -74,6 +74,7 @@ export function QuickSwitcher({
     mutationFn: (title: string) => noteApi.create(vaultId, { title }),
     onSuccess: (note) => {
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
+      void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
       onOpenNote(note.id, note.title);
       handleOpenChange(false);
     },
