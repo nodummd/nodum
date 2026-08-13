@@ -74,6 +74,10 @@ interface WorkspaceState {
   rightWidth: number;
   /** Fraction of the editor area given to the first pane when split (0.2–0.8). */
   splitRatio: number;
+  /** Split axis: side-by-side ("row") or stacked ("column"). */
+  splitOrientation: "row" | "column";
+  /** Transient drag state for tab drag-and-drop (never persisted). */
+  dragging: { tabId: string; fromPaneIndex: number } | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -112,6 +116,13 @@ interface WorkspaceState {
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
   setSplitRatio: (ratio: number) => void;
+  setDragging: (d: { tabId: string; fromPaneIndex: number } | null) => void;
+  /** Reorder a tab within its pane. */
+  reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
+  /** Move a tab to another existing pane (falls back to reorder if same pane). */
+  moveTabToPane: (tabId: string, fromPaneIndex: number, toPaneIndex: number, toIndex: number) => void;
+  /** Drop a tab on a pane edge → split into two panes on that side. */
+  splitWithTab: (tabId: string, fromPaneIndex: number, edge: "left" | "right" | "top" | "bottom") => void;
   setEditorMode: (mode: EditorMode) => void;
   setDefaultEditorMode: (mode: EditorMode) => void;
   setExplorerSort: (sort: ExplorerSort) => void;
@@ -135,6 +146,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       leftWidth: 280,
       rightWidth: 300,
       splitRatio: 0.5,
+      splitOrientation: "row",
+      dragging: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -337,6 +350,92 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setSplitRatio: (r) => set({ splitRatio: Math.min(Math.max(r, 0.2), 0.8) }),
+      setDragging: (d) => set({ dragging: d }),
+
+      reorderTab: (tabId, paneIndex, toIndex) => {
+        set({
+          panes: get().panes.map((p, i) => {
+            if (i !== paneIndex) return p;
+            const from = p.tabs.findIndex((t) => t.id === tabId);
+            if (from < 0) return p;
+            const tabs = [...p.tabs];
+            const [moved] = tabs.splice(from, 1);
+            tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, moved);
+            return { ...p, tabs: sortPinned(tabs) };
+          }),
+        });
+      },
+
+      moveTabToPane: (tabId, fromPaneIndex, toPaneIndex, toIndex) => {
+        const { panes } = get();
+        const src = panes[fromPaneIndex];
+        const tab = src?.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+        if (fromPaneIndex === toPaneIndex) {
+          get().reorderTab(tabId, fromPaneIndex, toIndex);
+          return;
+        }
+        const mapped = panes.map((p, i) => {
+          if (i === fromPaneIndex) {
+            const idx = p.tabs.findIndex((t) => t.id === tabId);
+            const remaining = p.tabs.filter((t) => t.id !== tabId);
+            const activeTabId =
+              p.activeTabId === tabId
+                ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
+                : p.activeTabId;
+            return { ...p, tabs: remaining, activeTabId };
+          }
+          if (i === toPaneIndex) {
+            const tabs = [...p.tabs];
+            tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
+            return { ...p, tabs: sortPinned(tabs), activeTabId: tab.id, ...recorded(p, tab.id) };
+          }
+          return p;
+        });
+        // an emptied non-first pane disappears
+        const kept = mapped.filter((p, i) => i === 0 || p.tabs.length > 0);
+        const activePane = Math.max(
+          0,
+          kept.findIndex((p) => p.tabs.some((t) => t.id === tabId)),
+        );
+        set({ panes: kept, activePane });
+      },
+
+      splitWithTab: (tabId, fromPaneIndex, edge) => {
+        const { panes } = get();
+        const src = panes[fromPaneIndex];
+        const tab = src?.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+        const orientation = edge === "left" || edge === "right" ? "row" : "column";
+        // Two panes already: the flat model can't nest, so just move across.
+        if (panes.length >= 2) {
+          get().moveTabToPane(tabId, fromPaneIndex, fromPaneIndex === 0 ? 1 : 0, panes[fromPaneIndex === 0 ? 1 : 0].tabs.length);
+          set({ splitOrientation: orientation });
+          return;
+        }
+        // Moving the only tab into a new pane would just re-collapse — no-op.
+        if (src.tabs.length <= 1) return;
+        const idx = src.tabs.findIndex((t) => t.id === tabId);
+        const remaining = src.tabs.filter((t) => t.id !== tabId);
+        const oldPane: PaneState = {
+          ...src,
+          tabs: remaining,
+          activeTabId:
+            src.activeTabId === tabId ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null) : src.activeTabId,
+        };
+        const newPane: PaneState = {
+          tabs: [tab],
+          activeTabId: tab.id,
+          history: [tab.id],
+          historyIndex: 0,
+        };
+        const before = edge === "left" || edge === "top";
+        set({
+          panes: before ? [newPane, oldPane] : [oldPane, newPane],
+          splitOrientation: orientation,
+          activePane: before ? 0 : 1,
+        });
+      },
       setEditorMode: (mode) => set({ editorMode: mode }),
       setDefaultEditorMode: (mode) => set({ defaultEditorMode: mode }),
       setExplorerSort: (sort) => set({ explorerSort: sort }),
@@ -378,6 +477,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         leftWidth: s.leftWidth,
         rightWidth: s.rightWidth,
         splitRatio: s.splitRatio,
+        splitOrientation: s.splitOrientation,
         editorMode: s.editorMode,
         explorerSort: s.explorerSort,
       }),
