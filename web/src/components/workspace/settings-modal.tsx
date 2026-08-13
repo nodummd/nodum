@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
+import { filterHotkeys } from "@/lib/hotkeys";
 import {
   useEditorSettings,
   useUserPrefs,
@@ -52,6 +53,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
   const setUser = useAuthStore((s) => s.setUser);
   const toast = useToastStore((s) => s.push);
   const [tab, setTab] = useState<SettingsTab>("General");
+  const [hotkeyQuery, setHotkeyQuery] = useState("");
   const editorSettings = useEditorSettings();
   const userPrefs = useUserPrefs();
 
@@ -440,10 +442,37 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             )}
 
             {tab === "Hotkeys" && (
-              <PlaceholderTab
-                title="Hotkeys"
-                text="A searchable reference of every shortcut is coming soon."
-              />
+              <section className="space-y-3">
+                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                  Hotkeys
+                </h3>
+                <Input
+                  aria-label="Search hotkeys"
+                  placeholder="Search hotkeys…"
+                  value={hotkeyQuery}
+                  onChange={(e) => setHotkeyQuery(e.target.value)}
+                />
+                <div className="space-y-1">
+                  {filterHotkeys(hotkeyQuery).map((h) => (
+                    <div
+                      key={`${h.section}-${h.keys}-${h.action}`}
+                      data-hotkey-row
+                      className="flex items-center justify-between gap-4 rounded px-1 py-1 text-[13px]"
+                    >
+                      <span className="text-ob-muted">
+                        {h.action}
+                        <span className="ml-2 text-[11px] text-ob-faint">{h.section}</span>
+                      </span>
+                      <kbd className="shrink-0 rounded border border-ob-border px-1.5 py-0.5 text-[11px] text-ob-faint">
+                        {h.keys}
+                      </kbd>
+                    </div>
+                  ))}
+                  {filterHotkeys(hotkeyQuery).length === 0 && (
+                    <p className="text-[13px] text-ob-faint">No hotkeys match.</p>
+                  )}
+                </div>
+              </section>
             )}
 
             {tab === "Vault" && (
@@ -601,11 +630,3 @@ function SettingToggle({
   );
 }
 
-function PlaceholderTab({ title, text }: { title: string; text: string }) {
-  return (
-    <section className="space-y-3">
-      <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">{title}</h3>
-      <p className="text-[13px] text-ob-faint">{text}</p>
-    </section>
-  );
-}
