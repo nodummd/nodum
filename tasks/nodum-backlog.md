@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **81 backend + 68 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 69 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -341,7 +341,7 @@
   *Accept:* e2e opens the gear popover, changes a slider, hits reset, asserts
   the value returns to default.
 
-- [ ] **S14.2 Graph animation & insertion polish** (M)
+- [x] **S14.2 Graph animation & insertion polish** (M) — 2026-08-14
   *Do:* per the graph-polish plan — `setConfigPartial` for force/display
   effects (P0), `renderHoveredPointRing`, GPU-side hover highlight instead of
   the manual RAF, fade/scale-in for newly inserted nodes, smoother settle
