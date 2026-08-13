@@ -31,6 +31,7 @@ test.describe("settings", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
 
+    await dialog.getByRole("button", { name: "Vault", exact: true }).click();
     await dialog.getByRole("textbox", { name: "Folder", exact: true }).fill("Journal");
     await dialog.getByRole("button", { name: "Save vault settings" }).click();
     await expect(page.getByText("Vault settings saved.")).toBeVisible({ timeout: 10_000 });
@@ -43,5 +44,36 @@ test.describe("settings", () => {
     await expect(page.getByText("Journal", { exact: true }).first()).toBeVisible({
       timeout: 10_000,
     });
+  });
+});
+
+test.describe("settings tabs", () => {
+  test("vertical tabs navigate and hold the migrated options", async ({ page }) => {
+    await signupFreshUser(page, "settings-tabs-e2e");
+
+    await page.keyboard.press("ControlOrMeta+Comma");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+
+    // General is the default tab — profile + password migrated here
+    await expect(dialog.getByLabel("Display name")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Change password" })).toBeVisible();
+
+    // Vault tab — daily notes + templates migrated here
+    await dialog.getByRole("button", { name: "Vault", exact: true }).click();
+    await expect(dialog.getByLabel("Date format")).toBeVisible();
+    await expect(dialog.getByLabel("Templates folder")).toBeVisible();
+    await expect(dialog.getByLabel("Display name")).toBeHidden();
+
+    // Publish tab — site publishing migrated here
+    await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: /Publish vault site|Unpublish site/ })).toBeVisible();
+
+    // Collab tab — live collaboration toggle migrated here, saves on change
+    await dialog.getByRole("button", { name: "Collab", exact: true }).click();
+    const collab = dialog.getByLabel("Live collaboration");
+    await expect(collab).toBeVisible();
+    await collab.check();
+    await expect(page.getByText("Collaboration setting saved.")).toBeVisible({ timeout: 10_000 });
   });
 });
