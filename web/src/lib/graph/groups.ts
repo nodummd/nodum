@@ -50,6 +50,13 @@ function matches(node: GroupableNode, q: string): boolean {
   return node.title.toLowerCase().includes(q) || node.path.toLowerCase().includes(q);
 }
 
+/** Does a node match a raw panel query (search box)? */
+export function matchesQuery(node: GroupableNode, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  return matches(node, q);
+}
+
 /** Index of the first matching group, or -1. */
 export function matchGroupIndex(node: GroupableNode, groups: GraphGroup[]): number {
   for (let i = 0; i < groups.length; i++) {
