@@ -19,7 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
-import { filterHotkeys } from "@/lib/hotkeys";
+import { filterHotkeys, HOTKEY_SECTIONS } from "@/lib/hotkeys";
 import {
   useEditorSettings,
   useUserPrefs,
@@ -195,7 +195,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-clip border-ob-border bg-ob-sidebar p-0 sm:max-w-[860px]">
+      <DialogContent className="gap-0 overflow-clip border-ob-border bg-ob-sidebar p-0 sm:max-w-[1040px]">
         <DialogHeader className="border-b border-ob-border px-5 pt-4 pb-3">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription className="sr-only">
@@ -203,7 +203,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex h-[min(560px,70vh)] min-h-0 flex-col sm:flex-row">
+        <div className="flex h-[min(660px,82vh)] min-h-0 flex-col sm:flex-row">
           <nav
             aria-label="Settings sections"
             className="flex shrink-0 flex-row gap-0.5 overflow-x-auto border-b border-ob-border p-2 sm:w-44 sm:flex-col sm:overflow-x-visible sm:overflow-y-auto sm:border-r sm:border-b-0"
@@ -442,37 +442,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             )}
 
             {tab === "Hotkeys" && (
-              <section className="space-y-3">
-                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
-                  Hotkeys
-                </h3>
-                <Input
-                  aria-label="Search hotkeys"
-                  placeholder="Search hotkeys…"
-                  value={hotkeyQuery}
-                  onChange={(e) => setHotkeyQuery(e.target.value)}
-                />
-                <div className="space-y-1">
-                  {filterHotkeys(hotkeyQuery).map((h) => (
-                    <div
-                      key={`${h.section}-${h.keys}-${h.action}`}
-                      data-hotkey-row
-                      className="flex items-center justify-between gap-4 rounded px-1 py-1 text-[13px]"
-                    >
-                      <span className="text-ob-muted">
-                        {h.action}
-                        <span className="ml-2 text-[11px] text-ob-faint">{h.section}</span>
-                      </span>
-                      <kbd className="shrink-0 rounded border border-ob-border px-1.5 py-0.5 text-[11px] text-ob-faint">
-                        {h.keys}
-                      </kbd>
-                    </div>
-                  ))}
-                  {filterHotkeys(hotkeyQuery).length === 0 && (
-                    <p className="text-[13px] text-ob-faint">No hotkeys match.</p>
-                  )}
-                </div>
-              </section>
+              <HotkeysTab query={hotkeyQuery} onQuery={setHotkeyQuery} />
             )}
 
             {tab === "Vault" && (
@@ -599,6 +569,56 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Searchable, grouped shortcut reference (S12.1) — Obsidian's Hotkeys tab. */
+function HotkeysTab({ query, onQuery }: { query: string; onQuery: (q: string) => void }) {
+  const filtered = filterHotkeys(query);
+  const groups = HOTKEY_SECTIONS.map((section) => ({
+    section,
+    rows: filtered.filter((h) => h.section === section),
+  })).filter((g) => g.rows.length > 0);
+
+  return (
+    <section className="space-y-4">
+      <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">Hotkeys</h3>
+      <Input
+        aria-label="Search hotkeys"
+        placeholder="Search hotkeys…"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+      />
+      {groups.length === 0 && <p className="text-[13px] text-ob-faint">No hotkeys match.</p>}
+      {groups.map((g) => (
+        <div key={g.section} className="space-y-0.5">
+          <div className="px-1 pt-1 text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+            {g.section}
+          </div>
+          {g.rows.map((h) => (
+            <div
+              key={`${h.section}-${h.keys}-${h.action}`}
+              data-hotkey-row
+              className="flex items-center justify-between gap-4 rounded px-1 py-1 text-[13px] hover:bg-ob-hover"
+            >
+              <span className="text-ob-muted">{h.action}</span>
+              {h.keys ? (
+                <kbd className="shrink-0 rounded border border-ob-border px-1.5 py-0.5 text-[11px] text-ob-faint">
+                  {h.keys}
+                </kbd>
+              ) : (
+                <span
+                  title="Run from the command palette (⌘P)"
+                  className="shrink-0 rounded border border-dashed border-ob-border px-1.5 py-0.5 text-[11px] text-ob-faint/70"
+                >
+                  ⌘P
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </section>
   );
 }
 

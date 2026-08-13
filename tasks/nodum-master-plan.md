@@ -223,6 +223,17 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13 (post-v3.1.0, 2)** — Obsidian-style hotkeys: tab
+  navigation commands (go to next/previous tab, ⌘1–8 to tab N, ⌘9 to
+  last, close all other tabs, toggle pin) + editor-pref and sidebar-pane
+  toggles, all runnable from the command palette (the browser-proof
+  path) and bound to keys where safe. The Hotkeys settings tab is now a
+  grouped, searchable reference of all 50 commands in a wider (1040px)
+  Obsidian-like window; palette-only commands show a ⌘P chip. Note:
+  browser-reserved chords (⌘W, ⌘1–9) fire in the installed PWA /
+  standalone window; in a normal browser tab the command palette is the
+  reliable path. e2e: tab-hotkeys + settings-bookmarks specs.
+
 - **2026-08-13 (post-v3.1.0)** — Tab keyboard UX: ⌘/Ctrl+W closes the
   active tab reliably (works in the installed PWA / standalone window;
   browser tabs still reserve the chord). Closing the active tab now
