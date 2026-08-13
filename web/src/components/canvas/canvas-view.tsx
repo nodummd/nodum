@@ -20,7 +20,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ReadingView } from "@/components/editor/reading-view";
 import { canvasApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { CanvasData, CanvasEdge, CanvasNode } from "@/lib/api/types";
+import { useVaultSettings, type CanvasBackground } from "@/lib/hooks/use-vault-settings";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
+
+/** Board background pattern that pans/zooms with the canvas. */
+function canvasBackgroundStyle(kind: CanvasBackground, offsetX: number, offsetY: number, scale: number): React.CSSProperties {
+  if (kind === "blank") return {};
+  const size = 24 * scale;
+  const line = "var(--ob-background-modifier-border)";
+  const backgroundPosition = `${offsetX}px ${offsetY}px`;
+  const backgroundSize = `${size}px ${size}px`;
+  if (kind === "grid") {
+    return {
+      backgroundImage: `linear-gradient(to right, ${line} 1px, transparent 1px), linear-gradient(to bottom, ${line} 1px, transparent 1px)`,
+      backgroundSize,
+      backgroundPosition,
+    };
+  }
+  // dots (Obsidian default)
+  return {
+    backgroundImage: `radial-gradient(circle, ${line} 1.2px, transparent 1.2px)`,
+    backgroundSize,
+    backgroundPosition,
+  };
+}
 
 let idSeq = 0;
 function newId(): string {
@@ -54,6 +77,7 @@ function autoSides(from: CanvasNode, to: CanvasNode): Pick<CanvasEdge, "fromSide
 
 export function CanvasView({ vaultId, canvasId }: { vaultId: string; canvasId: string }) {
   const toast = useToastStore((s) => s.push);
+  const { canvasBackground } = useVaultSettings(vaultId);
   const { data: canvas } = useQuery({
     queryKey: ["canvas", vaultId, canvasId],
     queryFn: () => canvasApi.get(vaultId, canvasId),
@@ -306,9 +330,16 @@ export function CanvasView({ vaultId, canvasId }: { vaultId: string; canvasId: s
     <div
       className="relative h-full w-full overflow-hidden bg-ob-bg"
       data-canvas-root
+      data-canvas-bg={canvasBackground}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
+      {/* Board background pattern — pans/zooms with the stage */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={canvasBackgroundStyle(canvasBackground, offset.x, offset.y, scale)}
+      />
       {/* Toolbar */}
       <div className="absolute top-3 left-3 z-20 flex items-center gap-1 rounded-lg border border-ob-border bg-ob-sidebar/95 p-1 backdrop-blur">
         <button

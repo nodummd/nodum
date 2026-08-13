@@ -36,6 +36,7 @@ const TABS = [
   "Files & links",
   "Hotkeys",
   "Vault",
+  "Canvas",
   "Publish",
   "Collab",
 ] as const;
@@ -491,6 +492,33 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                 <Button size="sm" onClick={() => saveVault.mutate()} disabled={saveVault.isPending}>
                   Save vault settings
                 </Button>
+              </section>
+            )}
+
+            {tab === "Canvas" && (
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+                  Canvas
+                </h3>
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="canvas-bg" className="font-normal text-ob-muted">
+                    Background
+                    <span className="block text-[11px] font-normal text-ob-faint">
+                      Board pattern for all canvases in this vault.
+                    </span>
+                  </Label>
+                  <select
+                    id="canvas-bg"
+                    aria-label="Canvas background"
+                    value={(settings.canvasBackground as string) ?? "dots"}
+                    onChange={(e) => saveVaultPatch.mutate({ canvasBackground: e.target.value })}
+                    className="rounded-md border border-ob-border bg-ob-primary px-2 py-1 text-[13px] text-ob-text"
+                  >
+                    <option value="dots">Dots</option>
+                    <option value="grid">Grid</option>
+                    <option value="blank">Blank</option>
+                  </select>
+                </div>
               </section>
             )}
 

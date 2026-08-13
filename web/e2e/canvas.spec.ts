@@ -58,3 +58,34 @@ test.describe("canvas boards", () => {
     await expect(page.locator("[data-canvas-edge]")).toHaveCount(1);
   });
 });
+
+test.describe("canvas background", () => {
+  test("background style is user-choosable and persists", async ({ page }) => {
+    await signupFreshUser(page, "canvas-bg");
+
+    // Create a canvas
+    await page.getByRole("button", { name: "New canvas" }).click();
+    await page.getByLabel("Canvas name").fill("BG board");
+    await page.getByLabel("Canvas name").press("Enter");
+    const root = page.locator("[data-canvas-root]");
+    await expect(root).toBeVisible({ timeout: 10_000 });
+    // Default is dots
+    await expect(root).toHaveAttribute("data-canvas-bg", "dots");
+
+    // Change to grid via settings → Canvas tab
+    await page.keyboard.press("ControlOrMeta+Comma");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+    await dialog.getByRole("button", { name: "Canvas", exact: true }).click();
+    await dialog.getByLabel("Canvas background").selectOption("grid");
+    await expect(page.getByText("Vault settings saved.")).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+
+    // Applied live, and survives reload
+    await expect(root).toHaveAttribute("data-canvas-bg", "grid", { timeout: 10_000 });
+    await page.reload();
+    await expect(page.locator("[data-canvas-root]")).toHaveAttribute("data-canvas-bg", "grid", {
+      timeout: 15_000,
+    });
+  });
+});
