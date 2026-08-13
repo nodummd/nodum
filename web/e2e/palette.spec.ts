@@ -9,8 +9,8 @@ test.describe("command palette", () => {
     await page.keyboard.press("ControlOrMeta+p");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByPlaceholder(/type a command/i).fill("graph");
-    await dialog.getByText("Open graph view").click();
+    await dialog.getByPlaceholder(/select a command/i).fill("graph");
+    await dialog.getByText("Graph view: Open graph view").click();
 
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
   });

@@ -223,6 +223,14 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13 (post-v3.1.0, 3)** — Command palette restyled to match
+  Obsidian's: alphabetical flat list (no group heading, no per-row
+  icons), "Category: action" labels, "Select a command…" placeholder,
+  a trailing × dismiss button, a wider (720px) window, and a footer
+  hint bar (↑↓ navigate · ↵ use · esc dismiss). CommandInput gained
+  opt-in `showSearchIcon` / `onClose` props so the quick switcher keeps
+  its own look. e2e updated for the new placeholder + labels.
+
 - **2026-08-13 (post-v3.1.0, 2)** — Obsidian-style hotkeys: tab
   navigation commands (go to next/previous tab, ⌘1–8 to tab N, ⌘9 to
   last, close all other tabs, toggle pin) + editor-pref and sidebar-pane
