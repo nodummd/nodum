@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **80 backend + 49 e2e**. Feature branches
+> Suites must stay green: currently **80 backend + 50 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -257,7 +257,7 @@
   <80px after another note is created via API + query invalidation; the
   new node appears; zoom level unchanged (no fit jump).
 
-- [ ] **S10.2 Graph panel parity** (M)
+- [x] 2026-08-13 **S10.2 Graph panel parity** (M)
   *Do:* Filters gain a search box (reuse the groups query matcher —
   path:/tag:/text) that dims/hides non-matching nodes; Display section:
   arrows toggle (cosmos linkArrows), node size ×0.1-5 and link thickness

@@ -90,3 +90,40 @@ test.describe("graph time travel", () => {
     }).toPass({ timeout: 20_000 });
   });
 });
+
+test.describe("graph panel parity", () => {
+  test("search filters nodes; display sliders + arrows persist across reload", async ({
+    page,
+  }) => {
+    await signupFreshUser(page, "panelparity");
+
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    const counts = page.getByText(/\d+ nodes · \d+ links/);
+    await expect(counts).toBeVisible({ timeout: 10_000 });
+    const full = Number(/(\d+) nodes/.exec((await counts.textContent()) ?? "")?.[1] ?? "0");
+    expect(full).toBeGreaterThan(2);
+
+    // Search narrows the graph without a teardown
+    await page.getByLabel("Search graph").fill("Welcome");
+    await expect(async () => {
+      const text = (await counts.textContent()) ?? "";
+      const nodes = Number(/(\d+) nodes/.exec(text)?.[1] ?? "0");
+      expect(nodes).toBeLessThan(full);
+      expect(nodes).toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 10_000 });
+    await page.getByLabel("Search graph").fill("");
+
+    // Display settings persist
+    await page.getByLabel("Arrows").check();
+    const nodeSizeSlider = page.getByLabel("Node size");
+    await nodeSizeSlider.fill("2.5");
+    await page.waitForTimeout(1_500); // debounce + persist
+
+    await page.reload();
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByLabel("Arrows")).toBeChecked({ timeout: 10_000 });
+    await expect(page.getByLabel("Node size")).toHaveValue("2.5");
+  });
+});

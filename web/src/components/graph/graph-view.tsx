@@ -15,7 +15,7 @@ import { Pause, Play, Settings2 } from "lucide-react";
 
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
-import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, type GraphGroup } from "@/lib/graph/groups";
+import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
 
 const LABELS_SHOWN = 28;
 
@@ -46,6 +46,10 @@ interface PersistedGraph {
   centerForce?: number;
   repelForce?: number;
   linkDistance?: number;
+  linkForce?: number;
+  arrows?: boolean;
+  nodeSize?: number;
+  linkThickness?: number;
 }
 
 interface GraphViewProps {
@@ -106,6 +110,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const [centerDraft, setCenterDraft] = useState<number | null>(null);
   const [repelDraft, setRepelDraft] = useState<number | null>(null);
   const [distDraft, setDistDraft] = useState<number | null>(null);
+  const [linkForceDraft, setLinkForceDraft] = useState<number | null>(null);
+  const [arrowsDraft, setArrowsDraft] = useState<boolean | null>(null);
+  const [nodeSizeDraft, setNodeSizeDraft] = useState<number | null>(null);
+  const [thicknessDraft, setThicknessDraft] = useState<number | null>(null);
+  // graph search is session-only (matches Obsidian's transient filter box)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [groupsDraft, setGroupsDraft] = useState<GraphGroup[] | null>(null);
 
   const showGhosts = ghostsDraft ?? persisted.showGhosts ?? true;
@@ -113,6 +124,10 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const centerForce = centerDraft ?? persisted.centerForce ?? 0.55;
   const repelForce = repelDraft ?? persisted.repelForce ?? 1.1;
   const linkDistance = distDraft ?? persisted.linkDistance ?? 12;
+  const linkForce = linkForceDraft ?? persisted.linkForce ?? 1.1;
+  const arrows = arrowsDraft ?? persisted.arrows ?? false;
+  const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? 1;
+  const linkThickness = thicknessDraft ?? persisted.linkThickness ?? 1;
   const groups = useMemo(
     () => groupsDraft ?? persisted.groups ?? [],
     [groupsDraft, persisted.groups],
@@ -121,7 +136,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   // Slider/group values update instantly for the UI; the WebGL graph only
   // rebuilds against the debounced copies (300ms idle) — dragging a slider or
   // typing a group query would otherwise tear down the simulation per tick.
-  const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12 });
+  const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12, linkForce: 1.1 });
   const [appliedGroups, setAppliedGroups] = useState<GraphGroup[]>([]);
   const groupsJson = JSON.stringify(groups);
 
@@ -141,10 +156,15 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setApplied({ centerForce, repelForce, linkDistance });
+      setApplied({ centerForce, repelForce, linkDistance, linkForce });
     }, 300);
     return () => clearTimeout(timer);
-  }, [centerForce, repelForce, linkDistance]);
+  }, [centerForce, repelForce, linkDistance, linkForce]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(searchQuery), 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -162,6 +182,10 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     centerDraft !== null ||
     repelDraft !== null ||
     distDraft !== null ||
+    linkForceDraft !== null ||
+    arrowsDraft !== null ||
+    nodeSizeDraft !== null ||
+    thicknessDraft !== null ||
     groupsDraft !== null;
   const settingsJson = JSON.stringify({
     groups,
@@ -170,6 +194,10 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     centerForce,
     repelForce,
     linkDistance,
+    linkForce,
+    arrows,
+    nodeSize,
+    linkThickness,
   } satisfies PersistedGraph);
   const persistSettings = useMutation({
     mutationFn: (graph: PersistedGraph) => vaultApi.update(vaultId, { settings: { graph } }),
@@ -214,6 +242,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       if (revealed && !revealed.has(i)) return;
       if (!showGhosts && node.unresolved) return;
       if (!showOrphans && node.degree === 0) return;
+      if (!matchesQuery(node, appliedSearch)) return;
       remap.set(i, keep.length);
       keep.push(i);
     });
@@ -222,7 +251,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       .filter(([s, t]) => remap.has(s) && remap.has(t))
       .map(([s, t]) => [remap.get(s) as number, remap.get(t) as number] as [number, number]);
     return { nodes, edges };
-  }, [data, showGhosts, showOrphans, timePercent]);
+  }, [data, showGhosts, showOrphans, timePercent, appliedSearch]);
 
   // ── Incremental engine (Obsidian-study parity: never re-randomize) ────────
   // Positions survive data changes, filter/group tweaks, AND unmount/remount
@@ -401,6 +430,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       prevIdsRef.current = [];
       didFitRef.current = false;
       prevForcesRef.current = "";
+      prevDisplayRef.current = "";
       appliedSigRef.current = "";
     };
     // one engine per view identity; data flows through the effects below
@@ -589,9 +619,27 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       simulationCenter: applied.centerForce,
       simulationRepulsion: applied.repelForce,
       simulationLinkDistance: applied.linkDistance,
+      simulationLinkSpring: applied.linkForce,
     });
     if (!firstRun) graph.render(0.3);
   }, [applied]);
+
+  // Display config (arrows / node size / link thickness) — pure visuals,
+  // applied immediately without touching the simulation.
+  const prevDisplayRef = useRef("");
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const key = JSON.stringify({ arrows, nodeSize, linkThickness });
+    if (prevDisplayRef.current === key) return;
+    // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
+    prevDisplayRef.current = key;
+    graph.setConfig({
+      linkDefaultArrows: arrows,
+      pointSizeScale: nodeSize,
+      linkWidthScale: linkThickness,
+    });
+  }, [arrows, nodeSize, linkThickness]);
 
   return (
     <div className="relative h-full w-full bg-ob-bg">
@@ -625,6 +673,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         )}
       >
         <p className="pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Filters</p>
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search files… (path: tag: text)"
+          aria-label="Search graph"
+          className="mb-1.5 h-7 w-full rounded border border-ob-border bg-ob-bg px-2 text-[12px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
+        />
         <label className="flex items-center justify-between py-0.5 text-ob-muted">
           Existing files only
           <input
@@ -644,9 +699,23 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
           />
         </label>
 
+        <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Display</p>
+        <label className="flex items-center justify-between py-0.5 text-ob-muted">
+          Arrows
+          <input
+            type="checkbox"
+            checked={arrows}
+            onChange={(e) => setArrowsDraft(e.target.checked)}
+            className="accent-[var(--ob-interactive-accent)]"
+          />
+        </label>
+        <ForceSlider label="Node size" min={0.1} max={5} step={0.1} value={nodeSize} onChange={setNodeSizeDraft} />
+        <ForceSlider label="Link thickness" min={0.1} max={5} step={0.1} value={linkThickness} onChange={setThicknessDraft} />
+
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Forces</p>
         <ForceSlider label="Center force" min={0} max={1} step={0.05} value={centerForce} onChange={setCenterDraft} />
         <ForceSlider label="Repel force" min={0.1} max={3} step={0.1} value={repelForce} onChange={setRepelDraft} />
+        <ForceSlider label="Link force" min={0} max={2} step={0.1} value={linkForce} onChange={setLinkForceDraft} />
         <ForceSlider label="Link distance" min={4} max={40} step={1} value={linkDistance} onChange={setDistDraft} />
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Groups</p>
