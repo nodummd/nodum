@@ -72,6 +72,8 @@ interface WorkspaceState {
   ribbonVisible: boolean;
   leftWidth: number;
   rightWidth: number;
+  /** Fraction of the editor area given to the first pane when split (0.2–0.8). */
+  splitRatio: number;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -109,6 +111,7 @@ interface WorkspaceState {
   toggleRibbon: () => void;
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
+  setSplitRatio: (ratio: number) => void;
   setEditorMode: (mode: EditorMode) => void;
   setDefaultEditorMode: (mode: EditorMode) => void;
   setExplorerSort: (sort: ExplorerSort) => void;
@@ -131,6 +134,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       ribbonVisible: true,
       leftWidth: 280,
       rightWidth: 300,
+      splitRatio: 0.5,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -332,6 +336,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       toggleRibbon: () => set({ ribbonVisible: !get().ribbonVisible }),
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
+      setSplitRatio: (r) => set({ splitRatio: Math.min(Math.max(r, 0.2), 0.8) }),
       setEditorMode: (mode) => set({ editorMode: mode }),
       setDefaultEditorMode: (mode) => set({ defaultEditorMode: mode }),
       setExplorerSort: (sort) => set({ explorerSort: sort }),
@@ -372,6 +377,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         ribbonVisible: s.ribbonVisible,
         leftWidth: s.leftWidth,
         rightWidth: s.rightWidth,
+        splitRatio: s.splitRatio,
         editorMode: s.editorMode,
         explorerSort: s.explorerSort,
       }),
