@@ -3,11 +3,11 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **80 backend + 48 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 56 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
-> ALL SPRINTS COMPLETE (2026-08-12): v1.2.0 and v2.0.0 released. Remaining
-> ideas live in the Icebox. Created 2026-08-12 · supersedes the stale "queued" table in
+> ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
+> Phase D shipped v2.1.0→v3.0.0. Remaining ideas live in the Icebox. Created 2026-08-12 · supersedes the stale "queued" table in
 > `nodum-audit-and-roadmap.md` (kept for history/context).
 
 **Status legend:** `[ ]` todo · `[x] YYYY-MM-DD` done · `[~]` in progress
@@ -230,7 +230,79 @@
   *Accept:* backend test: zip with png + .obsidian config → attachment
   exists, settings mapped.
 
-🏁 **Release v3.0.0** after Sprint 9.
+🏁 ~~**Release v3.0.0**~~ ✅ 2026-08-13 — dev→main merged, tagged, prod smoke passed (canvas round-trip, graph created_at, web healthy).
+
+## Phase E — Obsidian-grade smoothness & settings (added 2026-08-13)
+
+> **Goal:** nodum must FEEL like Obsidian, not just look like it. Two
+> measurable outcomes: (1) the graph updates incrementally — creating,
+> renaming, or deleting notes while the graph is open must never
+> re-randomize the layout or jump the viewport, and panel controls match
+> Obsidian's (search, arrows, node size, link thickness, link force);
+> (2) a tabbed settings window whose options genuinely change behavior
+> (editor view defaults, line numbers, readable width, spellcheck, font
+> size, accent colour, new-note location, delete confirmation, ⌘-hover
+> toggle). Evidence: docs/research/obsidian-study-2.md. Ship as v3.1.0.
+
+## Sprint 10 — Graph smoothness
+
+- [x] 2026-08-13 **S10.1 Incremental graph engine** (L)
+  *Do:* per-vault position map (ref, survives refetches) keyed by node id;
+  on data change diff old/new node sets — reuse kept positions, seed new
+  nodes at the centroid of their linked neighbors (+small jitter, fallback
+  viewport center), drop removed ones; apply via cosmos set* calls with a
+  gentle sim reheat instead of destroy/recreate; fitView ONLY on first
+  load of a vault's graph; slider/filter/group changes preserve positions.
+  *Accept:* e2e with graph open: existing node screen position drifts
+  <80px after another note is created via API + query invalidation; the
+  new node appears; zoom level unchanged (no fit jump).
+
+- [x] 2026-08-13 **S10.2 Graph panel parity** (M)
+  *Do:* Filters gain a search box (reuse the groups query matcher —
+  path:/tag:/text) that dims/hides non-matching nodes; Display section:
+  arrows toggle (cosmos linkArrows), node size ×0.1-5 and link thickness
+  ×0.1-5 sliders; Forces gains link force 0-1 (spring) with ranges mapped
+  from Obsidian (centre 0-1, repel 0-20 scaled, link distance 30-500
+  scaled); all persisted in settings.graph.
+  *Accept:* e2e: search filter reduces node count; sliders persist across
+  reload; arrows toggle flips config without layout reset.
+
+## Sprint 11 — Settings depth
+
+- [x] **S11.1 Tabbed settings window** (M) — 2026-08-13
+  *Do:* rebuild the settings modal as an Obsidian-style vertical-tab
+  layout (General · Editor · Appearance · Files & links · Hotkeys · Vault
+  · Publish · Collab); migrate every existing option into the right tab;
+  wider modal, per-tab scroll.
+  *Accept:* e2e navigates 3+ tabs and finds migrated options.
+
+- [x] **S11.2 Editor settings that actually work** (M-L) — 2026-08-13
+  *Do:* user-level settings (users.settings JSONB via authApi.updateMe):
+  defaultViewMode for new tabs (live/source/reading), readableLineLength
+  (toggle → editor max-width), showLineNumbers (CM6 lineNumbers()),
+  spellcheck (contentDOM spellcheck attr), editorFontSize (14-24 slider →
+  CSS var). Applied live in MarkdownEditor + ReadingView.
+  *Accept:* e2e: toggle line numbers → .cm-gutters visible; font size
+  slider changes computed font-size; new tab opens in configured mode.
+
+- [x] **S11.3 Appearance + files & links + preview toggle** (M) — 2026-08-13
+  *Do:* accent colour picker (user setting; overrides the accent CSS vars
+  live and on boot); default new-note location (vault setting: root |
+  current-folder | named folder — used by ⌘N, switcher create, wikilink
+  ghost create); confirm-before-delete toggle (explorer + palette +
+  canvas delete paths); page preview "require ⌘ on hover" toggle.
+  *Accept:* e2e: accent change reflected in a button's computed color and
+  survives reload; delete shows confirm when enabled; new note lands in
+  the configured folder.
+
+## Sprint 12 — Reference + release
+
+- [x] **S12.1 Hotkeys reference tab** (S) — 2026-08-13 — searchable read-only list of
+  every nodum shortcut (editor, workspace, graph, canvas).
+  *Accept:* e2e: search narrows the list.
+- [ ] **S12.2 🏁 Release v3.1.0** — full suites green, merge dev→main,
+  tag, prod-compose smoke (incl. a settings round-trip), backlog + master
+  plan close-out.
 
 ## Icebox (still later)
 - Cross-pane tab drag & drop · graph clustering by folder

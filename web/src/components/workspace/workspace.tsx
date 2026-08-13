@@ -38,7 +38,10 @@ import { api } from "@/lib/api/client";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { Menu, PanelRight } from "lucide-react";
 
+import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
+import { useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
+import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -53,6 +56,33 @@ export function Workspace({ vault }: { vault: Vault }) {
   const isMobile = useIsMobile();
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
+
+  // Mirror the user's "default view for new tabs" pref into the store so
+  // openTab can apply it without reaching into React state.
+  const defaultViewMode = useEditorSettings().defaultViewMode;
+  useEffect(() => {
+    useWorkspaceStore.getState().setDefaultEditorMode(defaultViewMode);
+  }, [defaultViewMode]);
+
+  // Accent colour override (S11.3) — applied on boot and live on change.
+  const accentColor = useUserPrefs().accentColor;
+  useEffect(() => {
+    const root = document.documentElement;
+    if (accentColor) {
+      root.style.setProperty("--ob-interactive-accent", accentColor);
+      root.style.setProperty(
+        "--ob-interactive-accent-hover",
+        `color-mix(in srgb, ${accentColor} 85%, white)`,
+      );
+    } else {
+      root.style.removeProperty("--ob-interactive-accent");
+      root.style.removeProperty("--ob-interactive-accent-hover");
+    }
+    return () => {
+      root.style.removeProperty("--ob-interactive-accent");
+      root.style.removeProperty("--ob-interactive-accent-hover");
+    };
+  }, [accentColor]);
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
@@ -74,7 +104,10 @@ export function Workspace({ vault }: { vault: Vault }) {
     (title: string) => {
       void (async () => {
         try {
-          const created = await noteApi.create(vault.id, { title });
+          const created = await noteApi.create(vault.id, {
+            title,
+            folder_path: resolveNewNoteFolder(queryClient, vault.id),
+          });
           void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
           void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
           openNote(created.id, created.title);
@@ -90,10 +123,14 @@ export function Workspace({ vault }: { vault: Vault }) {
     mutationFn: () => {
       const stamp = new Date();
       const title = `Untitled ${stamp.toISOString().slice(0, 16).replace("T", " ")}`;
-      return noteApi.create(vault.id, { title });
+      return noteApi.create(vault.id, {
+        title,
+        folder_path: resolveNewNoteFolder(queryClient, vault.id),
+      });
     },
     onSuccess: (note) => {
       void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+      void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
       openNote(note.id, note.title);
     },
   });
@@ -139,6 +176,7 @@ export function Workspace({ vault }: { vault: Vault }) {
       try {
         const note = await dailyApi.openDailyNote(vault.id);
         void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+        void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
         openNote(note.id, note.title);
       } catch (err) {
         toastError(err, "Could not open today's daily note.");
@@ -159,6 +197,7 @@ export function Workspace({ vault }: { vault: Vault }) {
     if (!tab) return;
     void (async () => {
       try {
+        if (!(await confirmDelete(`Delete “${tab.title}”?`))) return;
         await noteApi.remove(vault.id, tab.id);
         closeTab(tab.id);
         void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
@@ -347,6 +386,7 @@ export function Workspace({ vault }: { vault: Vault }) {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ConfirmDialog />
       <input
         ref={importInputRef}
         type="file"

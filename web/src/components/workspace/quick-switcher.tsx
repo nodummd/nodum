@@ -15,6 +15,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { noteApi, searchApi } from "@/lib/api/endpoints";
+import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { toastError } from "@/lib/stores/toast-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -71,9 +72,14 @@ export function QuickSwitcher({
   };
 
   const createNote = useMutation({
-    mutationFn: (title: string) => noteApi.create(vaultId, { title }),
+    mutationFn: (title: string) =>
+      noteApi.create(vaultId, {
+        title,
+        folder_path: resolveNewNoteFolder(queryClient, vaultId),
+      }),
     onSuccess: (note) => {
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
+      void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
       onOpenNote(note.id, note.title);
       handleOpenChange(false);
     },

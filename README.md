@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/nodum-logo.png" alt="nodum" width="140" /></p>
+
 # Nodum
 
 **Open-source, web-based knowledge management — linked markdown notes with an
