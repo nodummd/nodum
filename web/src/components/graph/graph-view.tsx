@@ -14,10 +14,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, Settings2 } from "lucide-react";
 
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
-import type { Vault } from "@/lib/api/types";
+import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, type GraphGroup } from "@/lib/graph/groups";
 
 const LABELS_SHOWN = 28;
+
+// Layouts survive graph close/reopen within the session (Obsidian keeps its
+// layout too — we go further and keep it across tab switches).
+const positionStores = new Map<string, Map<string, [number, number]>>();
+function getPositionStore(key: string): Map<string, [number, number]> {
+  let store = positionStores.get(key);
+  if (!store) {
+    store = new Map();
+    positionStores.set(key, store);
+  }
+  return store;
+}
+// Viewport-center space point + zoom per view — restores the exact camera.
+const cameraStores = new Map<string, [number, number, number]>();
 
 /** Mobile: card hidden unless toggled; desktop: always visible. */
 function cnControls(open: boolean, base: string): string {
@@ -134,7 +148,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setAppliedGroups(JSON.parse(groupsJson) as GraphGroup[]);
+      setAppliedGroups((prev) =>
+        JSON.stringify(prev) === groupsJson ? prev : (JSON.parse(groupsJson) as GraphGroup[]),
+      );
     }, 300);
     return () => clearTimeout(timer);
   }, [groupsJson]);
@@ -208,58 +224,81 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     return { nodes, edges };
   }, [data, showGhosts, showOrphans, timePercent]);
 
+  // ── Incremental engine (Obsidian-study parity: never re-randomize) ────────
+  // Positions survive data changes, filter/group tweaks, AND unmount/remount
+  // (module-level store) — creating a note while the graph is open inserts
+  // the new node beside its linked neighbors; nothing else jumps.
+  const nodesRef = useRef<GraphNode[]>([]);
+  const adjacencyRef = useRef<Set<number>[]>([]);
+  const edgesRef = useRef<[number, number][]>([]);
+  const colorsRef = useRef<Float32Array>(new Float32Array(0));
+  const baseLinkColorsRef = useRef<Float32Array>(new Float32Array(0));
+  const prevIdsRef = useRef<string[]>([]);
+  const didFitRef = useRef(false);
+  const labelRef = useRef<{ overlay: HTMLDivElement; els: Map<number, HTMLDivElement> } | null>(null);
+  const dimRafRef = useRef(0);
+  const currentColorsRef = useRef<Float32Array>(new Float32Array(0));
+  // camera rect tracked every frame — the container is already detached by
+  // cleanup time, so an unmount-time read would see a zero-size viewport
+  const cameraRef = useRef<[number, number, number] | null>(null);
+  // frames rendered since the last data application — harvesting before the
+  // first frame reads back unflushed GPU buffers (observed under StrictMode)
+  const framesSinceApplyRef = useRef(0);
+  const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const storeKey = `${vaultId}:${centerNoteId ?? "global"}:${String(depth)}`;
+
+  /** Eased color transition toward a target array (hover dim). */
+  const animateColors = (target: Float32Array) => {
+    cancelAnimationFrame(dimRafRef.current);
+    const start = currentColorsRef.current.slice();
+    if (start.length !== target.length) {
+      graphRef.current?.setPointColors(target);
+      currentColorsRef.current = target;
+      return;
+    }
+    const t0 = performance.now();
+    const DURATION = 160;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / DURATION);
+      const eased = t * (2 - t);
+      const mixed = new Float32Array(start.length);
+      for (let i = 0; i < mixed.length; i++) mixed[i] = start[i] + (target[i] - start[i]) * eased;
+      graphRef.current?.setPointColors(mixed);
+      currentColorsRef.current = mixed;
+      if (t < 1) dimRafRef.current = requestAnimationFrame(step);
+    };
+    dimRafRef.current = requestAnimationFrame(step);
+  };
+
+  /** Copy the live layout + camera into the per-view stores. */
+  const harvestPositions = () => {
+    const graph = graphRef.current;
+    const ids = prevIdsRef.current;
+    if (!graph || ids.length === 0) return;
+    // never harvest an un-rendered application — stale store beats garbage
+    if (framesSinceApplyRef.current === 0) return;
+    const flat = graph.getPointPositions();
+    if (!flat || flat.length < ids.length * 2) return;
+    const store = getPositionStore(storeKey);
+    for (let i = 0; i < ids.length; i++) {
+      store.set(ids[i], [flat[i * 2], flat[i * 2 + 1]]);
+    }
+    if (cameraRef.current) {
+      cameraStores.set(storeKey, cameraRef.current);
+    }
+  };
+
+  // Effect 1 — engine lifecycle: one CosmosGraph per mounted view.
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !filtered) return;
+    if (!container) return;
 
     const accent = cssColor("--ob-interactive-accent", "hsl(254, 80%, 68%)");
-    const nodeColor = toRgba(cssColor("--ob-text-muted", "#b3b3b3"), 1);
-    const ghostColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.45);
-    const focusColor = toRgba(accent, 1);
-    const linkColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.55);
-
-    const n = filtered.nodes.length;
-    const positions = new Float32Array(n * 2);
-    const colors = new Float32Array(n * 4);
-    const sizes = new Float32Array(n);
-    // Pre-resolve each group's color once (canvas probe per group, not per node)
-    const groupRgba = appliedGroups.map((g) => toRgba(g.color, 1));
-    // cosmos space runs [0, spaceSize]; seed points around its center
-    const SPACE = 4096;
-    const spread = Math.max(200, Math.sqrt(n) * 60);
-    for (let i = 0; i < n; i++) {
-      const node = filtered.nodes[i];
-      positions[i * 2] = SPACE / 2 + (Math.random() - 0.5) * spread;
-      positions[i * 2 + 1] = SPACE / 2 + (Math.random() - 0.5) * spread;
-      const isCenter = centerNoteId && node.id === centerNoteId;
-      // Precedence: center focus > ghost > group color (first match) > default
-      const gi = node.unresolved ? -1 : matchGroupIndex(node, appliedGroups);
-      const c = isCenter
-        ? focusColor
-        : node.unresolved
-          ? ghostColor
-          : gi >= 0
-            ? groupRgba[gi]
-            : nodeColor;
-      colors.set(c, i * 4);
-      // Obsidian-ish radius: grows with sqrt(degree), clamped
-      sizes[i] = Math.min(6 + 3 * Math.sqrt(node.degree), 26) * (isCenter ? 1.3 : 1);
-    }
-    const links = new Float32Array(filtered.edges.length * 2);
-    filtered.edges.forEach(([s, t], i) => {
-      links[i * 2] = s;
-      links[i * 2 + 1] = t;
-    });
-
-    // Hover dim (research spec): fade non-neighbors to ~0.2 alpha, eased
-    const adjacency: Set<number>[] = filtered.nodes.map(() => new Set<number>());
-    filtered.edges.forEach(([s, t]) => {
-      adjacency[s].add(t);
-      adjacency[t].add(s);
-    });
-
     const graph = new CosmosGraph(container, {
       backgroundColor: [0, 0, 0, 0],
+      fitViewOnInit: false,
+      rescalePositions: false,
       enableDrag: true,
       renderLinks: true,
       linkOpacity: 0.7,
@@ -268,110 +307,77 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       hoveredPointCursor: "pointer",
       hoveredPointRingColor: toRgba(accent, 0.9),
       simulationGravity: 0.1,
-      simulationCenter: applied.centerForce,
-      simulationRepulsion: applied.repelForce,
+      simulationCenter: 0.55,
+      simulationRepulsion: 1.1,
       simulationRepulsionTheta: 0.9,
       simulationLinkSpring: 1.1,
-      simulationLinkDistance: applied.linkDistance,
+      simulationLinkDistance: 12,
       simulationFriction: 0.85,
       simulationDecay: 4000,
       simulationCollision: 0.5,
       onClick: (index) => {
         if (index === undefined) return;
-        const node = filtered.nodes[index];
+        const node = nodesRef.current[index];
         if (!node) return;
         if (node.unresolved) onCreateNote(node.title);
         else onOpenNote(node.id, node.title);
       },
       onPointMouseOver: (index, _pos, event) => {
-        const node = filtered.nodes[index];
+        const node = nodesRef.current[index];
         if (node && event instanceof MouseEvent) {
           setHovered({ title: node.title, x: event.offsetX, y: event.offsetY });
         }
+        const colors = colorsRef.current;
+        const adjacency = adjacencyRef.current;
         const target = colors.slice();
-        for (let i = 0; i < n; i++) {
-          if (i === index || adjacency[index].has(i)) continue;
+        for (let i = 0; i < nodesRef.current.length; i++) {
+          if (i === index || adjacency[index]?.has(i)) continue;
           target[i * 4 + 3] = colors[i * 4 + 3] * 0.2;
         }
         animateColors(target);
-        const dimmedLinks = baseLinkColors.slice();
-        filtered.edges.forEach(([s, t], i) => {
+        const dimmedLinks = baseLinkColorsRef.current.slice();
+        edgesRef.current.forEach(([s, t], i) => {
           if (s !== index && t !== index) dimmedLinks[i * 4 + 3] *= 0.15;
         });
         graphRef.current?.setLinkColors(dimmedLinks);
       },
       onPointMouseOut: () => {
         setHovered(null);
-        animateColors(colors.slice());
-        graphRef.current?.setLinkColors(baseLinkColors.slice());
+        animateColors(colorsRef.current.slice());
+        graphRef.current?.setLinkColors(baseLinkColorsRef.current.slice());
       },
     });
-
-    // Eased color transition (easeOutQuad over ~160ms) toward a target array
-    let dimRaf = 0;
-    let currentColors = colors.slice();
-    function animateColors(target: Float32Array): void {
-      cancelAnimationFrame(dimRaf);
-      const start = currentColors.slice();
-      const t0 = performance.now();
-      const DURATION = 160;
-      const step = (now: number) => {
-        const t = Math.min(1, (now - t0) / DURATION);
-        const eased = t * (2 - t);
-        const mixed = new Float32Array(start.length);
-        for (let i = 0; i < mixed.length; i++) mixed[i] = start[i] + (target[i] - start[i]) * eased;
-        graphRef.current?.setPointColors(mixed);
-        currentColors = mixed;
-        if (t < 1) dimRaf = requestAnimationFrame(step);
-      };
-      dimRaf = requestAnimationFrame(step);
-    }
-
-    graph.setPointPositions(positions);
-    graph.setPointColors(colors);
-    graph.setPointSizes(sizes);
-    graph.setLinks(links);
-    const baseLinkColors = new Float32Array(filtered.edges.length * 4);
-    for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
-    graph.setLinkColors(baseLinkColors);
-    graph.render(0.9);
-    graph.fitView(300);
     graphRef.current = graph;
-
-    // Re-frame once the simulation has mostly settled
-    const fitTimer = setTimeout(() => graph.fitView(400), 1500);
-
-    // ── HTML label overlay for the top-degree nodes ──────────────────────
-    const labelIndices = filtered.nodes
-      .map((node, i) => ({ i, degree: node.degree }))
-      .sort((a, b) => b.degree - a.degree)
-      .slice(0, LABELS_SHOWN)
-      .map((x) => x.i);
-    graph.trackPointPositionsByIndices(labelIndices);
 
     const overlay = document.createElement("div");
     overlay.className = "pointer-events-none absolute inset-0 overflow-hidden";
     container.appendChild(overlay);
-    const labelEls = new Map<number, HTMLDivElement>();
-    for (const i of labelIndices) {
-      const el = document.createElement("div");
-      el.textContent = filtered.nodes[i].title;
-      el.className = "nodum-graph-label";
-      // Grouped nodes carry their group color into the label too
-      if (!filtered.nodes[i].unresolved) {
-        const hex = matchGroupHex(filtered.nodes[i], appliedGroups);
-        if (hex) el.style.color = hex;
-      }
-      overlay.appendChild(el);
-      labelEls.set(i, el);
-    }
+    labelRef.current = { overlay, els: new Map() };
+
+    // node dragging needs a live sim — wake on pointerdown, refreeze after
+    const onDown = () => {
+      graph.unpause();
+      graph.render(0.05);
+    };
+    const onUp = () => {
+      if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+      pauseTimerRef.current = setTimeout(() => graphRef.current?.pause(), 1500);
+    };
+    container.addEventListener("pointerdown", onDown);
+    container.addEventListener("pointerup", onUp);
 
     const tick = () => {
+      framesSinceApplyRef.current += 1;
+      const el = containerRef.current;
+      if (el && el.clientWidth > 0) {
+        const [cx, cy] = graph.screenToSpacePosition([el.clientWidth / 2, el.clientHeight / 2]);
+        cameraRef.current = [cx, cy, graph.getZoomLevel()];
+      }
       const tracked = graph.getTrackedPointPositionsMap();
       const zoom = graph.getZoomLevel();
       const opacity = Math.max(0, Math.min(1, Math.log2(zoom) + 1));
       for (const [i, pos] of tracked) {
-        const el = labelEls.get(i);
+        const el = labelRef.current?.els.get(i);
         if (!el || !pos) continue;
         const [x, y] = graph.spaceToScreenPosition([pos[0], pos[1]]);
         el.style.transform = `translate(${String(Math.round(x))}px, ${String(Math.round(y + 8))}px) translateX(-50%)`;
@@ -382,15 +388,210 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
-      clearTimeout(fitTimer);
+      harvestPositions();
+      if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+      container.removeEventListener("pointerdown", onDown);
+      container.removeEventListener("pointerup", onUp);
       cancelAnimationFrame(rafRef.current);
-      cancelAnimationFrame(dimRaf);
+      cancelAnimationFrame(dimRafRef.current);
       overlay.remove();
+      labelRef.current = null;
       graph.destroy();
       graphRef.current = null;
+      prevIdsRef.current = [];
+      didFitRef.current = false;
+      prevForcesRef.current = "";
+      appliedSigRef.current = "";
     };
-    // Re-create when data, physics sliders, or groups change (re-init is cheap)
-  }, [filtered, centerNoteId, applied, appliedGroups, onOpenNote, onCreateNote]);
+    // one engine per view identity; data flows through the effects below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vaultId, centerNoteId, depth]);
+
+  // Effect 2 — data application: diff-in-place, never destroy.
+  const appliedSigRef = useRef("");
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph || !filtered) return;
+
+    // identical content (query refetch, debounce identity churn) is a no-op —
+    // repeated reheats would keep nudging a settled layout
+    const signature = JSON.stringify({
+      ids: filtered.nodes.map((node) => node.id),
+      deg: filtered.nodes.map((node) => node.degree),
+      edges: filtered.edges,
+      groups: appliedGroups,
+    });
+    if (signature === appliedSigRef.current) return;
+    // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
+    appliedSigRef.current = signature;
+
+    // 1. remember where everything currently is
+    harvestPositions();
+    const store = getPositionStore(storeKey);
+
+    const accent = cssColor("--ob-interactive-accent", "hsl(254, 80%, 68%)");
+    const nodeColor = toRgba(cssColor("--ob-text-muted", "#b3b3b3"), 1);
+    const ghostColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.45);
+    const focusColor = toRgba(accent, 1);
+    const linkColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.55);
+    const groupRgba = appliedGroups.map((g) => toRgba(g.color, 1));
+
+    const n = filtered.nodes.length;
+    const positions = new Float32Array(n * 2);
+    const colors = new Float32Array(n * 4);
+    const sizes = new Float32Array(n);
+    const SPACE = 4096;
+    const spread = Math.max(200, Math.sqrt(Math.max(n, 1)) * 60);
+
+    // adjacency on the NEW index space (also used for neighbor seeding)
+    const adjacency: Set<number>[] = filtered.nodes.map(() => new Set<number>());
+    filtered.edges.forEach(([s, t]) => {
+      adjacency[s].add(t);
+      adjacency[t].add(s);
+    });
+
+    // pass 1: place nodes with remembered positions
+    const placed = new Map<number, [number, number]>();
+    let reused = 0;
+    filtered.nodes.forEach((node, i) => {
+      const known = store.get(node.id);
+      if (known) {
+        placed.set(i, known);
+        reused++;
+      }
+    });
+    // pass 2: new nodes join beside their positioned neighbors (Obsidian behavior)
+    filtered.nodes.forEach((_node, i) => {
+      if (placed.has(i)) return;
+      const neighborPositions = [...adjacency[i]]
+        .map((j) => placed.get(j))
+        .filter((pos): pos is [number, number] => Boolean(pos));
+      if (neighborPositions.length > 0) {
+        const cx = neighborPositions.reduce((acc, pos) => acc + pos[0], 0) / neighborPositions.length;
+        const cy = neighborPositions.reduce((acc, pos) => acc + pos[1], 0) / neighborPositions.length;
+        placed.set(i, [cx + (Math.random() - 0.5) * 60, cy + (Math.random() - 0.5) * 60]);
+      } else {
+        placed.set(i, [
+          SPACE / 2 + (Math.random() - 0.5) * spread,
+          SPACE / 2 + (Math.random() - 0.5) * spread,
+        ]);
+      }
+    });
+
+    for (let i = 0; i < n; i++) {
+      const node = filtered.nodes[i];
+      const pos = placed.get(i) as [number, number];
+      positions[i * 2] = pos[0];
+      positions[i * 2 + 1] = pos[1];
+      const isCenter = centerNoteId && node.id === centerNoteId;
+      const gi = node.unresolved ? -1 : matchGroupIndex(node, appliedGroups);
+      const c = isCenter
+        ? focusColor
+        : node.unresolved
+          ? ghostColor
+          : gi >= 0
+            ? groupRgba[gi]
+            : nodeColor;
+      colors.set(c, i * 4);
+      sizes[i] = Math.min(6 + 3 * Math.sqrt(node.degree), 26) * (isCenter ? 1.3 : 1);
+    }
+    const links = new Float32Array(filtered.edges.length * 2);
+    filtered.edges.forEach(([s, t], i) => {
+      links[i * 2] = s;
+      links[i * 2 + 1] = t;
+    });
+    const baseLinkColors = new Float32Array(filtered.edges.length * 4);
+    for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
+
+    graph.setPointPositions(positions, true);
+    graph.setPointColors(colors);
+    graph.setPointSizes(sizes);
+    graph.setLinks(links);
+    graph.setLinkColors(baseLinkColors);
+
+    // energy: settle a brand-new layout, restore a known one statically,
+    // and give incremental changes only a gentle local reheat
+    const isFirst = !didFitRef.current;
+    const restored = n > 0 && reused / n >= 0.5;
+    graph.unpause();
+    graph.render(isFirst ? (restored ? 0 : 0.9) : 0.04);
+    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+    pauseTimerRef.current = setTimeout(
+      () => graphRef.current?.pause(),
+      isFirst && !restored ? 4000 : 1500,
+    );
+    if (isFirst && n > 0) {
+      const camera = cameraStores.get(storeKey);
+      if (restored && camera) {
+        // exact camera restore: center the stored viewport-center point at
+        // the stored zoom; never let the camera call re-energize the sim
+        graph.setZoomTransformByPointPositions(
+          new Float32Array([camera[0], camera[1]]),
+          0,
+          camera[2],
+          0,
+          false,
+        );
+      } else {
+        graph.fitView(1);
+      }
+      didFitRef.current = true;
+    }
+
+    // labels: rebuild for the current top-degree set
+    const label = labelRef.current;
+    if (label) {
+      label.els.forEach((el) => el.remove());
+      label.els.clear();
+      const labelIndices = filtered.nodes
+        .map((node, i) => ({ i, degree: node.degree }))
+        .sort((a, b) => b.degree - a.degree)
+        .slice(0, LABELS_SHOWN)
+        .map((x) => x.i);
+      graph.trackPointPositionsByIndices(labelIndices);
+      for (const i of labelIndices) {
+        const el = document.createElement("div");
+        el.textContent = filtered.nodes[i].title;
+        el.className = "nodum-graph-label";
+        if (!filtered.nodes[i].unresolved) {
+          const hex = matchGroupHex(filtered.nodes[i], appliedGroups);
+          if (hex) el.style.color = hex;
+        }
+        label.overlay.appendChild(el);
+        label.els.set(i, el);
+      }
+    }
+
+    framesSinceApplyRef.current = 0;
+    nodesRef.current = filtered.nodes;
+    adjacencyRef.current = adjacency;
+    edgesRef.current = filtered.edges;
+    colorsRef.current = colors;
+    currentColorsRef.current = colors.slice();
+    baseLinkColorsRef.current = baseLinkColors;
+    prevIdsRef.current = filtered.nodes.map((node) => node.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, appliedGroups, centerNoteId]);
+
+  // Effect 3 — force sliders update the live simulation (no teardown).
+  // Only a REAL value change reheats; mounts and identity churn must not
+  // re-energize a settled layout.
+  const prevForcesRef = useRef("");
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const key = JSON.stringify(applied);
+    if (prevForcesRef.current === key) return;
+    const firstRun = prevForcesRef.current === "";
+    // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
+    prevForcesRef.current = key;
+    graph.setConfig({
+      simulationCenter: applied.centerForce,
+      simulationRepulsion: applied.repelForce,
+      simulationLinkDistance: applied.linkDistance,
+    });
+    if (!firstRun) graph.render(0.3);
+  }, [applied]);
 
   return (
     <div className="relative h-full w-full bg-ob-bg">
