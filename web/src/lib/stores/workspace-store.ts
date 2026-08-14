@@ -386,7 +386,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             return { ...p, tabs: remaining, activeTabId };
           }
           if (i === toPaneIndex) {
-            const tabs = [...p.tabs];
+            // Dedupe: the same note/graph/canvas may already be open here —
+            // never insert a second tab with the same id (React key collision).
+            const tabs = p.tabs.filter((t) => t.id !== tabId);
             tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
             return { ...p, tabs: sortPinned(tabs), activeTabId: tab.id, ...recorded(p, tab.id) };
           }
