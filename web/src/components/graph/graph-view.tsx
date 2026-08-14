@@ -11,12 +11,13 @@ import { Graph as CosmosGraph, TransitionEasing } from "@cosmos.gl/graph";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Orbit, Pause, Play, RotateCcw, Settings2 } from "lucide-react";
+import { Orbit, Pause, Play, RotateCcw, Search, Settings2, X } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
+import { cn } from "@/lib/utils";
 
 // Label EVERY node (Obsidian shows them all, fading by zoom). The render loop
 // culls off-screen labels; the cap only protects very large vaults.
@@ -132,7 +133,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const [nodeSizeDraft, setNodeSizeDraft] = useState<number | null>(null);
   const [thicknessDraft, setThicknessDraft] = useState<number | null>(null);
   const [moveOnClickDraft, setMoveOnClickDraft] = useState<boolean | null>(null);
-  // graph search is session-only (matches Obsidian's transient filter box)
+  // graph search is session-only (matches Obsidian's transient filter box);
+  // it lives in the floating control cluster as an icon that expands to a field
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [groupsDraft, setGroupsDraft] = useState<GraphGroup[] | null>(null);
@@ -169,6 +172,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     // Resetting the *view* must not delete curated colour groups — they're
     // content, not a view tweak. (Remove groups individually to clear them.)
     setSearchQuery("");
+    setSearchOpen(false);
     setTimePercent(100);
     setPlaying(false);
   };
@@ -1093,6 +1097,49 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       {/* Controls — Obsidian's floating gear popover + reset (top-right) */}
       {!compact && (
         <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
+          {/* Search: an icon that expands into a field, so the canvas stays clean */}
+          {searchOpen ? (
+            <div className="flex h-8 items-center gap-1.5 rounded-md border border-ob-border bg-ob-sidebar/95 pr-1 pl-2 shadow-lg backdrop-blur focus-within:border-ob-accent">
+              <Search className="size-3.5 shrink-0 text-ob-faint" strokeWidth={1.75} />
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  // Esc tucks the field away but KEEPS the filter (the icon
+                  // stays accented to show it is still applied); × clears it.
+                  if (e.key === "Escape") setSearchOpen(false);
+                }}
+                placeholder="Search files… (path: tag: text)"
+                aria-label="Search graph"
+                className="h-7 w-52 bg-transparent text-[12px] text-ob-text outline-none placeholder:text-ob-faint"
+              />
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSearchOpen(false);
+                }}
+                className="flex size-5 shrink-0 items-center justify-center rounded text-ob-faint hover:text-ob-text"
+              >
+                <X className="size-3.5" strokeWidth={2} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              aria-label="Search graph"
+              onClick={() => setSearchOpen(true)}
+              className={cn(
+                "flex size-8 items-center justify-center rounded-md border border-ob-border bg-ob-sidebar/95 shadow-lg backdrop-blur transition-colors hover:text-ob-text",
+                // an active query keeps the icon accented while collapsed
+                searchQuery ? "text-ob-accent" : "text-ob-muted",
+              )}
+            >
+              <Search className="size-4" strokeWidth={1.75} />
+            </button>
+          )}
           <button
             type="button"
             aria-label="Re-arrange graph into a sphere"
@@ -1125,14 +1172,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
               onOpenAutoFocus={(e) => e.preventDefault()}
               className="max-h-[70vh] w-64 overflow-y-auto border-ob-border bg-ob-sidebar p-3 text-[12px]"
             >
+        {/* Search lives in the floating control cluster (magnifier icon), not here */}
         <p className="pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Filters</p>
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search files… (path: tag: text)"
-          aria-label="Search graph"
-          className="mb-1.5 h-7 w-full rounded border border-ob-border bg-ob-bg px-2 text-[12px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
-        />
         <label className="flex items-center justify-between py-0.5 text-ob-muted">
           Existing files only
           <input
