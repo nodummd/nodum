@@ -10,10 +10,10 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { PagePreview, usePagePreview } from "@/components/editor/page-preview";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { linkApi, noteApi, searchApi } from "@/lib/api/endpoints";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useWorkspaceStore, type RightPaneKind } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
-type PaneKind = "backlinks" | "outgoing" | "tags" | "outline" | "local-graph";
+type PaneKind = RightPaneKind;
 
 // Code-split — cosmos.gl must never enter the shared bundle
 const GraphView = dynamic(
@@ -35,7 +35,8 @@ export function SidebarRight({
   const open = useWorkspaceStore((s) => s.rightSidebarOpen);
   const width = useWorkspaceStore((s) => s.rightWidth);
   const setWidth = useWorkspaceStore((s) => s.setRightWidth);
-  const [pane, setPane] = useState<PaneKind>("backlinks");
+  const pane = useWorkspaceStore((s) => s.rightPane);
+  const setPane = useWorkspaceStore((s) => s.setRightPane);
   const dragging = useRef(false);
 
   const onDragStart = useCallback(

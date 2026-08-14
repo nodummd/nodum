@@ -223,6 +223,59 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-13 (post-v3.1.0, 4)** — Command palette raised (top 15%,
+  centered) and filled out with the full Obsidian-style command set
+  (~55 commands): duplicate file, copy file path, bookmark / bookmark
+  all tabs, new canvas, new folder, create-note-to-the-right, go-to-tab
+  #1–8 / last, close/focus tab group, show backlinks/outgoing/outline/
+  tags/local-graph (right sidebar), toggle ribbon, zoom in/out/reset,
+  toggle default new-tab mode, reload. Store gained rightPane/setRightPane
+  (right sidebar pane lifted from local state), ribbonVisible/toggleRibbon,
+  and a generalized closePane. Genuinely N/A on web and left out (noted):
+  themes/light-dark, sync, bases, stacked tabs, split-down, multi-window,
+  Finder/OS reveal, canvas image export, move-to-folder picker (backend
+  ready, needs a picker UI). e2e: palette-commands spec covers duplicate,
+  new canvas, outline panel, zoom, ribbon.
+
+- **2026-08-13 (post-v3.1.0, 3)** — Command palette restyled to match
+  Obsidian's: alphabetical flat list (no group heading, no per-row
+  icons), "Category: action" labels, "Select a command…" placeholder,
+  a trailing × dismiss button, a wider (720px) window, and a footer
+  hint bar (↑↓ navigate · ↵ use · esc dismiss). CommandInput gained
+  opt-in `showSearchIcon` / `onClose` props so the quick switcher keeps
+  its own look. e2e updated for the new placeholder + labels.
+
+- **2026-08-13 (post-v3.1.0, 2)** — Obsidian-style hotkeys: tab
+  navigation commands (go to next/previous tab, ⌘1–8 to tab N, ⌘9 to
+  last, close all other tabs, toggle pin) + editor-pref and sidebar-pane
+  toggles, all runnable from the command palette (the browser-proof
+  path) and bound to keys where safe. The Hotkeys settings tab is now a
+  grouped, searchable reference of all 50 commands in a wider (1040px)
+  Obsidian-like window; palette-only commands show a ⌘P chip. Note:
+  browser-reserved chords (⌘W, ⌘1–9) fire in the installed PWA /
+  standalone window; in a normal browser tab the command palette is the
+  reliable path. e2e: tab-hotkeys + settings-bookmarks specs.
+
+- **2026-08-13 (post-v3.1.0)** — Tab keyboard UX: ⌘/Ctrl+W closes the
+  active tab reliably (works in the installed PWA / standalone window;
+  browser tabs still reserve the chord). Closing the active tab now
+  activates its neighbor (right, else left) instead of jumping to the
+  rightmost, and a key-repeat guard stops a held ⌘W from nuking a burst
+  of tabs. Pinned tabs stay protected. e2e: e2e/tab-hotkeys.spec.ts.
+
+- **2026-08-13 (later)** — Phase E fully executed → **v3.1.0** ("the
+  Obsidian feel", driven by a live CDP study of Obsidian 1.13.7 —
+  docs/research/obsidian-study-2.md): incremental never-jumping graph
+  engine (persistent positions, neighbor-seeded insertions, settled-sim
+  freeze, camera restore) + graph panel parity (search, arrows, node
+  size, link thickness, link force); Obsidian-style tabbed settings
+  window with working options — editor prefs (default view mode,
+  readable line length, line numbers, spellcheck, font size), accent
+  colour, default new-note location (backend folder_path create),
+  confirm-before-delete, page-preview modifier toggle, searchable
+  hotkeys reference. Google OAuth verified live with real credentials;
+  logo integrated (app icons, PWA, README). Suites: 81 backend + 56 e2e.
+
 - **2026-08-13** — Phase D fully executed → **v3.0.0**: block references,
   split panes, pinned tabs + nav history (v2.1.0); mobile workspace, PWA +
   share-target clipper (v2.2.0); Google OAuth, whole-vault publishing

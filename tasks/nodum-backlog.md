@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **81 backend + 56 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 75 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -300,12 +300,83 @@
 - [x] **S12.1 Hotkeys reference tab** (S) — 2026-08-13 — searchable read-only list of
   every nodum shortcut (editor, workspace, graph, canvas).
   *Accept:* e2e: search narrows the list.
-- [ ] **S12.2 🏁 Release v3.1.0** — full suites green, merge dev→main,
+- [x] **S12.2 🏁 Release v3.1.0** — 2026-08-13 — full suites green, merge dev→main,
   tag, prod-compose smoke (incl. a settings round-trip), backlog + master
   plan close-out.
 
+## Phase F — Obsidian-grade workspace, graph & settings (added 2026-08-13)
+
+> Goal: nodum's **workspace layout, graph view, and settings** should match
+> or beat Obsidian. Driven by the user's request + a 5-agent investigation
+> (full plans persisted in the session's phase-f-plan workflow output).
+> Same rules: feature branch → tests (backend + e2e green, extend them) →
+> browser-verify → `--no-ff` to dev → push → check off with the date.
+> Suites baseline: **81 backend + 65 e2e**.
+
+### Sprint 13 — Workspace layout
+
+- [x] **S13.1 Adjustable split divider** (S) — 2026-08-13
+  *Do:* a draggable seam between the two editor panes backed by a persisted
+  `splitRatio` (0.2–0.8); double-click resets to 50/50.
+  *Accept:* e2e splits, drags the seam, asserts pane widths change and the
+  ratio survives reload.
+
+- [x] **S13.2 Tab drag-and-drop + edge split** (L) — 2026-08-14 — shipped a
+  SCOPED version (the full recursive split-tree was judged too risky to land
+  unattended: a `panes[]`→tree swap touches 107 refs across 4 files + a
+  persist migration that could wipe open tabs). Delivered on the existing
+  2-pane model + a `splitOrientation`: drag a tab to reorder within its
+  strip, move it to the other pane, or drop on a pane edge (left/right →
+  side-by-side, top/bottom → stacked) to split — with drop-zone overlays and
+  an orientation-aware resize seam. e2e: right-edge → side-by-side, bottom-
+  edge → stacked, reorder within a strip.
+  *Deferred to Icebox:* simultaneous 2×2 nesting (bottom-left + bottom-right
+  at once) needs the recursive split-tree — full plan is in the phase-f-plan
+  workflow output; land it as its own sprint with the v3→v4 migration.
+
+### Sprint 14 — Graph view parity
+
+- [x] **S14.1 Obsidian-style graph controls + reset** (S) — 2026-08-13
+  *Do:* one `GRAPH_DEFAULTS` source of truth; move the always-open controls
+  card into a clean floating gear popover with top-right icon buttons; add a
+  reset button that restores filters + display + forces to defaults (and
+  clears the persisted graph settings).
+  *Accept:* e2e opens the gear popover, changes a slider, hits reset, asserts
+  the value returns to default.
+
+- [x] **S14.2 Graph animation & insertion polish** (M) — 2026-08-14
+  *Do:* per the graph-polish plan — `setConfigPartial` for force/display
+  effects (P0), `renderHoveredPointRing`, GPU-side hover highlight instead of
+  the manual RAF, fade/scale-in for newly inserted nodes, smoother settle
+  easing. Node creation, connections, movement feel ≥ Obsidian.
+  *Accept:* e2e still green; browser screen-record shows smooth insertion;
+  no regression in the incremental-graph acceptance spec.
+
+### Sprint 15 — Settings parity
+
+- [x] **S15.1 Obsidian settings taxonomy** (L) — 2026-08-14
+  *Do:* reorder/extend tabs to General · Editor · Appearance · Interface ·
+  Files & links · Hotkeys · Vault · Canvas · Publish · Collab; add the
+  web-feasible Obsidian options (General: app version + Help link; Appearance:
+  fonts + base-scheme groundwork; Interface: show ribbon / show tab title bar;
+  Files & links: attachment folder, link format, wikilinks, excluded paths).
+  New `use-vault-settings.ts`; validate font values (no CSS injection). Mark
+  desktop-only items (auto-update, hardware accel, native menus, Sync,
+  community plugins, keychain, licence) as N/A.
+  *Accept:* e2e navigates the new tabs and a new option round-trips + reload.
+
+- [x] **S15.2 Canvas background (dots/grid/blank), user-choosable** (M) — 2026-08-13
+  *Do:* a Canvas settings section + a per-canvas/user background style
+  (dots · grid · blank) applied in canvas-view.tsx and persisted.
+  *Accept:* e2e sets the background to dots, asserts the canvas style, survives
+  reload.
+
+- [ ] **S16 🏁 Release v3.2.0** — full suites green, merge dev→main, tag,
+  prod-compose smoke, backlog + master-plan close-out.
+
 ## Icebox (still later)
-- Cross-pane tab drag & drop · graph clustering by folder
+- Full recursive split-tree layout (2×2 tab nesting) — plan in phase-f-plan workflow output
+- graph clustering by folder
 - Real-time multi-user share links (collab across accounts)
 - E2E encryption at rest
 

@@ -7,12 +7,13 @@
  * clicking one creates the note (Obsidian semantics).
  */
 
-import { Graph as CosmosGraph } from "@cosmos.gl/graph";
+import { Graph as CosmosGraph, TransitionEasing } from "@cosmos.gl/graph";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Pause, Play, Settings2 } from "lucide-react";
+import { Pause, Play, RotateCcw, Settings2 } from "lucide-react";
 
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
@@ -33,11 +34,6 @@ function getPositionStore(key: string): Map<string, [number, number]> {
 // Viewport-center space point + zoom per view — restores the exact camera.
 const cameraStores = new Map<string, [number, number, number]>();
 
-/** Mobile: card hidden unless toggled; desktop: always visible. */
-function cnControls(open: boolean, base: string): string {
-  return `${open ? "block" : "hidden"} md:block ${base}`;
-}
-
 /** Shape stored under vaults.settings.graph (all keys optional). */
 interface PersistedGraph {
   groups?: GraphGroup[];
@@ -51,6 +47,21 @@ interface PersistedGraph {
   nodeSize?: number;
   linkThickness?: number;
 }
+
+/** Single source of truth for graph defaults (used by the fallback chain,
+ *  the applied-forces seed, and the reset-to-defaults button). */
+const GRAPH_DEFAULTS: Required<PersistedGraph> = {
+  groups: [],
+  showGhosts: true,
+  showOrphans: true,
+  centerForce: 0.55,
+  repelForce: 1.1,
+  linkDistance: 12,
+  linkForce: 1.1,
+  arrows: false,
+  nodeSize: 1,
+  linkThickness: 1,
+};
 
 interface GraphViewProps {
   vaultId: string;
@@ -86,7 +97,6 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const graphRef = useRef<CosmosGraph | null>(null);
   const rafRef = useRef<number>(0);
   const [hovered, setHovered] = useState<{ title: string; x: number; y: number } | null>(null);
-  const [controlsOpen, setControlsOpen] = useState(false);
   // Time travel: reveal the first p% of nodes in creation order (100 = now)
   const [timePercent, setTimePercent] = useState(100);
   const [playing, setPlaying] = useState(false);
@@ -119,24 +129,48 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const [appliedSearch, setAppliedSearch] = useState("");
   const [groupsDraft, setGroupsDraft] = useState<GraphGroup[] | null>(null);
 
-  const showGhosts = ghostsDraft ?? persisted.showGhosts ?? true;
-  const showOrphans = orphansDraft ?? persisted.showOrphans ?? true;
-  const centerForce = centerDraft ?? persisted.centerForce ?? 0.55;
-  const repelForce = repelDraft ?? persisted.repelForce ?? 1.1;
-  const linkDistance = distDraft ?? persisted.linkDistance ?? 12;
-  const linkForce = linkForceDraft ?? persisted.linkForce ?? 1.1;
-  const arrows = arrowsDraft ?? persisted.arrows ?? false;
-  const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? 1;
-  const linkThickness = thicknessDraft ?? persisted.linkThickness ?? 1;
+  const showGhosts = ghostsDraft ?? persisted.showGhosts ?? GRAPH_DEFAULTS.showGhosts;
+  const showOrphans = orphansDraft ?? persisted.showOrphans ?? GRAPH_DEFAULTS.showOrphans;
+  const centerForce = centerDraft ?? persisted.centerForce ?? GRAPH_DEFAULTS.centerForce;
+  const repelForce = repelDraft ?? persisted.repelForce ?? GRAPH_DEFAULTS.repelForce;
+  const linkDistance = distDraft ?? persisted.linkDistance ?? GRAPH_DEFAULTS.linkDistance;
+  const linkForce = linkForceDraft ?? persisted.linkForce ?? GRAPH_DEFAULTS.linkForce;
+  const arrows = arrowsDraft ?? persisted.arrows ?? GRAPH_DEFAULTS.arrows;
+  const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? GRAPH_DEFAULTS.nodeSize;
+  const linkThickness = thicknessDraft ?? persisted.linkThickness ?? GRAPH_DEFAULTS.linkThickness;
   const groups = useMemo(
-    () => groupsDraft ?? persisted.groups ?? [],
+    () => groupsDraft ?? persisted.groups ?? GRAPH_DEFAULTS.groups,
     [groupsDraft, persisted.groups],
   );
+
+  // One-click restore of every filter/display/force/group to the defaults.
+  // Setting drafts (not null) marks `touched`, so the persist + apply effects
+  // write and re-render the defaults automatically.
+  const resetToDefaults = () => {
+    setGhostsDraft(GRAPH_DEFAULTS.showGhosts);
+    setOrphansDraft(GRAPH_DEFAULTS.showOrphans);
+    setCenterDraft(GRAPH_DEFAULTS.centerForce);
+    setRepelDraft(GRAPH_DEFAULTS.repelForce);
+    setDistDraft(GRAPH_DEFAULTS.linkDistance);
+    setLinkForceDraft(GRAPH_DEFAULTS.linkForce);
+    setArrowsDraft(GRAPH_DEFAULTS.arrows);
+    setNodeSizeDraft(GRAPH_DEFAULTS.nodeSize);
+    setThicknessDraft(GRAPH_DEFAULTS.linkThickness);
+    setGroupsDraft([]);
+    setSearchQuery("");
+    setTimePercent(100);
+    setPlaying(false);
+  };
 
   // Slider/group values update instantly for the UI; the WebGL graph only
   // rebuilds against the debounced copies (300ms idle) — dragging a slider or
   // typing a group query would otherwise tear down the simulation per tick.
-  const [applied, setApplied] = useState({ centerForce: 0.55, repelForce: 1.1, linkDistance: 12, linkForce: 1.1 });
+  const [applied, setApplied] = useState({
+    centerForce: GRAPH_DEFAULTS.centerForce,
+    repelForce: GRAPH_DEFAULTS.repelForce,
+    linkDistance: GRAPH_DEFAULTS.linkDistance,
+    linkForce: GRAPH_DEFAULTS.linkForce,
+  });
   const [appliedGroups, setAppliedGroups] = useState<GraphGroup[]>([]);
   const groupsJson = JSON.stringify(groups);
 
@@ -266,6 +300,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const didFitRef = useRef(false);
   const labelRef = useRef<{ overlay: HTMLDivElement; els: Map<number, HTMLDivElement> } | null>(null);
   const dimRafRef = useRef(0);
+  const enterRafRef = useRef(0);
   const currentColorsRef = useRef<Float32Array>(new Float32Array(0));
   // camera rect tracked every frame — the container is already detached by
   // cleanup time, so an unmount-time read would see a zero-size viewport
@@ -298,6 +333,41 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       if (t < 1) dimRafRef.current = requestAnimationFrame(step);
     };
     dimRafRef.current = requestAnimationFrame(step);
+  };
+
+  /** Fade + scale newly-added nodes (and their links) in over ~320ms so a
+   *  created note pops in beside its neighbors instead of appearing at once. */
+  const runEnterAnimation = (
+    addedPoints: number[],
+    addedLinks: number[],
+    targetColors: Float32Array,
+    targetSizes: Float32Array,
+    targetLinkColors: Float32Array,
+  ) => {
+    cancelAnimationFrame(enterRafRef.current);
+    if (addedPoints.length === 0 && addedLinks.length === 0) return;
+    const colors = targetColors.slice();
+    const sizes = targetSizes.slice();
+    const linkColors = targetLinkColors.slice();
+    const t0 = performance.now();
+    const DURATION = 320;
+    const step = (now: number) => {
+      const graph = graphRef.current;
+      if (!graph) return;
+      const t = Math.min(1, (now - t0) / DURATION);
+      const eased = t * (2 - t); // ease-out
+      for (const i of addedPoints) {
+        sizes[i] = targetSizes[i] * eased;
+        colors[i * 4 + 3] = targetColors[i * 4 + 3] * eased;
+      }
+      for (const i of addedLinks) linkColors[i * 4 + 3] = targetLinkColors[i * 4 + 3] * eased;
+      graph.setPointSizes(sizes);
+      graph.setPointColors(colors);
+      graph.setLinkColors(linkColors);
+      graph.render(0);
+      if (t < 1) enterRafRef.current = requestAnimationFrame(step);
+    };
+    enterRafRef.current = requestAnimationFrame(step);
   };
 
   /** Copy the live layout + camera into the per-view stores. */
@@ -335,6 +405,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       pointSizeScale: 1,
       hoveredPointCursor: "pointer",
       hoveredPointRingColor: toRgba(accent, 0.9),
+      renderHoveredPointRing: true,
+      transitionDuration: 350,
+      transitionEasing: TransitionEasing.QuadInOut,
       simulationGravity: 0.1,
       simulationCenter: 0.55,
       simulationRepulsion: 1.1,
@@ -423,6 +496,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       container.removeEventListener("pointerup", onUp);
       cancelAnimationFrame(rafRef.current);
       cancelAnimationFrame(dimRafRef.current);
+      cancelAnimationFrame(enterRafRef.current);
       overlay.remove();
       labelRef.current = null;
       graph.destroy();
@@ -533,18 +607,52 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     const baseLinkColors = new Float32Array(filtered.edges.length * 4);
     for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
 
-    graph.setPointPositions(positions, true);
-    graph.setPointColors(colors);
-    graph.setPointSizes(sizes);
-    graph.setLinks(links);
-    graph.setLinkColors(baseLinkColors);
-
-    // energy: settle a brand-new layout, restore a known one statically,
-    // and give incremental changes only a gentle local reheat
+    // Detect nodes/links added since the last apply → fade them in. Only a
+    // small, genuine growth animates (not the first build, not filter
+    // reshuffles) so toggling ghosts/orphans/time-travel never fade-storms.
+    cancelAnimationFrame(enterRafRef.current);
     const isFirst = !didFitRef.current;
     const restored = n > 0 && reused / n >= 0.5;
+    const prevIdSet = new Set(prevIdsRef.current);
+    const addedPoints: number[] = [];
+    filtered.nodes.forEach((node, i) => {
+      if (!prevIdSet.has(node.id)) addedPoints.push(i);
+    });
+    const addedPointSet = new Set(addedPoints);
+    const addedLinks: number[] = [];
+    filtered.edges.forEach(([s, t], i) => {
+      if (addedPointSet.has(s) || addedPointSet.has(t)) addedLinks.push(i);
+    });
+    const animateEnter = !isFirst && restored && addedPoints.length > 0 && addedPoints.length <= 8;
+
+    graph.setPointPositions(positions, true);
+    if (animateEnter) {
+      // seed the added indices invisible; runEnterAnimation ramps them up
+      const initColors = colors.slice();
+      const initSizes = sizes.slice();
+      const initLinks = baseLinkColors.slice();
+      for (const i of addedPoints) {
+        initSizes[i] = 0;
+        initColors[i * 4 + 3] = 0;
+      }
+      for (const i of addedLinks) initLinks[i * 4 + 3] = 0;
+      graph.setPointColors(initColors);
+      graph.setPointSizes(initSizes);
+      graph.setLinks(links);
+      graph.setLinkColors(initLinks);
+    } else {
+      graph.setPointColors(colors);
+      graph.setPointSizes(sizes);
+      graph.setLinks(links);
+      graph.setLinkColors(baseLinkColors);
+    }
+
+    // energy: settle a brand-new layout, restore a known one statically,
+    // and give incremental changes only a gentle, eased local reheat
     graph.unpause();
-    graph.render(isFirst ? (restored ? 0 : 0.9) : 0.04);
+    if (isFirst) graph.render(restored ? 0 : 0.9);
+    else graph.render(0.04, 350);
+    if (animateEnter) runEnterAnimation(addedPoints, addedLinks, colors, sizes, baseLinkColors);
     if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     pauseTimerRef.current = setTimeout(
       () => graphRef.current?.pause(),
@@ -615,7 +723,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     const firstRun = prevForcesRef.current === "";
     // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
     prevForcesRef.current = key;
-    graph.setConfig({
+    graph.setConfigPartial({
       simulationCenter: applied.centerForce,
       simulationRepulsion: applied.repelForce,
       simulationLinkDistance: applied.linkDistance,
@@ -634,7 +742,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     if (prevDisplayRef.current === key) return;
     // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
     prevDisplayRef.current = key;
-    graph.setConfig({
+    graph.setConfigPartial({
       linkDefaultArrows: arrows,
       pointSizeScale: nodeSize,
       linkWidthScale: linkThickness,
@@ -654,24 +762,33 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
         </div>
       )}
 
-      {/* Controls — Obsidian's graph settings card (behind a gear on mobile) */}
+      {/* Controls — Obsidian's floating gear popover + reset (top-right) */}
       {!compact && (
-        <button
-          type="button"
-          aria-label="Graph settings"
-          onClick={() => setControlsOpen((v) => !v)}
-          className="absolute right-3 bottom-16 z-10 flex size-11 items-center justify-center rounded-full border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur md:hidden"
-        >
-          <Settings2 className="size-5" strokeWidth={1.75} />
-        </button>
-      )}
-      {!compact && (
-      <div
-        className={cnControls(
-          controlsOpen,
-          "absolute top-3 right-3 z-10 w-52 rounded-lg border border-ob-border bg-ob-sidebar/95 p-3 text-[12px] backdrop-blur",
-        )}
-      >
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Reset graph settings"
+            onClick={resetToDefaults}
+            className="flex size-8 items-center justify-center rounded-md border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur transition-colors hover:text-ob-text"
+          >
+            <RotateCcw className="size-4" strokeWidth={1.75} />
+          </button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Graph settings"
+                className="flex size-8 items-center justify-center rounded-md border border-ob-border bg-ob-sidebar/95 text-ob-muted shadow-lg backdrop-blur transition-colors hover:text-ob-text"
+              >
+                <Settings2 className="size-4" strokeWidth={1.75} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={6}
+              onOpenAutoFocus={(e) => e.preventDefault()}
+              className="max-h-[70vh] w-64 overflow-y-auto border-ob-border bg-ob-sidebar p-3 text-[12px]"
+            >
         <p className="pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Filters</p>
         <input
           value={searchQuery}
@@ -796,7 +913,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
             {data.truncated ? " · capped" : ""}
           </p>
         )}
-      </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       )}
     </div>
   );

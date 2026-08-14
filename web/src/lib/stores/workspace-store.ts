@@ -16,6 +16,9 @@ export type MainView =
 
 export type EditorMode = "live" | "source" | "reading";
 
+/** Right-sidebar panels (mirrors sidebar-right.tsx). */
+export type RightPaneKind = "backlinks" | "outgoing" | "tags" | "outline" | "local-graph";
+
 export type ExplorerSort =
   | "title-asc"
   | "title-desc"
@@ -63,8 +66,18 @@ interface WorkspaceState {
   activePane: number;
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
+  /** Which right-sidebar panel is showing. */
+  rightPane: RightPaneKind;
+  /** Left icon ribbon visibility (Obsidian's "Toggle ribbon"). */
+  ribbonVisible: boolean;
   leftWidth: number;
   rightWidth: number;
+  /** Fraction of the editor area given to the first pane when split (0.2–0.8). */
+  splitRatio: number;
+  /** Split axis: side-by-side ("row") or stacked ("column"). */
+  splitOrientation: "row" | "column";
+  /** Transient drag state for tab drag-and-drop (never persisted). */
+  dragging: { tabId: string; fromPaneIndex: number } | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -82,7 +95,13 @@ interface WorkspaceState {
   openTabBackground: (tab: Tab) => void;
   /** paneIndex omitted → close in every pane (e.g. the note was deleted). */
   closeTab: (tabId: string, paneIndex?: number) => void;
+  /** Close every tab in the active pane except the active one and pinned tabs. */
+  closeOtherTabs: () => void;
   setActiveTab: (tabId: string, paneIndex?: number) => void;
+  /** Activate the tab at index in the active pane; -1 selects the last tab. */
+  goToTabIndex: (index: number) => void;
+  /** Cycle the active pane's tab selection (+1 next, -1 previous, wraps). */
+  goToRelativeTab: (dir: 1 | -1) => void;
   renameTab: (tabId: string, title: string) => void;
   setActivePane: (index: number) => void;
   splitRight: () => void;
@@ -92,8 +111,18 @@ interface WorkspaceState {
   navigateForward: () => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
+  setRightPane: (pane: RightPaneKind) => void;
+  toggleRibbon: () => void;
   setLeftWidth: (w: number) => void;
   setRightWidth: (w: number) => void;
+  setSplitRatio: (ratio: number) => void;
+  setDragging: (d: { tabId: string; fromPaneIndex: number } | null) => void;
+  /** Reorder a tab within its pane. */
+  reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
+  /** Move a tab to another existing pane (falls back to reorder if same pane). */
+  moveTabToPane: (tabId: string, fromPaneIndex: number, toPaneIndex: number, toIndex: number) => void;
+  /** Drop a tab on a pane edge → split into two panes on that side. */
+  splitWithTab: (tabId: string, fromPaneIndex: number, edge: "left" | "right" | "top" | "bottom") => void;
   setEditorMode: (mode: EditorMode) => void;
   setDefaultEditorMode: (mode: EditorMode) => void;
   setExplorerSort: (sort: ExplorerSort) => void;
@@ -112,8 +141,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       activePane: 0,
       leftSidebarOpen: true,
       rightSidebarOpen: true,
+      rightPane: "backlinks",
+      ribbonVisible: true,
       leftWidth: 280,
       rightWidth: 300,
+      splitRatio: 0.5,
+      splitOrientation: "row",
+      dragging: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -174,19 +208,33 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       closeTab: (tabId, paneIndex) => {
         const panes = get().panes.map((p, i) => {
           if (paneIndex !== undefined && i !== paneIndex) return p;
-          const tab = p.tabs.find((t) => t.id === tabId);
+          const idx = p.tabs.findIndex((t) => t.id === tabId);
+          const tab = p.tabs[idx];
           if (!tab || tab.pinned) return p;
           const remaining = p.tabs.filter((t) => t.id !== tabId);
-          return {
-            ...p,
-            tabs: remaining,
-            activeTabId:
-              p.activeTabId === tabId ? (remaining.at(-1)?.id ?? null) : p.activeTabId,
-          };
+          // On closing the active tab, activate its neighbor — the tab that
+          // slid into the freed slot (right neighbor), else the one to its
+          // left (Obsidian-style, keeps focus near where you were).
+          const activeTabId =
+            p.activeTabId === tabId
+              ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
+              : p.activeTabId;
+          return { ...p, tabs: remaining, activeTabId };
         });
         // a second pane that runs out of tabs disappears
         const kept = panes.filter((p, i) => i === 0 || p.tabs.length > 0);
         set({ panes: kept, activePane: Math.min(get().activePane, kept.length - 1) });
+      },
+
+      closeOtherTabs: () => {
+        const { panes, activePane } = get();
+        set({
+          panes: panes.map((p, i) =>
+            i === activePane
+              ? { ...p, tabs: p.tabs.filter((t) => t.id === p.activeTabId || t.pinned) }
+              : p,
+          ),
+        });
       },
 
       setActiveTab: (tabId, paneIndex) => {
@@ -200,6 +248,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           ),
           activePane: index,
         });
+      },
+
+      goToTabIndex: (index) => {
+        const { panes, activePane } = get();
+        const p = panes[activePane];
+        if (!p || p.tabs.length === 0) return;
+        const target = index === -1 ? p.tabs.at(-1) : p.tabs[index];
+        if (target) get().setActiveTab(target.id, activePane);
+      },
+
+      goToRelativeTab: (dir) => {
+        const { panes, activePane } = get();
+        const p = panes[activePane];
+        if (!p || p.tabs.length === 0) return;
+        const cur = p.tabs.findIndex((t) => t.id === p.activeTabId);
+        const next = ((cur < 0 ? 0 : cur) + dir + p.tabs.length) % p.tabs.length;
+        get().setActiveTab(p.tabs[next].id, activePane);
       },
 
       renameTab: (tabId, title) =>
@@ -228,10 +293,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
       },
 
+      // Close a whole tab group (pane). With a single pane this is a no-op —
+      // there's always at least one; otherwise drop it and keep the survivor.
       closePane: (index) => {
         const { panes } = get();
-        if (panes.length < 2 || index === 0) return;
-        set({ panes: panes.slice(0, 1), activePane: 0 });
+        if (panes.length < 2) return;
+        set({ panes: panes.filter((_, i) => i !== index), activePane: 0 });
       },
 
       togglePin: (tabId, paneIndex) =>
@@ -278,8 +345,97 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
       toggleLeftSidebar: () => set({ leftSidebarOpen: !get().leftSidebarOpen }),
       toggleRightSidebar: () => set({ rightSidebarOpen: !get().rightSidebarOpen }),
+      setRightPane: (pane) => set({ rightPane: pane }),
+      toggleRibbon: () => set({ ribbonVisible: !get().ribbonVisible }),
       setLeftWidth: (w) => set({ leftWidth: Math.min(Math.max(w, 200), 480) }),
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
+      setSplitRatio: (r) => set({ splitRatio: Math.min(Math.max(r, 0.2), 0.8) }),
+      setDragging: (d) => set({ dragging: d }),
+
+      reorderTab: (tabId, paneIndex, toIndex) => {
+        set({
+          panes: get().panes.map((p, i) => {
+            if (i !== paneIndex) return p;
+            const from = p.tabs.findIndex((t) => t.id === tabId);
+            if (from < 0) return p;
+            const tabs = [...p.tabs];
+            const [moved] = tabs.splice(from, 1);
+            tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, moved);
+            return { ...p, tabs: sortPinned(tabs) };
+          }),
+        });
+      },
+
+      moveTabToPane: (tabId, fromPaneIndex, toPaneIndex, toIndex) => {
+        const { panes } = get();
+        const src = panes[fromPaneIndex];
+        const tab = src?.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+        if (fromPaneIndex === toPaneIndex) {
+          get().reorderTab(tabId, fromPaneIndex, toIndex);
+          return;
+        }
+        const mapped = panes.map((p, i) => {
+          if (i === fromPaneIndex) {
+            const idx = p.tabs.findIndex((t) => t.id === tabId);
+            const remaining = p.tabs.filter((t) => t.id !== tabId);
+            const activeTabId =
+              p.activeTabId === tabId
+                ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
+                : p.activeTabId;
+            return { ...p, tabs: remaining, activeTabId };
+          }
+          if (i === toPaneIndex) {
+            const tabs = [...p.tabs];
+            tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
+            return { ...p, tabs: sortPinned(tabs), activeTabId: tab.id, ...recorded(p, tab.id) };
+          }
+          return p;
+        });
+        // an emptied non-first pane disappears
+        const kept = mapped.filter((p, i) => i === 0 || p.tabs.length > 0);
+        const activePane = Math.max(
+          0,
+          kept.findIndex((p) => p.tabs.some((t) => t.id === tabId)),
+        );
+        set({ panes: kept, activePane });
+      },
+
+      splitWithTab: (tabId, fromPaneIndex, edge) => {
+        const { panes } = get();
+        const src = panes[fromPaneIndex];
+        const tab = src?.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+        const orientation = edge === "left" || edge === "right" ? "row" : "column";
+        // Two panes already: the flat model can't nest, so just move across.
+        if (panes.length >= 2) {
+          get().moveTabToPane(tabId, fromPaneIndex, fromPaneIndex === 0 ? 1 : 0, panes[fromPaneIndex === 0 ? 1 : 0].tabs.length);
+          set({ splitOrientation: orientation });
+          return;
+        }
+        // Moving the only tab into a new pane would just re-collapse — no-op.
+        if (src.tabs.length <= 1) return;
+        const idx = src.tabs.findIndex((t) => t.id === tabId);
+        const remaining = src.tabs.filter((t) => t.id !== tabId);
+        const oldPane: PaneState = {
+          ...src,
+          tabs: remaining,
+          activeTabId:
+            src.activeTabId === tabId ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null) : src.activeTabId,
+        };
+        const newPane: PaneState = {
+          tabs: [tab],
+          activeTabId: tab.id,
+          history: [tab.id],
+          historyIndex: 0,
+        };
+        const before = edge === "left" || edge === "top";
+        set({
+          panes: before ? [newPane, oldPane] : [oldPane, newPane],
+          splitOrientation: orientation,
+          activePane: before ? 0 : 1,
+        });
+      },
       setEditorMode: (mode) => set({ editorMode: mode }),
       setDefaultEditorMode: (mode) => set({ defaultEditorMode: mode }),
       setExplorerSort: (sort) => set({ explorerSort: sort }),
@@ -317,8 +473,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         activePane: s.activePane,
         leftSidebarOpen: s.leftSidebarOpen,
         rightSidebarOpen: s.rightSidebarOpen,
+        ribbonVisible: s.ribbonVisible,
         leftWidth: s.leftWidth,
         rightWidth: s.rightWidth,
+        splitRatio: s.splitRatio,
+        splitOrientation: s.splitOrientation,
         editorMode: s.editorMode,
         explorerSort: s.explorerSort,
       }),

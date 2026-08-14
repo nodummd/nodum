@@ -27,8 +27,10 @@ import { Ribbon } from "./ribbon";
 import { SettingsModal } from "./settings-modal";
 import { SidebarLeft } from "./sidebar-left";
 import { SidebarRight } from "./sidebar-right";
+import { PaneDropOverlay } from "./pane-drop-overlay";
 import { StatusBar } from "./status-bar";
 import { TabBar } from "./tab-bar";
+import { cn } from "@/lib/utils";
 import { CanvasView } from "@/components/canvas/canvas-view";
 import { TemplatePicker } from "./template-picker";
 import { Toaster } from "./toaster";
@@ -39,7 +41,7 @@ import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { Menu, PanelRight } from "lucide-react";
 
 import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
-import { useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
+import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -53,7 +55,42 @@ export function Workspace({ vault }: { vault: Vault }) {
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
 
+  const splitRatio = useWorkspaceStore((s) => s.splitRatio);
+  const setSplitRatio = useWorkspaceStore((s) => s.setSplitRatio);
+  const splitOrientation = useWorkspaceStore((s) => s.splitOrientation);
+  const mainRef = useRef<HTMLElement>(null);
+  const isColumnSplit = splitOrientation === "column";
+
   const isMobile = useIsMobile();
+  const ribbonVisible = useWorkspaceStore((s) => s.ribbonVisible);
+
+  // Drag the seam between split panes; ratio follows the cursor (along the
+  // split axis), store clamps.
+  const onSplitDragStart = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const el = mainRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const column = useWorkspaceStore.getState().splitOrientation === "column";
+      const prevSelect = document.body.style.userSelect;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = column ? "row-resize" : "col-resize";
+      const onMove = (ev: PointerEvent) =>
+        setSplitRatio(
+          column ? (ev.clientY - rect.top) / rect.height : (ev.clientX - rect.left) / rect.width,
+        );
+      const onUp = () => {
+        document.body.style.userSelect = prevSelect;
+        document.body.style.cursor = "";
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [setSplitRatio],
+  );
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
 
@@ -64,8 +101,9 @@ export function Workspace({ vault }: { vault: Vault }) {
     useWorkspaceStore.getState().setDefaultEditorMode(defaultViewMode);
   }, [defaultViewMode]);
 
-  // Accent colour override (S11.3) — applied on boot and live on change.
-  const accentColor = useUserPrefs().accentColor;
+  // Appearance (S11.3 + S15.1) — accent + font overrides, on boot and live.
+  const prefs = useUserPrefs();
+  const { accentColor, fontInterface, fontText, fontMonospace, showRibbon } = prefs;
   useEffect(() => {
     const root = document.documentElement;
     if (accentColor) {
@@ -78,11 +116,25 @@ export function Workspace({ vault }: { vault: Vault }) {
       root.style.removeProperty("--ob-interactive-accent");
       root.style.removeProperty("--ob-interactive-accent-hover");
     }
+    // Fonts: an empty stack (default) removes the override → globals.css wins
+    const setFont = (varName: string, key: keyof typeof FONT_CHOICES) => {
+      const stack = FONT_CHOICES[key];
+      if (stack) root.style.setProperty(varName, stack);
+      else root.style.removeProperty(varName);
+    };
+    setFont("--font-interface", fontInterface);
+    setFont("--font-text", fontText);
+    setFont("--font-monospace", fontMonospace);
     return () => {
       root.style.removeProperty("--ob-interactive-accent");
       root.style.removeProperty("--ob-interactive-accent-hover");
     };
-  }, [accentColor]);
+  }, [accentColor, fontInterface, fontText, fontMonospace]);
+
+  // Ribbon visibility lives on the user (cross-device); mirror into the store.
+  useEffect(() => {
+    useWorkspaceStore.setState({ ribbonVisible: showRibbon });
+  }, [showRibbon]);
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
@@ -212,7 +264,8 @@ export function Workspace({ vault }: { vault: Vault }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
+      // Auto-repeat (key held down) must not fire these — one ⌘W = one closed tab.
+      if (!mod || e.repeat) return;
       if (e.key === "o") {
         e.preventDefault();
         setSwitcherOpen(!switcherOpen);
@@ -244,6 +297,10 @@ export function Workspace({ vault }: { vault: Vault }) {
       } else if (e.key === "]") {
         e.preventDefault();
         useWorkspaceStore.getState().navigateForward();
+      } else if (e.key >= "1" && e.key <= "9" && !e.shiftKey) {
+        // ⌘1–8 jump to that tab, ⌘9 to the last (Obsidian's tab-index chords).
+        e.preventDefault();
+        useWorkspaceStore.getState().goToTabIndex(e.key === "9" ? -1 : Number(e.key) - 1);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -277,7 +334,7 @@ export function Workspace({ vault }: { vault: Vault }) {
         </header>
       )}
 
-      {!isMobile && (
+      {!isMobile && ribbonVisible && (
         <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} onOpenDailyNote={openDailyNote} />
       )}
       {!isMobile && (
@@ -289,7 +346,13 @@ export function Workspace({ vault }: { vault: Vault }) {
         />
       )}
 
-      <main className="relative flex min-w-0 flex-1 border-l border-ob-border">
+      <main
+        ref={mainRef}
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 border-l border-ob-border",
+          isColumnSplit ? "flex-col" : "flex-row",
+        )}
+      >
         {panes.map((pane, paneIndex) => {
           const paneTab = pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
           return (
@@ -298,13 +361,19 @@ export function Workspace({ vault }: { vault: Vault }) {
               aria-label={`Editor pane ${String(paneIndex + 1)}`}
               onFocusCapture={() => setActivePane(paneIndex)}
               onClickCapture={() => setActivePane(paneIndex)}
-              className={
-                paneIndex > 0
-                  ? "flex min-w-0 flex-1 flex-col border-l border-ob-border"
-                  : "flex min-w-0 flex-1 flex-col"
+              style={
+                panes.length === 2
+                  ? { flexGrow: paneIndex === 0 ? splitRatio : 1 - splitRatio, flexBasis: 0 }
+                  : undefined
               }
+              className={cn(
+                "flex min-h-0 min-w-0 flex-1 flex-col",
+                paneIndex > 0 && (isColumnSplit ? "border-t border-ob-border" : "border-l border-ob-border"),
+              )}
             >
-              <TabBar paneIndex={paneIndex} onNewNote={() => newNote.mutate()} />
+              {prefs.showTabTitleBar && (
+                <TabBar paneIndex={paneIndex} onNewNote={() => newNote.mutate()} />
+              )}
               <div className="relative min-h-0 flex-1 bg-ob-bg">
                 {paneTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
                 {paneTab?.kind === "note" && (
@@ -323,10 +392,28 @@ export function Workspace({ vault }: { vault: Vault }) {
                 {paneIndex === panes.length - 1 && (
                   <StatusBar vaultId={vault.id} noteId={activeNoteId} />
                 )}
+                <PaneDropOverlay paneIndex={paneIndex} />
               </div>
             </section>
           );
         })}
+        {panes.length === 2 && (
+          <div
+            role="separator"
+            aria-orientation={isColumnSplit ? "horizontal" : "vertical"}
+            aria-label="Resize split"
+            aria-valuenow={Math.round(splitRatio * 100)}
+            onPointerDown={onSplitDragStart}
+            onDoubleClick={() => setSplitRatio(0.5)}
+            style={isColumnSplit ? { top: `${splitRatio * 100}%` } : { left: `${splitRatio * 100}%` }}
+            className={cn(
+              "absolute z-20 hover:bg-ob-accent/40",
+              isColumnSplit
+                ? "left-0 h-1 w-full -translate-y-1/2 cursor-row-resize"
+                : "top-0 h-full w-1 -translate-x-1/2 cursor-col-resize",
+            )}
+          />
+        )}
       </main>
 
       {!isMobile && (
@@ -375,6 +462,7 @@ export function Workspace({ vault }: { vault: Vault }) {
 
       <QuickSwitcher vaultId={vault.id} onOpenNote={openNote} />
       <CommandPalette
+        vaultId={vault.id}
         onNewNote={() => newNote.mutate()}
         onOpenGraph={openGraph}
         onDeleteActiveNote={deleteActiveNote}

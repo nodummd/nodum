@@ -10,6 +10,8 @@ test.describe("knowledge graph", () => {
 
     // cosmos.gl canvas mounts
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    // controls (incl. the count line) live behind the gear popover
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     // controls card shows real counts (welcome vault: 4+ nodes incl. ghost)
     await expect(page.getByText(/[1-9]\d* nodes · \d+ links/)).toBeVisible({ timeout: 15_000 });
     // label overlay carries note titles
@@ -21,6 +23,8 @@ test.describe("knowledge graph", () => {
   test("graph filters adjust node counts", async ({ page }) => {
     await signupFreshUser(page, "graph-filter");
     await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     await expect(page.getByText(/nodes · \d+ links/)).toBeVisible({ timeout: 15_000 });
 
     const countText = async () =>
@@ -41,6 +45,7 @@ test.describe("graph groups", () => {
 
     await page.keyboard.press("ControlOrMeta+g");
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
 
     await page.getByRole("button", { name: "+ Add group" }).click();
     await page.getByLabel("Group 1 query").fill("Welcome");
@@ -54,6 +59,7 @@ test.describe("graph groups", () => {
     await page.reload();
     await page.keyboard.press("ControlOrMeta+g");
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     await expect(page.getByLabel("Group 1 query")).toHaveValue("Welcome", { timeout: 10_000 });
     await expect(
       page.locator(".nodum-graph-label", { hasText: "Welcome to Nodum" }),
@@ -67,6 +73,7 @@ test.describe("graph time travel", () => {
 
     await page.keyboard.press("ControlOrMeta+g");
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     const counts = page.getByText(/\d+ nodes · \d+ links/);
     await expect(counts).toBeVisible({ timeout: 10_000 });
     const fullText = (await counts.textContent()) ?? "";
@@ -99,6 +106,8 @@ test.describe("graph panel parity", () => {
 
     await page.keyboard.press("ControlOrMeta+g");
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    // Controls live behind the Obsidian-style gear popover
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     const counts = page.getByText(/\d+ nodes · \d+ links/);
     await expect(counts).toBeVisible({ timeout: 10_000 });
     const full = Number(/(\d+) nodes/.exec((await counts.textContent()) ?? "")?.[1] ?? "0");
@@ -123,7 +132,40 @@ test.describe("graph panel parity", () => {
     await page.reload();
     await page.keyboard.press("ControlOrMeta+g");
     await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     await expect(page.getByLabel("Arrows")).toBeChecked({ timeout: 10_000 });
     await expect(page.getByLabel("Node size")).toHaveValue("2.5");
+  });
+
+  test("reset restores graph settings to defaults", async ({ page }) => {
+    await signupFreshUser(page, "graphreset");
+
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
+    const nodeSize = page.getByLabel("Node size");
+    await nodeSize.fill("3");
+    await expect(nodeSize).toHaveValue("3");
+
+    // Reset lives outside the popover; clicking it closes the popover, so reopen
+    await page.getByRole("button", { name: "Reset graph settings" }).click();
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
+    await expect(page.getByLabel("Node size")).toHaveValue("1", { timeout: 10_000 });
+  });
+});
+
+test.describe("graph config stability", () => {
+  test("changing a force keeps the graph alive (setConfigPartial, not reset)", async ({ page }) => {
+    await signupFreshUser(page, "graphforce");
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
+
+    // Previously setConfig() wiped the whole config (callbacks, bg, forces);
+    // setConfigPartial keeps the graph rendering + counting after a force change.
+    await page.getByLabel("Center force").fill("0.9");
+    await expect(page.locator("main canvas").first()).toBeVisible();
+    await expect(page.getByText(/\d+ nodes · \d+ links/)).toBeVisible({ timeout: 10_000 });
   });
 });
