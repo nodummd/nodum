@@ -56,9 +56,9 @@ const GRAPH_DEFAULTS: Required<PersistedGraph> = {
   groups: [],
   showGhosts: true,
   showOrphans: true,
-  centerForce: 0.2,
-  repelForce: 4.2,
-  linkDistance: 42,
+  centerForce: 0.35,
+  repelForce: 5,
+  linkDistance: 65,
   linkForce: 1,
   arrows: false,
   nodeSize: 1,
@@ -420,6 +420,32 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     }
   };
 
+  /** Fit the camera to the BULK of the graph, trimming the outer few % of
+   *  coordinates so a far-flung satellite cluster can't shrink everything to a
+   *  dot. Falls back to a plain fit for tiny graphs. */
+  const fitToBulk = (duration: number) => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const flat = graph.getPointPositions();
+    const count = flat ? Math.floor(flat.length / 2) : 0;
+    if (!flat || count < 12) {
+      graph.fitView(duration);
+      return;
+    }
+    const xs = new Float64Array(count);
+    const ys = new Float64Array(count);
+    for (let i = 0; i < count; i++) {
+      xs[i] = flat[i * 2];
+      ys[i] = flat[i * 2 + 1];
+    }
+    xs.sort();
+    ys.sort();
+    const lo = Math.floor(count * 0.06);
+    const hi = Math.min(count - 1, Math.floor(count * 0.94));
+    const box = [xs[lo], ys[lo], xs[hi], ys[hi]];
+    graph.fitViewByPointPositions(box, duration, 0.14);
+  };
+
   // Effect 1 — engine lifecycle: one CosmosGraph per mounted view.
   useEffect(() => {
     const container = containerRef.current;
@@ -453,17 +479,20 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       simulationLinkSpring: GRAPH_DEFAULTS.linkForce,
       simulationLinkDistance: GRAPH_DEFAULTS.linkDistance,
       simulationFriction: 0.82,
-      simulationDecay: 3000,
-      // Collision radius derives from each node's own size so nodes never stack
-      // while the layout stays airy.
-      simulationCollision: 1,
+      // Cool slowly (smaller = slower) so 200+ nodes reach an even equilibrium
+      // instead of freezing half-spread.
+      simulationDecay: 1500,
+      // A large FIXED collision radius (not size-derived) is what gives Obsidian
+      // its airy, evenly-spaced look — every node keeps a generous uniform gap.
+      simulationCollision: 0.9,
+      simulationCollisionRadius: 13,
       // Fit the camera once the fresh layout has settled (not before — the
       // pre-settle blob would frame to a dot). Guarded so a restored camera or
       // later reheats never yank the view.
       onSimulationEnd: () => {
         if (!fitOnSettleRef.current) return;
         fitOnSettleRef.current = false;
-        graphRef.current?.fitView(400);
+        fitToBulk(400);
       },
       onClick: (index) => {
         if (index === undefined) return;
@@ -661,9 +690,16 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       sizes[i] = Math.min(5 + 2.6 * Math.sqrt(node.degree), 22) * (isCenter ? 1.35 : 1);
     }
     const links = new Float32Array(filtered.edges.length * 2);
+    // Per-link spring strength = 1 / min(degree) — Obsidian's d3 rule. Leaves
+    // stick tightly to their hub, but hub↔hub links go slack, so clusters drift
+    // apart into Obsidian's even, airy spread instead of one dense ball.
+    const linkStrengths = new Float32Array(filtered.edges.length);
     filtered.edges.forEach(([s, t], i) => {
       links[i * 2] = s;
       links[i * 2 + 1] = t;
+      const ds = filtered.nodes[s].degree || 1;
+      const dt = filtered.nodes[t].degree || 1;
+      linkStrengths[i] = 1 / Math.max(1, Math.min(ds, dt));
     });
     const baseLinkColors = new Float32Array(filtered.edges.length * 4);
     for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
@@ -720,6 +756,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       graph.setLinks(links);
       graph.setLinkColors(baseLinkColors);
     }
+    graph.setLinkStrength(linkStrengths);
 
     // energy: settle a brand-new layout, restore a known one statically,
     // and give incremental changes only a gentle, eased local reheat
@@ -734,9 +771,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       // the settled layout exactly once.
       if (fitOnSettleRef.current) {
         fitOnSettleRef.current = false;
-        graphRef.current?.fitView(400);
+        fitToBulk(400);
       }
-    }, isFirst && !restored ? 4000 : 1500);
+    }, isFirst && !restored ? 7000 : 1500);
     if (isFirst && n > 0) {
       const camera = cameraStores.get(storeKey);
       if (restored && camera) {
