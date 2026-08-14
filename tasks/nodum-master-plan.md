@@ -223,6 +223,21 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-14** — Phase F fully executed → **v3.2.0** (Obsidian-grade
+  workspace, graph & settings; driven by a 5-agent investigation whose
+  per-area plans are persisted in the phase-f-plan workflow output):
+  adjustable split-pane divider (S13.1); Obsidian-style graph controls
+  — floating gear popover + reset-to-defaults (S14.1); graph animation
+  polish — node/link fade-in, eased settle, a setConfigPartial
+  correctness fix, hover ring (S14.2); the full Obsidian settings
+  taxonomy — Interface tab, validated font pickers, expanded General/
+  Appearance/Files & links (S15.1); user-choosable canvas background
+  dots/grid/blank (S15.2); and scoped tab drag-and-drop — reorder, move
+  between panes, edge-split side-by-side/stacked (S13.2). Deferred to
+  the Icebox: the full recursive split-tree for simultaneous 2×2 tab
+  nesting (a panes[]→tree swap + v3→v4 persist migration judged too
+  risky to land unattended). Suites: 81 backend + 75 e2e.
+
 - **2026-08-13 (post-v3.1.0, 4)** — Command palette raised (top 15%,
   centered) and filled out with the full Obsidian-style command set
   (~55 commands): duplicate file, copy file path, bookmark / bookmark

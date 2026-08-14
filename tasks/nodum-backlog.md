@@ -371,8 +371,11 @@
   *Accept:* e2e sets the background to dots, asserts the canvas style, survives
   reload.
 
-- [ ] **S16 🏁 Release v3.2.0** — full suites green, merge dev→main, tag,
-  prod-compose smoke, backlog + master-plan close-out.
+- [x] **S16 🏁 Release v3.2.0** — 2026-08-14 — full suites green (81
+  backend + 75 e2e), dev→main merged, tagged v3.2.0 and pushed; prod-
+  compose smoke passed on the verify stack (health + signup + user-
+  settings [fonts/ribbon] + vault-settings [canvasBackground/linkFormat]
+  + graph round-trips), backlog + master-plan closed out.
 
 ## Icebox (still later)
 - Full recursive split-tree layout (2×2 tab nesting) — plan in phase-f-plan workflow output
