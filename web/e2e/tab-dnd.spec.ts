@@ -56,3 +56,38 @@ test.describe("tab drag-and-drop", () => {
     await expect(tabs.first()).toContainText("Formatting showcase");
   });
 });
+
+test.describe("tab drag-and-drop dedupe", () => {
+  test("moving a tab into a pane that already has it doesn't duplicate or crash", async ({
+    page,
+  }) => {
+    const keyErrors: string[] = [];
+    page.on("console", (m) => {
+      if (m.type() === "error" && /same key/i.test(m.text())) keyErrors.push(m.text());
+    });
+
+    await signupFreshUser(page, "dnd-dedup");
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    // Open the graph, then split → the graph tab now lives in BOTH panes
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.getByRole("tab", { name: /Graph view/ })).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("ControlOrMeta+\\");
+    await expect(page.getByRole("region", { name: "Editor pane 2" })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole("tab", { name: /Graph view/ })).toHaveCount(2);
+
+    // Drag pane 2's graph tab onto pane 1 (which already has a graph tab)
+    const pane2Graph = page
+      .getByRole("region", { name: "Editor pane 2" })
+      .getByRole("tab", { name: /Graph view/ });
+    const pane1Welcome = page
+      .getByRole("region", { name: "Editor pane 1" })
+      .getByRole("tab", { name: /Welcome to Nodum/ });
+    await pane2Graph.dragTo(pane1Welcome);
+
+    // Collapses to one pane with exactly one graph tab, no key-collision error
+    await expect(page.getByRole("tab", { name: /Graph view/ })).toHaveCount(1, { timeout: 10_000 });
+    expect(keyErrors).toEqual([]);
+  });
+});
