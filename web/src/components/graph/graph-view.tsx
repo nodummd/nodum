@@ -18,7 +18,9 @@ import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
 
-const LABELS_SHOWN = 28;
+// Label EVERY node (Obsidian shows them all, fading by zoom). The render loop
+// culls off-screen labels; the cap only protects very large vaults.
+const LABEL_CAP = 1200;
 
 // Layouts survive graph close/reopen within the session (Obsidian keeps its
 // layout too — we go further and keep it across tab switches).
@@ -54,9 +56,9 @@ const GRAPH_DEFAULTS: Required<PersistedGraph> = {
   groups: [],
   showGhosts: true,
   showOrphans: true,
-  centerForce: 0.22,
-  repelForce: 3.5,
-  linkDistance: 32,
+  centerForce: 0.2,
+  repelForce: 4.2,
+  linkDistance: 42,
   linkForce: 1,
   arrows: false,
   nodeSize: 1,
@@ -70,6 +72,8 @@ interface GraphViewProps {
   depth?: number;
   /** Side-panel mode: hides the filters/forces card. */
   compact?: boolean;
+  /** Note to accent-highlight as "selected" (the one open beside the graph). */
+  focusNoteId?: string | null;
   onOpenNote: (noteId: string, title: string) => void;
   onCreateNote: (title: string) => void;
 }
@@ -92,7 +96,7 @@ function toRgba(color: string, alpha: number): [number, number, number, number] 
   return [r / 255, g / 255, b / 255, alpha];
 }
 
-export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, onOpenNote, onCreateNote }: GraphViewProps) {
+export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, focusNoteId = null, onOpenNote, onCreateNote }: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<CosmosGraph | null>(null);
   const rafRef = useRef<number>(0);
@@ -156,7 +160,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     setArrowsDraft(GRAPH_DEFAULTS.arrows);
     setNodeSizeDraft(GRAPH_DEFAULTS.nodeSize);
     setThicknessDraft(GRAPH_DEFAULTS.linkThickness);
-    setGroupsDraft([]);
+    // Resetting the *view* must not delete curated colour groups — they're
+    // content, not a view tweak. (Remove groups individually to clear them.)
     setSearchQuery("");
     setTimePercent(100);
     setPlaying(false);
@@ -243,12 +248,29 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   });
   const persistMutate = persistSettings.mutate;
   useEffect(() => {
-    if (compact || !touched) return;
+    // Never persist before the vault's own settings have loaded — writing a
+    // default-filled snapshot mid-load would clobber persisted groups/forces.
+    if (compact || !touched || !vaults) return;
     const timer = setTimeout(() => {
-      persistMutate(JSON.parse(settingsJson) as PersistedGraph);
+      // Merge ONLY the keys the user actually changed over the persisted
+      // settings. A full snapshot would clobber untouched keys — e.g. wipe
+      // colour groups when a force slider moved, or the reverse.
+      const patch: PersistedGraph = { ...persisted };
+      if (ghostsDraft !== null) patch.showGhosts = showGhosts;
+      if (orphansDraft !== null) patch.showOrphans = showOrphans;
+      if (centerDraft !== null) patch.centerForce = centerForce;
+      if (repelDraft !== null) patch.repelForce = repelForce;
+      if (distDraft !== null) patch.linkDistance = linkDistance;
+      if (linkForceDraft !== null) patch.linkForce = linkForce;
+      if (arrowsDraft !== null) patch.arrows = arrows;
+      if (nodeSizeDraft !== null) patch.nodeSize = nodeSize;
+      if (thicknessDraft !== null) patch.linkThickness = linkThickness;
+      if (groupsDraft !== null) patch.groups = groups;
+      persistMutate(patch);
     }, 800);
     return () => clearTimeout(timer);
-  }, [settingsJson, compact, touched, persistMutate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsJson, compact, touched, persistMutate, vaults, persisted]);
 
   const { data } = useQuery({
     queryKey: centerNoteId
@@ -296,6 +318,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const edgesRef = useRef<[number, number][]>([]);
   const colorsRef = useRef<Float32Array>(new Float32Array(0));
   const baseLinkColorsRef = useRef<Float32Array>(new Float32Array(0));
+  // Base (un-focused) node colors, the accent used for the selected node, and
+  // the previously-focused id — drives the sticky "selected note" highlight
+  // without rebuilding the whole layout on every selection.
+  const groupColorsRef = useRef<Float32Array>(new Float32Array(0));
+  const groupSizesRef = useRef<Float32Array>(new Float32Array(0));
+  const focusColorRef = useRef<[number, number, number, number]>([1, 1, 1, 1]);
+  const prevFocusRef = useRef<string | null>(null);
   const prevIdsRef = useRef<string[]>([]);
   const didFitRef = useRef(false);
   // Set on a fresh (non-restored) first build; the sim-end handler / pause
@@ -403,10 +432,12 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       rescalePositions: false,
       enableDrag: true,
       renderLinks: true,
-      linkOpacity: 0.55,
+      linkOpacity: 0.75,
       linkWidthScale: 1,
       pointSizeScale: 1,
-      scalePointsOnZoom: true,
+      // Nodes keep a constant screen size across zoom (no ballooning on zoom-in);
+      // zooming just spreads them apart, which reads clean like Obsidian.
+      scalePointsOnZoom: false,
       hoveredPointCursor: "pointer",
       hoveredPointRingColor: toRgba(accent, 0.9),
       renderHoveredPointRing: true,
@@ -423,9 +454,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       simulationLinkDistance: GRAPH_DEFAULTS.linkDistance,
       simulationFriction: 0.82,
       simulationDecay: 3000,
-      // Collision radius left to derive from each node's own size (half the
-      // point size) so nodes never stack — a fixed radius would ignore the
-      // big degree-scaled hubs and let them overlap their neighbours.
+      // Collision radius derives from each node's own size so nodes never stack
+      // while the layout stays airy.
       simulationCollision: 1,
       // Fit the camera once the fresh layout has settled (not before — the
       // pre-settle blob would frame to a dot). Guarded so a restored camera or
@@ -488,20 +518,30 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
 
     const tick = () => {
       framesSinceApplyRef.current += 1;
-      const el = containerRef.current;
-      if (el && el.clientWidth > 0) {
-        const [cx, cy] = graph.screenToSpacePosition([el.clientWidth / 2, el.clientHeight / 2]);
+      const container = containerRef.current;
+      const W = container?.clientWidth ?? 0;
+      const H = container?.clientHeight ?? 0;
+      if (W > 0) {
+        const [cx, cy] = graph.screenToSpacePosition([W / 2, H / 2]);
         cameraRef.current = [cx, cy, graph.getZoomLevel()];
       }
       const tracked = graph.getTrackedPointPositionsMap();
       const zoom = graph.getZoomLevel();
-      const opacity = Math.max(0, Math.min(1, Math.log2(zoom) + 1));
+      // Global text alpha rises with zoom (Obsidian: clamp(log2(zoom)+1-fade)).
+      // Shifted so labels are already legible at the fit-view zoom.
+      const alpha = Math.max(0, Math.min(1, Math.log2(zoom) + 2.1));
+      const els = labelRef.current?.els;
       for (const [i, pos] of tracked) {
-        const el = labelRef.current?.els.get(i);
+        const el = els?.get(i);
         if (!el || !pos) continue;
         const [x, y] = graph.spaceToScreenPosition([pos[0], pos[1]]);
-        el.style.transform = `translate(${String(Math.round(x))}px, ${String(Math.round(y + 8))}px) translateX(-50%)`;
-        el.style.opacity = String(opacity);
+        // Cull labels that are hidden or off-screen so hundreds of nodes stay cheap.
+        if (alpha <= 0.03 || x < -60 || x > W + 60 || y < -30 || y > H + 30) {
+          if (el.style.opacity !== "0") el.style.opacity = "0";
+          continue;
+        }
+        el.style.transform = `translate(${String(Math.round(x))}px, ${String(Math.round(y + 9))}px) translateX(-50%)`;
+        el.style.opacity = String(alpha);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -556,7 +596,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     const nodeColor = toRgba(cssColor("--ob-text-muted", "#b3b3b3"), 1);
     const ghostColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.45);
     const focusColor = toRgba(accent, 1);
-    const linkColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.55);
+    const linkColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.85);
     const groupRgba = appliedGroups.map((g) => toRgba(g.color, 1));
 
     const n = filtered.nodes.length;
@@ -627,6 +667,19 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     });
     const baseLinkColors = new Float32Array(filtered.edges.length * 4);
     for (let i = 0; i < filtered.edges.length; i++) baseLinkColors.set(linkColor, i * 4);
+
+    // Sticky selection: keep the un-focused colours/sizes as the base, then
+    // accent + enlarge the focused node so the note open beside the graph
+    // stands out. The focus effect below keeps this live without a rebuild.
+    groupColorsRef.current = colors.slice();
+    groupSizesRef.current = sizes.slice();
+    focusColorRef.current = focusColor;
+    const focusIdx = focusNoteId ? filtered.nodes.findIndex((nd) => nd.id === focusNoteId) : -1;
+    if (focusIdx >= 0) {
+      colors.set(focusColor, focusIdx * 4);
+      sizes[focusIdx] = sizes[focusIdx] * 1.7;
+    }
+    prevFocusRef.current = focusIdx >= 0 ? filtered.nodes[focusIdx].id : null;
 
     // Detect nodes/links added since the last apply → fade them in. Only a
     // small, genuine growth animates (not the first build, not filter
@@ -704,7 +757,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       didFitRef.current = true;
     }
 
-    // labels: rebuild for the current top-degree set
+    // labels: one per node (highest-degree first so a huge vault keeps its hubs
+    // when capped). The render loop fades them by zoom and culls off-screen.
     const label = labelRef.current;
     if (label) {
       label.els.forEach((el) => el.remove());
@@ -712,13 +766,14 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       const labelIndices = filtered.nodes
         .map((node, i) => ({ i, degree: node.degree }))
         .sort((a, b) => b.degree - a.degree)
-        .slice(0, LABELS_SHOWN)
+        .slice(0, LABEL_CAP)
         .map((x) => x.i);
       graph.trackPointPositionsByIndices(labelIndices);
       for (const i of labelIndices) {
         const el = document.createElement("div");
         el.textContent = filtered.nodes[i].title;
         el.className = "nodum-graph-label";
+        el.style.opacity = "0";
         if (!filtered.nodes[i].unresolved) {
           const hex = matchGroupHex(filtered.nodes[i], appliedGroups);
           if (hex) el.style.color = hex;
@@ -738,6 +793,32 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     prevIdsRef.current = filtered.nodes.map((node) => node.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, appliedGroups, centerNoteId]);
+
+  // Effect 2b — sticky "selected note" accent. Recolours just the focused node
+  // on top of the base colours (no layout rebuild → no label flicker/jiggle).
+  // Guarded so an unfocused graph never repaints over the enter-fade.
+  useEffect(() => {
+    const graph = graphRef.current;
+    const base = groupColorsRef.current;
+    if (!graph || base.length === 0) return;
+    const idx = focusNoteId ? nodesRef.current.findIndex((nd) => nd.id === focusNoteId) : -1;
+    if (idx < 0 && prevFocusRef.current === null) {
+      colorsRef.current = base; // nothing focused, nothing to clear — leave the paint alone
+      return;
+    }
+    const colors = base.slice();
+    const sizes = groupSizesRef.current.slice();
+    if (idx >= 0) {
+      colors.set(focusColorRef.current, idx * 4);
+      sizes[idx] = groupSizesRef.current[idx] * 1.7;
+    }
+    colorsRef.current = colors;
+    currentColorsRef.current = colors.slice();
+    graph.setPointColors(colors);
+    graph.setPointSizes(sizes);
+    graph.render(0); // redraw a settled/paused graph so the accent shows at once
+    prevFocusRef.current = idx >= 0 ? focusNoteId : null;
+  }, [focusNoteId, filtered]);
 
   // Effect 3 — force sliders update the live simulation (no teardown).
   // Only a REAL value change reheats; mounts and identity churn must not
