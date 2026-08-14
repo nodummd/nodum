@@ -51,6 +51,9 @@ export function Workspace({ vault }: { vault: Vault }) {
   const panes = useWorkspaceStore((s) => s.panes);
   const activePane = useWorkspaceStore((s) => s.activePane);
   const openTab = useWorkspaceStore((s) => s.openTab);
+  const openNoteBeside = useWorkspaceStore((s) => s.openNoteBeside);
+  const setGraphFocus = useWorkspaceStore((s) => s.setGraphFocus);
+  const graphFocusNoteId = useWorkspaceStore((s) => s.graphFocusNoteId);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
@@ -142,10 +145,12 @@ export function Workspace({ vault }: { vault: Vault }) {
   const openNote = useCallback(
     (noteId: string, title: string) => {
       openTab({ id: noteId, kind: "note", title });
+      // The open note is the one the graph accents as "selected".
+      setGraphFocus(noteId);
       setMobileLeftOpen(false);
       setMobileRightOpen(false);
     },
-    [openTab],
+    [openTab, setGraphFocus],
   );
 
   const openGraph = useCallback(() => {
@@ -395,7 +400,12 @@ export function Workspace({ vault }: { vault: Vault }) {
                 {paneTab?.kind === "graph" && (
                   <GraphView
                     vaultId={vault.id}
-                    onOpenNote={openNote}
+                    focusNoteId={graphFocusNoteId}
+                    // Clicking a node opens the note BESIDE the graph (graph
+                    // stays put) and marks that node selected.
+                    onOpenNote={(id, title) =>
+                      openNoteBeside({ id, kind: "note", title }, paneIndex)
+                    }
                     onCreateNote={createFromGraph}
                   />
                 )}

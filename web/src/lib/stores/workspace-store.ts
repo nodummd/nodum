@@ -78,6 +78,8 @@ interface WorkspaceState {
   splitOrientation: "row" | "column";
   /** Transient drag state for tab drag-and-drop (never persisted). */
   dragging: { tabId: string; fromPaneIndex: number } | null;
+  /** Note the graph should accent-highlight (the note being viewed); transient. */
+  graphFocusNoteId: string | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -105,6 +107,8 @@ interface WorkspaceState {
   renameTab: (tabId: string, title: string) => void;
   setActivePane: (index: number) => void;
   splitRight: () => void;
+  /** Open a tab in the pane beside `fromPaneIndex` (splitting if there's one pane). */
+  openNoteBeside: (tab: Tab, fromPaneIndex: number) => void;
   closePane: (index: number) => void;
   togglePin: (tabId: string, paneIndex: number) => void;
   navigateBack: () => void;
@@ -117,6 +121,7 @@ interface WorkspaceState {
   setRightWidth: (w: number) => void;
   setSplitRatio: (ratio: number) => void;
   setDragging: (d: { tabId: string; fromPaneIndex: number } | null) => void;
+  setGraphFocus: (noteId: string | null) => void;
   /** Reorder a tab within its pane. */
   reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
   /** Move a tab to another existing pane (falls back to reorder if same pane). */
@@ -148,6 +153,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       splitRatio: 0.5,
       splitOrientation: "row",
       dragging: null,
+      graphFocusNoteId: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -293,6 +299,42 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
       },
 
+      // Open a tab in the OTHER pane (Obsidian's "open in split"): keep the
+      // source pane — the graph — where it is, and put the note beside it. With
+      // one pane, create the second; with two, target the non-source pane.
+      openNoteBeside: (tab, fromPaneIndex) => {
+        const { panes, graphFocusNoteId } = get();
+        const focus = tab.kind === "note" ? tab.id : graphFocusNoteId;
+        if (panes.length >= 2) {
+          const target = fromPaneIndex === 0 ? 1 : 0;
+          set({
+            panes: panes.map((p, i) =>
+              i === target
+                ? {
+                    ...p,
+                    tabs: p.tabs.some((t) => t.id === tab.id)
+                      ? p.tabs
+                      : sortPinned([...p.tabs, tab]),
+                    activeTabId: tab.id,
+                    ...recorded(p, tab.id),
+                  }
+                : p,
+            ),
+            activePane: target,
+            graphFocusNoteId: focus,
+          });
+        } else {
+          set({
+            panes: [
+              panes[0],
+              { tabs: [tab], activeTabId: tab.id, history: [tab.id], historyIndex: 0 },
+            ],
+            activePane: 1,
+            graphFocusNoteId: focus,
+          });
+        }
+      },
+
       // Close a whole tab group (pane). With a single pane this is a no-op —
       // there's always at least one; otherwise drop it and keep the survivor.
       closePane: (index) => {
@@ -351,6 +393,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setSplitRatio: (r) => set({ splitRatio: Math.min(Math.max(r, 0.2), 0.8) }),
       setDragging: (d) => set({ dragging: d }),
+      setGraphFocus: (noteId) => set({ graphFocusNoteId: noteId }),
 
       reorderTab: (tabId, paneIndex, toIndex) => {
         set({
