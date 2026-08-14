@@ -9,6 +9,7 @@ import {
   LogOut,
   PanelLeft,
   Search,
+  Settings,
   SquarePen,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -47,10 +48,12 @@ export function Ribbon({
   onNewNote,
   onOpenGraph,
   onOpenDailyNote,
+  onOpenSettings,
 }: {
   onNewNote: () => void;
   onOpenGraph: () => void;
   onOpenDailyNote?: () => void;
+  onOpenSettings: () => void;
 }) {
   const router = useRouter();
   const logout = useAuthStore((s) => s.logout);
@@ -83,6 +86,9 @@ export function Ribbon({
 
       <div className="flex-1" />
 
+      <RibbonButton label="Settings (⌘,)" onClick={onOpenSettings}>
+        <Settings className="size-[18px]" strokeWidth={1.75} />
+      </RibbonButton>
       <RibbonButton
         label="Log out"
         onClick={async () => {

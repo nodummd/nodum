@@ -223,6 +223,15 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-14 (post-v3.2.0)** — Two user-reported gaps fixed: (1) there
+  was NO visible settings entry point — added an Obsidian-style Settings
+  gear to the left ribbon (above Log out) + a gear in the mobile top bar
+  (⌘, and ⌘P remain keyboard escape hatches). (2) Tab drag-and-drop now
+  feels like VS Code — a live insertion caret (accent line) shows exactly
+  where the tab will land as you drag over a strip, the dragged tab fades,
+  and the cursor is grab/grabbing. e2e: settings-gear opens the window;
+  tab-dnd specs still green.
+
 - **2026-08-14** — Phase F fully executed → **v3.2.0** (Obsidian-grade
   workspace, graph & settings; driven by a 5-agent investigation whose
   per-area plans are persisted in the phase-f-plan workflow output):

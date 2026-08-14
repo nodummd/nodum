@@ -3,6 +3,7 @@
 /** Tab bar — Obsidian-style workspace tabs, one bar per editor pane. */
 
 import { GitFork, Pin, Plus, X } from "lucide-react";
+import { useState } from "react";
 
 import {
   ContextMenu,
@@ -24,26 +25,36 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
   const setDragging = useWorkspaceStore((s) => s.setDragging);
   const reorderTab = useWorkspaceStore((s) => s.reorderTab);
   const moveTabToPane = useWorkspaceStore((s) => s.moveTabToPane);
+  const dragging = useWorkspaceStore((s) => s.dragging);
+  // VS Code-style live insertion indicator: where the dragged tab will land.
+  const [caret, setCaret] = useState<{ index: number; x: number } | null>(null);
 
   if (!pane) return null;
 
-  // Drop onto the strip: reorder within this pane, or move a tab in from
-  // another pane. Insertion index = the tab whose midpoint the cursor passed.
+  // The tab boundary the cursor is nearest → insertion index + its x (for the
+  // caret), content-relative so it stays correct when the strip scrolls.
+  const caretFor = (strip: HTMLElement, clientX: number): { index: number; x: number } => {
+    const stripRect = strip.getBoundingClientRect();
+    const tabEls = [...strip.querySelectorAll('[role="tab"]')] as HTMLElement[];
+    for (let i = 0; i < tabEls.length; i++) {
+      const r = tabEls[i].getBoundingClientRect();
+      if (clientX < r.left + r.width / 2) {
+        return { index: i, x: r.left - stripRect.left + strip.scrollLeft };
+      }
+    }
+    const last = tabEls.at(-1);
+    return {
+      index: tabEls.length,
+      x: last ? last.getBoundingClientRect().right - stripRect.left + strip.scrollLeft : 4,
+    };
+  };
+
   const onStripDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const drag = useWorkspaceStore.getState().dragging;
+    setCaret(null);
     if (!drag) return;
-    const tabEls = [
-      ...(e.currentTarget as HTMLElement).querySelectorAll('[role="tab"]'),
-    ] as HTMLElement[];
-    let toIndex = tabEls.length;
-    for (let i = 0; i < tabEls.length; i++) {
-      const r = tabEls[i].getBoundingClientRect();
-      if (e.clientX < r.left + r.width / 2) {
-        toIndex = i;
-        break;
-      }
-    }
+    const toIndex = caretFor(e.currentTarget as HTMLElement, e.clientX).index;
     if (drag.fromPaneIndex === paneIndex) reorderTab(drag.tabId, paneIndex, toIndex);
     else moveTabToPane(drag.tabId, drag.fromPaneIndex, paneIndex, toIndex);
     setDragging(null);
@@ -55,13 +66,24 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
         if (!useWorkspaceStore.getState().dragging) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
+        setCaret(caretFor(e.currentTarget, e.clientX));
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setCaret(null);
       }}
       onDrop={onStripDrop}
       className={cn(
-        "flex h-9 shrink-0 items-stretch gap-px overflow-x-auto border-b bg-ob-sidebar-alt px-1 pt-1",
+        "relative flex h-9 shrink-0 items-stretch gap-px overflow-x-auto border-b bg-ob-sidebar-alt px-1 pt-1",
         isActivePane ? "border-ob-border" : "border-ob-border opacity-80",
       )}
     >
+      {caret && dragging && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-1 bottom-0 z-10 w-0.5 rounded-full bg-ob-accent"
+          style={{ left: caret.x - 1 }}
+        />
+      )}
       {pane.tabs.map((tab) => {
         const active = tab.id === pane.activeTabId;
         return (
@@ -84,10 +106,11 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
                   if (e.button === 1) closeTab(tab.id, paneIndex);
                 }}
                 className={cn(
-                  "group flex min-w-0 max-w-52 flex-1 cursor-default items-center gap-1.5 rounded-t-md px-3 text-[13px] transition-colors duration-150",
+                  "group flex min-w-0 max-w-52 flex-1 cursor-grab items-center gap-1.5 rounded-t-md px-3 text-[13px] transition-[background-color,color,opacity] duration-150 active:cursor-grabbing",
                   active
                     ? "bg-ob-bg text-ob-text"
                     : "bg-transparent text-ob-faint hover:bg-ob-hover hover:text-ob-muted",
+                  dragging?.tabId === tab.id && "opacity-40",
                 )}
               >
                 {tab.kind === "graph" && (
