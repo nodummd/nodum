@@ -54,10 +54,10 @@ const GRAPH_DEFAULTS: Required<PersistedGraph> = {
   groups: [],
   showGhosts: true,
   showOrphans: true,
-  centerForce: 0.55,
-  repelForce: 1.1,
-  linkDistance: 12,
-  linkForce: 1.1,
+  centerForce: 0.22,
+  repelForce: 3.5,
+  linkDistance: 32,
+  linkForce: 1,
   arrows: false,
   nodeSize: 1,
   linkThickness: 1,
@@ -166,10 +166,10 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   // rebuilds against the debounced copies (300ms idle) — dragging a slider or
   // typing a group query would otherwise tear down the simulation per tick.
   const [applied, setApplied] = useState({
-    centerForce: GRAPH_DEFAULTS.centerForce,
-    repelForce: GRAPH_DEFAULTS.repelForce,
-    linkDistance: GRAPH_DEFAULTS.linkDistance,
-    linkForce: GRAPH_DEFAULTS.linkForce,
+    centerForce: persisted.centerForce ?? GRAPH_DEFAULTS.centerForce,
+    repelForce: persisted.repelForce ?? GRAPH_DEFAULTS.repelForce,
+    linkDistance: persisted.linkDistance ?? GRAPH_DEFAULTS.linkDistance,
+    linkForce: persisted.linkForce ?? GRAPH_DEFAULTS.linkForce,
   });
   const [appliedGroups, setAppliedGroups] = useState<GraphGroup[]>([]);
   const groupsJson = JSON.stringify(groups);
@@ -298,6 +298,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
   const baseLinkColorsRef = useRef<Float32Array>(new Float32Array(0));
   const prevIdsRef = useRef<string[]>([]);
   const didFitRef = useRef(false);
+  // Set on a fresh (non-restored) first build; the sim-end handler / pause
+  // fallback fits the camera to the settled layout exactly once.
+  const fitOnSettleRef = useRef(false);
   const labelRef = useRef<{ overlay: HTMLDivElement; els: Map<number, HTMLDivElement> } | null>(null);
   const dimRafRef = useRef(0);
   const enterRafRef = useRef(0);
@@ -400,23 +403,38 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       rescalePositions: false,
       enableDrag: true,
       renderLinks: true,
-      linkOpacity: 0.7,
+      linkOpacity: 0.55,
       linkWidthScale: 1,
       pointSizeScale: 1,
+      scalePointsOnZoom: true,
       hoveredPointCursor: "pointer",
       hoveredPointRingColor: toRgba(accent, 0.9),
       renderHoveredPointRing: true,
       transitionDuration: 350,
       transitionEasing: TransitionEasing.QuadInOut,
-      simulationGravity: 0.1,
-      simulationCenter: 0.55,
-      simulationRepulsion: 1.1,
-      simulationRepulsionTheta: 0.9,
-      simulationLinkSpring: 1.1,
-      simulationLinkDistance: 12,
-      simulationFriction: 0.85,
-      simulationDecay: 4000,
-      simulationCollision: 0.5,
+      // Forces tuned for an Obsidian-like open, non-overlapping layout: a
+      // longer link rest length and stronger repulsion spread clusters apart,
+      // real collision stops nodes stacking, a gentle centre pull keeps
+      // disconnected islands from drifting off-screen.
+      simulationGravity: 0.05,
+      simulationCenter: GRAPH_DEFAULTS.centerForce,
+      simulationRepulsion: GRAPH_DEFAULTS.repelForce,
+      simulationLinkSpring: GRAPH_DEFAULTS.linkForce,
+      simulationLinkDistance: GRAPH_DEFAULTS.linkDistance,
+      simulationFriction: 0.82,
+      simulationDecay: 3000,
+      // Collision radius left to derive from each node's own size (half the
+      // point size) so nodes never stack — a fixed radius would ignore the
+      // big degree-scaled hubs and let them overlap their neighbours.
+      simulationCollision: 1,
+      // Fit the camera once the fresh layout has settled (not before — the
+      // pre-settle blob would frame to a dot). Guarded so a restored camera or
+      // later reheats never yank the view.
+      onSimulationEnd: () => {
+        if (!fitOnSettleRef.current) return;
+        fitOnSettleRef.current = false;
+        graphRef.current?.fitView(400);
+      },
       onClick: (index) => {
         if (index === undefined) return;
         const node = nodesRef.current[index];
@@ -503,6 +521,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
       graphRef.current = null;
       prevIdsRef.current = [];
       didFitRef.current = false;
+      fitOnSettleRef.current = false;
       prevForcesRef.current = "";
       prevDisplayRef.current = "";
       appliedSigRef.current = "";
@@ -597,7 +616,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
             ? groupRgba[gi]
             : nodeColor;
       colors.set(c, i * 4);
-      sizes[i] = Math.min(6 + 3 * Math.sqrt(node.degree), 26) * (isCenter ? 1.3 : 1);
+      // Obsidian's mapping: sqrt growth of degree, clamped. Slightly smaller
+      // than before so cluster cores read as dots, not chunky overlapping blobs.
+      sizes[i] = Math.min(5 + 2.6 * Math.sqrt(node.degree), 22) * (isCenter ? 1.35 : 1);
     }
     const links = new Float32Array(filtered.edges.length * 2);
     filtered.edges.forEach(([s, t], i) => {
@@ -654,10 +675,15 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
     else graph.render(0.04, 350);
     if (animateEnter) runEnterAnimation(addedPoints, addedLinks, colors, sizes, baseLinkColors);
     if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
-    pauseTimerRef.current = setTimeout(
-      () => graphRef.current?.pause(),
-      isFirst && !restored ? 4000 : 1500,
-    );
+    pauseTimerRef.current = setTimeout(() => {
+      graphRef.current?.pause();
+      // Fallback: if the sim is paused before it naturally ends, still frame
+      // the settled layout exactly once.
+      if (fitOnSettleRef.current) {
+        fitOnSettleRef.current = false;
+        graphRef.current?.fitView(400);
+      }
+    }, isFirst && !restored ? 4000 : 1500);
     if (isFirst && n > 0) {
       const camera = cameraStores.get(storeKey);
       if (restored && camera) {
@@ -671,7 +697,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
           false,
         );
       } else {
-        graph.fitView(1);
+        // Fresh layout: defer the fit until the sim settles (§onSimulationEnd),
+        // otherwise the pre-settle blob frames to a dot.
+        fitOnSettleRef.current = true;
       }
       didFitRef.current = true;
     }
@@ -831,7 +859,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, o
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Forces</p>
         <ForceSlider label="Center force" min={0} max={1} step={0.05} value={centerForce} onChange={setCenterDraft} />
-        <ForceSlider label="Repel force" min={0.1} max={3} step={0.1} value={repelForce} onChange={setRepelDraft} />
+        <ForceSlider label="Repel force" min={0.1} max={8} step={0.1} value={repelForce} onChange={setRepelDraft} />
         <ForceSlider label="Link force" min={0} max={2} step={0.1} value={linkForce} onChange={setLinkForceDraft} />
         <ForceSlider label="Link distance" min={4} max={40} step={1} value={linkDistance} onChange={setDistDraft} />
 
