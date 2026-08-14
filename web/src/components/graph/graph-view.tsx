@@ -485,7 +485,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       // A large FIXED collision radius (not size-derived) is what gives Obsidian
       // its airy, evenly-spaced look — every node keeps a generous uniform gap.
       simulationCollision: 0.9,
-      simulationCollisionRadius: 13,
+      simulationCollisionRadius: 15,
       // Fit the camera once the fresh layout has settled (not before — the
       // pre-settle blob would frame to a dot). Guarded so a restored camera or
       // later reheats never yank the view.
