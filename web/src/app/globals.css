@@ -227,7 +227,7 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  font-size: 10px;
+  /* font-size inherits the overlay's value, which the render loop scales by zoom */
   letter-spacing: 0.01em;
   color: var(--ob-text-muted);
   /* A stronger shadow keeps small labels legible over nodes/links in dense areas. */
