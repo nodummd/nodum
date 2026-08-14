@@ -60,3 +60,13 @@ test.describe("settings taxonomy", () => {
     await expect(dialog.getByLabel("New link format")).toHaveValue("relative", { timeout: 10_000 });
   });
 });
+
+test.describe("settings access", () => {
+  test("the ribbon settings gear opens the settings window", async ({ page }) => {
+    await signupFreshUser(page, "settings-gear-e2e");
+    // A visible gear in the left ribbon opens settings (no keyboard needed)
+    await page.getByRole("button", { name: "Settings (⌘,)" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+  });
+});
