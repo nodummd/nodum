@@ -31,6 +31,12 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
 
   if (!pane) return null;
 
+  // Last line of defence against a pane holding the same tab id twice: React
+  // would throw on the duplicate key. moveTabToPane and the persist `merge`
+  // both prevent it, but a corrupted layout from an older build could still
+  // reach here — dedupe at render so it can never crash.
+  const tabs = pane.tabs.filter((t, i, arr) => arr.findIndex((x) => x.id === t.id) === i);
+
   // The tab boundary the cursor is nearest → insertion index + its x (for the
   // caret), content-relative so it stays correct when the strip scrolls.
   const caretFor = (strip: HTMLElement, clientX: number): { index: number; x: number } => {
@@ -84,7 +90,7 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
           style={{ left: caret.x - 1 }}
         />
       )}
-      {pane.tabs.map((tab) => {
+      {tabs.map((tab) => {
         const active = tab.id === pane.activeTabId;
         return (
           <ContextMenu key={tab.id}>

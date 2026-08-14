@@ -469,6 +469,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
         return old;
       },
+      // Defensive on EVERY load: a pane must never hold two tabs with the same
+      // id (React key collision → render crash). Older builds could persist a
+      // duplicate; this drops the extras, keeping the first.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<WorkspaceState>;
+        const rawPanes = p.panes ?? current.panes;
+        const panes = rawPanes.map((pane) => {
+          const seen = new Set<string>();
+          const tabs = (pane.tabs ?? []).filter((t) => {
+            if (!t || seen.has(t.id)) return false;
+            seen.add(t.id);
+            return true;
+          });
+          return { ...pane, tabs };
+        });
+        return { ...current, ...p, panes };
+      },
       partialize: (s) => ({
         activeVaultId: s.activeVaultId,
         panes: s.panes,
