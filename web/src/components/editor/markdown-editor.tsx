@@ -16,6 +16,7 @@ import { blockWidgets } from "@/lib/editor/block-widgets";
 import { collabExtension, type CollabSession } from "@/lib/editor/collab";
 import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
+import { attachmentUpload } from "@/lib/editor/attachment-upload";
 import { nodumEditorTheme } from "@/lib/editor/theme";
 
 export interface MarkdownEditorProps {
@@ -55,6 +56,7 @@ export function MarkdownEditor({
     if (!containerRef.current) return;
 
     const extensions = [
+      attachmentUpload(vaultId),
       history(),
       keymap.of([
         // Obsidian formatting hotkeys take precedence over the defaults
