@@ -14,6 +14,7 @@ import { useState, type ReactNode } from "react";
 
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -24,6 +25,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
+  activeFormats,
   addFileProperty,
   CALLOUT_TYPES,
   clearFormatting,
@@ -65,6 +67,7 @@ import {
   toggleTaskList,
   toggleUnderline,
 } from "@/lib/editor/format-commands";
+import type { ActiveFormats } from "@/lib/editor/format-commands";
 import {
   caretInTable,
   tableAlignColumn,
@@ -79,6 +82,20 @@ import {
 } from "@/lib/editor/table-commands";
 
 type Cmd = (view: EditorView) => boolean;
+
+const EMPTY_ACTIVE: ActiveFormats = {
+  bold: false,
+  italic: false,
+  strikethrough: false,
+  highlight: false,
+  code: false,
+  underline: false,
+  heading: 0,
+  bulletList: false,
+  numberedList: false,
+  taskList: false,
+  quote: false,
+};
 
 /** One command row. Declared at module scope: a component created during
  *  render would remount (and lose state) on every parent render. */
@@ -98,6 +115,28 @@ function Item({
       {label}
       {shortcut && <ContextMenuShortcut>{shortcut}</ContextMenuShortcut>}
     </ContextMenuItem>
+  );
+}
+
+/** A command that reports whether it is currently in effect. Rendered as a
+ *  menuitemcheckbox so the state is exposed to assistive tech (and to tests),
+ *  not just drawn as a tick. */
+function ToggleItem({
+  label,
+  shortcut,
+  checked,
+  onSelect,
+}: {
+  label: string;
+  shortcut?: string;
+  checked: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <ContextMenuCheckboxItem checked={checked} onSelect={onSelect}>
+      {label}
+      {shortcut && <ContextMenuShortcut>{shortcut}</ContextMenuShortcut>}
+    </ContextMenuCheckboxItem>
   );
 }
 
@@ -142,7 +181,12 @@ export function EditorContextMenu({
 }) {
   // Sampled when the menu opens: the editor's selection is what the commands
   // will act on, and reading it during render would be a live-state read.
-  const [ctx, setCtx] = useState({ inTable: false, hasSelection: false, selected: "" });
+  const [ctx, setCtx] = useState<{
+    inTable: boolean;
+    hasSelection: boolean;
+    selected: string;
+    formats: ActiveFormats | null;
+  }>({ inTable: false, hasSelection: false, selected: "", formats: null });
 
   /** Run a command against the editor and keep focus in the document —
    *  otherwise the caret is left in the (now closed) menu. */
@@ -162,8 +206,12 @@ export function EditorContextMenu({
       inTable: caretInTable(view.state),
       hasSelection: from !== to,
       selected: view.state.sliceDoc(from, to),
+      formats: activeFormats(view.state),
     });
   };
+
+  // Nothing sampled yet (menu never opened): render everything unchecked.
+  const f = ctx.formats ?? EMPTY_ACTIVE;
 
   return (
     <ContextMenu onOpenChange={onOpenChange}>
@@ -172,15 +220,34 @@ export function EditorContextMenu({
         <ContextMenuSub>
           <ContextMenuSubTrigger>Format</ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-56">
-            <Item label="Bold" onSelect={run(toggleBold)} shortcut="⌘B" />
-            <Item label="Italic" onSelect={run(toggleItalic)} shortcut="⌘I" />
-            <Item label="Underline" onSelect={run(toggleUnderline)} shortcut="⌘U" />
-            <Item label="Strikethrough" onSelect={run(toggleStrikethrough)} />
-            <Item label="Highlight" onSelect={run(toggleHighlightCmd)} shortcut="⌘⇧H" />
+            <ToggleItem label="Bold" checked={f.bold} onSelect={run(toggleBold)} shortcut="⌘B" />
+            <ToggleItem label="Italic" checked={f.italic} onSelect={run(toggleItalic)} shortcut="⌘I" />
+            <ToggleItem
+              label="Underline"
+              checked={f.underline}
+              onSelect={run(toggleUnderline)}
+              shortcut="⌘U"
+            />
+            <ToggleItem
+              label="Strikethrough"
+              checked={f.strikethrough}
+              onSelect={run(toggleStrikethrough)}
+            />
+            <ToggleItem
+              label="Highlight"
+              checked={f.highlight}
+              onSelect={run(toggleHighlightCmd)}
+              shortcut="⌘⇧H"
+            />
             <ContextMenuSeparator />
             <Item label="Superscript" onSelect={run(toggleSuperscript)} />
             <Item label="Subscript" onSelect={run(toggleSubscript)} />
-            <Item label="Inline code" onSelect={run(toggleInlineCode)} shortcut="⌘E" />
+            <ToggleItem
+              label="Inline code"
+              checked={f.code}
+              onSelect={run(toggleInlineCode)}
+              shortcut="⌘E"
+            />
             <Item label="Code block" onSelect={run(insertCodeBlock)} />
             <ContextMenuSeparator />
             <Item label="Clear formatting" onSelect={run(clearFormatting)} />
@@ -213,13 +280,16 @@ export function EditorContextMenu({
         <ContextMenuSub>
           <ContextMenuSubTrigger>Paragraph</ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-52">
-            <Item label="Plain text" onSelect={run(setHeading(0))} />
+            <ToggleItem label="Plain text" checked={f.heading === 0} onSelect={run(setHeading(0))} />
             <ContextMenuSeparator />
             {([1, 2, 3, 4, 5, 6] as const).map((level) => (
-              <ContextMenuItem key={level} onSelect={run(setHeading(level))}>
-                Heading {level}
-                <ContextMenuShortcut>{`⌘${level}`}</ContextMenuShortcut>
-              </ContextMenuItem>
+              <ToggleItem
+                key={level}
+                label={`Heading ${String(level)}`}
+                checked={f.heading === level}
+                shortcut={`⌘${String(level)}`}
+                onSelect={run(setHeading(level))}
+              />
             ))}
           </ContextMenuSubContent>
         </ContextMenuSub>
@@ -227,12 +297,16 @@ export function EditorContextMenu({
         <ContextMenuSub>
           <ContextMenuSubTrigger>Lists</ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-52">
-            <Item label="Bullet list" onSelect={run(toggleBulletList)} />
-            <Item label="Numbered list" onSelect={run(toggleNumberedList)} />
-            <Item label="Task list" onSelect={run(toggleTaskList)} />
+            <ToggleItem label="Bullet list" checked={f.bulletList} onSelect={run(toggleBulletList)} />
+            <ToggleItem
+              label="Numbered list"
+              checked={f.numberedList}
+              onSelect={run(toggleNumberedList)}
+            />
+            <ToggleItem label="Task list" checked={f.taskList} onSelect={run(toggleTaskList)} />
             <Item label="Toggle checkbox" onSelect={run(toggleCheckbox)} shortcut="⌘⏎" />
             <ContextMenuSeparator />
-            <Item label="Blockquote" onSelect={run(toggleBlockquote)} />
+            <ToggleItem label="Blockquote" checked={f.quote} onSelect={run(toggleBlockquote)} />
             <ContextMenuSeparator />
             <Item label="Indent" onSelect={run(indentLines)} shortcut="⇥" />
             <Item label="Outdent" onSelect={run(outdentLines)} shortcut="⇧⇥" />
