@@ -344,23 +344,28 @@ export function EditorContextMenu({
         </ContextMenuSub>
 
         <ContextMenuSub>
-          <ContextMenuSubTrigger disabled={!ctx.inTable}>Table</ContextMenuSubTrigger>
+          {/* Never gated: "Table" is where people look to CREATE one. Gating the
+              whole group made the obvious entry point dead. Only the operations
+              that need an existing table are disabled. */}
+          <ContextMenuSubTrigger>Table</ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-56">
-            <Item label="Insert row above" onSelect={run(tableInsertRowAbove)} />
-            <Item label="Insert row below" onSelect={run(tableInsertRowBelow)} />
-            <Item label="Delete row" onSelect={run(tableDeleteRow)} />
+            <Item label="Insert table" onSelect={run(insertTable())} />
             <ContextMenuSeparator />
-            <Item label="Insert column left" onSelect={run(tableInsertColumnLeft)} />
-            <Item label="Insert column right" onSelect={run(tableInsertColumnRight)} />
-            <Item label="Delete column" onSelect={run(tableDeleteColumn)} />
+            <Item label="Insert row above" disabled={!ctx.inTable} onSelect={run(tableInsertRowAbove)} />
+            <Item label="Insert row below" disabled={!ctx.inTable} onSelect={run(tableInsertRowBelow)} />
+            <Item label="Delete row" disabled={!ctx.inTable} onSelect={run(tableDeleteRow)} />
             <ContextMenuSeparator />
-            <Item label="Align left" onSelect={run(tableAlignColumn("left"))} />
-            <Item label="Align centre" onSelect={run(tableAlignColumn("center"))} />
-            <Item label="Align right" onSelect={run(tableAlignColumn("right"))} />
+            <Item label="Insert column left" disabled={!ctx.inTable} onSelect={run(tableInsertColumnLeft)} />
+            <Item label="Insert column right" disabled={!ctx.inTable} onSelect={run(tableInsertColumnRight)} />
+            <Item label="Delete column" disabled={!ctx.inTable} onSelect={run(tableDeleteColumn)} />
             <ContextMenuSeparator />
-            <Item label="Sort column A → Z" onSelect={run(tableSortByColumn("asc"))} />
-            <Item label="Sort column Z → A" onSelect={run(tableSortByColumn("desc"))} />
-            <Item label="Format table" onSelect={run(tableFormat)} />
+            <Item label="Align left" disabled={!ctx.inTable} onSelect={run(tableAlignColumn("left"))} />
+            <Item label="Align centre" disabled={!ctx.inTable} onSelect={run(tableAlignColumn("center"))} />
+            <Item label="Align right" disabled={!ctx.inTable} onSelect={run(tableAlignColumn("right"))} />
+            <ContextMenuSeparator />
+            <Item label="Sort column A → Z" disabled={!ctx.inTable} onSelect={run(tableSortByColumn("asc"))} />
+            <Item label="Sort column Z → A" disabled={!ctx.inTable} onSelect={run(tableSortByColumn("desc"))} />
+            <Item label="Format table" disabled={!ctx.inTable} onSelect={run(tableFormat)} />
           </ContextMenuSubContent>
         </ContextMenuSub>
 

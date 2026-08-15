@@ -62,9 +62,11 @@ function findTable(state: EditorState): Table | null {
   const rows: string[][] = [];
   let aligns: Align[] = [];
   let caretRow = 0;
+  let sawDivider = false;
   for (let n = first; n <= last; n++) {
     const line = state.doc.line(n);
     if (isDivider(line.text)) {
+      sawDivider = true;
       aligns = splitRow(line.text).map(alignOf);
       continue;
     }
@@ -72,6 +74,10 @@ function findTable(state: EditorState): Table | null {
     rows.push(splitRow(line.text));
   }
   if (rows.length === 0) return null;
+  // A GFM table REQUIRES the `| --- |` delimiter row. Without this check any
+  // prose line containing pipes reads as a one-row table, and the row/column
+  // commands then rewrite it — destructively.
+  if (!sawDivider) return null;
 
   // Column index = how many cell separators precede the caret on its line.
   const before = state.sliceDoc(here.from, caret).replace(/^\s*\|/, "");

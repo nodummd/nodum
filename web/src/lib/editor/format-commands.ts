@@ -289,8 +289,35 @@ export const insertCallout = insertBlock((selected) => ({
   caretOffset: 3, // inside [!note] so the type can be changed immediately
 }));
 
-/** A GFM table sized rows × cols, with the caret in the first header cell. */
+/** A GFM table sized rows × cols, with the caret in the first header cell.
+ *
+ *  Unlike the other block inserts this one APPENDS after the selection instead
+ *  of replacing it: "Insert table" sits at the top of the Table menu, so it is
+ *  easy to reach with text selected, and silently eating that text would be a
+ *  nasty surprise. */
 export function insertTable(rows = 2, cols = 3): StateCommand {
+  return ({ state, dispatch }) => {
+    const range = state.selection.main;
+    const line = state.doc.lineAt(range.to);
+    const at = line.to;
+    const header = `| ${Array(cols).fill("Column").map((c, i) => `${c} ${i + 1}`).join(" | ")} |`;
+    const divider = `| ${Array(cols).fill("---").join(" | ")} |`;
+    const body = Array(rows).fill(`| ${Array(cols).fill("   ").join(" | ")} |`).join("\n");
+    const lead = line.text.trim().length === 0 ? "" : "\n\n";
+    const text = `${lead}${header}\n${divider}\n${body}\n`;
+    dispatch(
+      state.update({
+        changes: { from: at, insert: text },
+        selection: EditorSelection.cursor(at + lead.length + 2),
+        userEvent: "input.format",
+      }),
+    );
+    return true;
+  };
+}
+
+/** Kept for the older call sites that want replace-the-selection semantics. */
+export function insertTableReplacing(rows = 2, cols = 3): StateCommand {
   return insertBlock(() => {
     const header = `| ${Array(cols).fill("Column").map((c, i) => `${c} ${i + 1}`).join(" | ")} |`;
     const divider = `| ${Array(cols).fill("---").join(" | ")} |`;
