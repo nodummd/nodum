@@ -7,6 +7,8 @@
 
 import { yCollab } from "y-codemirror.next";
 import { WebsocketProvider } from "y-websocket";
+
+import { getAccessToken, refreshAccessToken } from "@/lib/api/client";
 import * as Y from "yjs";
 
 /** Deterministic presence color per user (Obsidian-ish palette). */
@@ -57,10 +59,38 @@ export function createCollabSession(
   });
   let syncedOnce = false;
   provider.on("sync", (synced: boolean) => {
-    if (synced) syncedOnce = true;
+    if (synced) {
+      syncedOnce = true;
+      rejections = 0;
+    }
   });
   provider.on("status", ({ status }: { status: string }) => {
     if (status === "disconnected" && syncedOnce && onStale) onStale();
+  });
+
+  // The token is captured once at construction, but y-websocket rebuilds the
+  // URL from `params` on EVERY reconnect — so after the access token's short
+  // lifetime every retry presents a dead JWT and the server rejects the
+  // handshake (403), forever, at the backoff interval. Refresh before retrying.
+  //
+  // "connection-close" is the only event emitted for a REJECTED handshake:
+  // "status" fires solely from inside `if (provider.wsconnected)`, which never
+  // becomes true when the upgrade itself is refused.
+  let rejections = 0;
+  provider.on("connection-close", () => {
+    void (async () => {
+      rejections += 1;
+      // Give up rather than hammer the server with a token it keeps refusing.
+      if (rejections > 5) {
+        provider.disconnect();
+        if (onStale) onStale();
+        return;
+      }
+      if (await refreshAccessToken()) {
+        const fresh = getAccessToken();
+        if (fresh) provider.params.token = fresh; // read by the next retry
+      }
+    })();
   });
   return {
     ydoc,

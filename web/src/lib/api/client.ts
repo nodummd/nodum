@@ -51,6 +51,12 @@ async function rawRequest(path: string, init: RequestInit): Promise<Response> {
 }
 
 /** Single-flight refresh: many concurrent 401s share one refresh call. */
+/** Refresh the access token, sharing the in-flight request. Exposed for the
+ *  collab socket, which must re-present a live token on every reconnect. */
+export function refreshAccessToken(): Promise<boolean> {
+  return tryRefresh();
+}
+
 async function tryRefresh(): Promise<boolean> {
   refreshPromise ??= (async () => {
     try {
