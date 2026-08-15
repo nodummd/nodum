@@ -16,6 +16,7 @@ import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 import { renderMathHTML } from "./math";
+import { splitRow } from "./table-model";
 import { renderMermaidSvg } from "./mermaid";
 import { cachedHighlight, highlightToHtml } from "./shiki";
 
@@ -52,12 +53,9 @@ class TableWidget extends WidgetType {
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.startsWith("|") || l.includes("|"));
-    const parseRow = (line: string): string[] =>
-      line
-        .replace(/^\|/, "")
-        .replace(/\|$/, "")
-        .split("|")
-        .map((c) => c.trim());
+    // Shared with table-commands.ts: if the widget and the commands split
+    // differently, the column you click is not the column they edit.
+    const parseRow = (line: string): string[] => splitRow(line);
 
     const wrap = document.createElement("div");
     wrap.className = "cm-table-widget";

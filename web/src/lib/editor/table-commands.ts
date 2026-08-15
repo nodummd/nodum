@@ -10,7 +10,17 @@
 import type { StateCommand } from "@codemirror/state";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 
-export type Align = "left" | "center" | "right" | "none";
+import {
+  type Align,
+  alignOf,
+  alignSpec,
+  cellWidth,
+  escapeCell,
+  isDivider,
+  isRow,
+  splitCells,
+  splitRow,
+} from "./table-model";
 
 interface Table {
   /** Document offsets of the whole table block. */
@@ -24,30 +34,8 @@ interface Table {
   col: number;
 }
 
-const isRow = (text: string) => /^\s*\|.*\|\s*$/.test(text);
-const isDivider = (text: string) => /^\s*\|(\s*:?-{1,}:?\s*\|)+\s*$/.test(text);
-
-/** Split `| a | b |` into ["a", "b"] — the outer pipes are delimiters, not cells. */
-function splitRow(text: string): string[] {
-  const trimmed = text.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((c) => c.trim());
-}
-
-function alignOf(spec: string): Align {
-  const s = spec.trim();
-  if (s.startsWith(":") && s.endsWith(":")) return "center";
-  if (s.endsWith(":")) return "right";
-  if (s.startsWith(":")) return "left";
-  return "none";
-}
-
-function alignSpec(a: Align, width: number): string {
-  const dashes = Math.max(3, width);
-  if (a === "center") return `:${"-".repeat(dashes - 2)}:`;
-  if (a === "right") return `${"-".repeat(dashes - 1)}:`;
-  if (a === "left") return `:${"-".repeat(dashes - 1)}`;
-  return "-".repeat(dashes);
-}
+// Parsing lives in table-model.ts so the widget and the commands cannot
+// disagree about where a cell starts — see the escaped-pipe note there.
 
 function findTable(state: EditorState): Table | null {
   const caret = state.selection.main.head;
@@ -79,9 +67,16 @@ function findTable(state: EditorState): Table | null {
   // commands then rewrite it — destructively.
   if (!sawDivider) return null;
 
-  // Column index = how many cell separators precede the caret on its line.
-  const before = state.sliceDoc(here.from, caret).replace(/^\s*\|/, "");
-  const col = Math.max(0, Math.min((before.match(/\|/g) ?? []).length, (rows[0]?.length ?? 1) - 1));
+  // Column index = which cell span the caret falls in. Counting pipes would
+  // count ESCAPED ones too, putting the caret in the wrong column of any table
+  // whose cells contain `\|`.
+  const offset = caret - here.from;
+  const spans = splitCells(here.text);
+  let col = 0;
+  for (let i = 0; i < spans.length; i++) {
+    if (offset >= spans[i].from) col = i;
+  }
+  col = Math.max(0, Math.min(col, (rows[0]?.length ?? 1) - 1));
 
   return {
     from: state.doc.line(first).from,
@@ -98,10 +93,15 @@ function render(rows: string[][], aligns: Align[]): string {
   const cols = Math.max(...rows.map((r) => r.length));
   const widths: number[] = [];
   for (let c = 0; c < cols; c++) {
-    widths[c] = Math.max(3, ...rows.map((r) => (r[c] ?? "").length));
+    // Pad on DISPLAY width: `a \| b` occupies 6 source characters but 5 visual
+    // ones, and padding on the source length makes the columns drift.
+    widths[c] = Math.max(3, ...rows.map((r) => cellWidth(r[c] ?? "")));
   }
   const line = (cells: string[]) =>
-    `| ${Array.from({ length: cols }, (_, c) => (cells[c] ?? "").padEnd(widths[c])).join(" | ")} |`;
+    `| ${Array.from({ length: cols }, (_, c) => {
+      const cell = escapeCell(cells[c] ?? "");
+      return cell + " ".repeat(Math.max(0, widths[c] - cellWidth(cell)));
+    }).join(" | ")} |`;
   const divider = `| ${Array.from({ length: cols }, (_, c) => alignSpec(aligns[c] ?? "none", widths[c])).join(" | ")} |`;
   const [header, ...body] = rows;
   return [line(header ?? []), divider, ...body.map(line)].join("\n");
