@@ -278,6 +278,35 @@ test.describe("editor context menu", () => {
     ).toHaveAttribute("data-disabled", "");
   });
 
+
+  test("an escaped pipe is one cell, and stays intact through a column insert", async ({ page }) => {
+    // `a \| b` is ONE cell. Splitting on every pipe makes it two, and the
+    // column commands then rewrite the table around a column that isn't there.
+    await setup(page, "ctxmenu-escpipe", "| a \\| b | c |\n| --- | --- |\n| 1 | 2 |\n");
+
+    // Live preview renders the table as a widget, so right-click THAT.
+    const widget = editorSurface(page).locator(".cm-table-widget");
+    await expect(widget).toBeVisible();
+    // The widget itself proves the split: two columns, not three.
+    expect(await widget.locator("tr").first().locator("th, td").count()).toBe(2);
+
+    await widget.click({ button: "right" });
+    await page.getByRole("menu").first().getByRole("menuitem", { name: "Table", exact: true }).click();
+    await page
+      .getByRole("menu")
+      .last()
+      .getByRole("menuitem", { name: "Insert column right" })
+      .click();
+
+    const text = await sourceText(page);
+    // The escaped pipe survived...
+    expect(text).toContain("a \\| b");
+    // ...and the table gained exactly one column, not two.
+    const header = text.split("\n").find((l) => l.includes("a \\| b")) ?? "";
+    const cells = header.split(/(?<!\\)\|/).filter((c) => c.trim().length > 0);
+    expect(cells).toHaveLength(3);
+  });
+
   test("add file property creates frontmatter", async ({ page }) => {
     await setup(page, "ctxmenu-props", "body text\n");
     await choose(page, "Properties", "Add file property");
