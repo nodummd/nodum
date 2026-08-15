@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { confirmDelete } from "./confirm-dialog";
-import { bookmarkApi, folderApi, noteApi, vaultApi } from "@/lib/api/endpoints";
+import { bookmarkApi, folderApi, noteApi, searchApi, vaultApi } from "@/lib/api/endpoints";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem, Vault } from "@/lib/api/types";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
@@ -194,6 +194,55 @@ function ColorSubmenu({
   );
 }
 
+/** Tags submenu: pick from the vault's existing tags or type a new one. Tags
+ *  are written to the note's frontmatter server-side, so prose is never edited. */
+function TagSubmenu({
+  vaultId,
+  onAdd,
+}: {
+  vaultId: string;
+  onAdd: (tag: string) => void;
+}) {
+  const { data: tags } = useQuery({
+    queryKey: ["tags", vaultId],
+    queryFn: () => searchApi.tags(vaultId),
+  });
+  const [draft, setDraft] = useState("");
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>Tags</ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-56">
+        <div className="p-1">
+          <input
+            value={draft}
+            placeholder="New tag + Enter"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter" && draft.trim()) {
+                onAdd(draft);
+                setDraft("");
+              }
+            }}
+            className="h-7 w-full rounded border border-ob-border bg-ob-bg px-2 text-[12px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto">
+          {(tags ?? []).slice(0, 60).map((t) => (
+            <ContextMenuItem key={t.name} onClick={() => onAdd(t.name)}>
+              <span className="truncate">#{t.name}</span>
+              <span className="ml-auto text-ob-faint">{t.count}</span>
+            </ContextMenuItem>
+          ))}
+          {(tags ?? []).length === 0 && (
+            <p className="px-2 py-1.5 text-[12px] text-ob-faint">No tags yet.</p>
+          )}
+        </div>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
 /** Searchable picker used by "Move file to…" (folders) and "Merge entire file
  *  with…" (notes). Keeps both flows to one keyboard-friendly dialog. */
 function PickerDialog({
@@ -300,6 +349,17 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
       toast("Bookmarked");
     },
     onError: (e) => toastError(e, "Could not bookmark."),
+  });
+
+  const addTag = useMutation({
+    mutationFn: ({ noteId, tag }: { noteId: string; tag: string }) =>
+      noteApi.setTags(vaultId, noteId, { add: [tag] }),
+    onSuccess: (note) => {
+      void queryClient.invalidateQueries({ queryKey: ["tags", vaultId] });
+      void queryClient.invalidateQueries({ queryKey: ["note", vaultId, note.id] });
+      toast("Tag added");
+    },
+    onError: (e) => toastError(e, "Could not add tag."),
   });
 
   const duplicateNote = useMutation({
@@ -659,6 +719,10 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                         Merge entire file with…
                       </ContextMenuItem>
                       <ContextMenuSeparator />
+                      <TagSubmenu
+                        vaultId={vaultId}
+                        onAdd={(tag) => addTag.mutate({ noteId: row.id, tag })}
+                      />
                       <ColorSubmenu
                         current={itemColors[row.id]}
                         onPick={(c) => setItemColor(row.id, c)}
