@@ -146,6 +146,7 @@ async def update_content(
     *,
     content: str,
     base_updated_at: datetime | None = None,
+    sync_collab: bool = True,
 ) -> ServiceResponse[Note]:
     """Save note content.
 
@@ -184,6 +185,17 @@ async def update_content(
     await db.commit()
     await db.refresh(note)
     await cache_delete(vault_graph_key(vault_id))
+    # A live collab room was seeded from the pre-save body. Unless it adopts
+    # this text it will keep serving the stale version to every client that
+    # connects, and eventually persist it back over this write.
+    #
+    # sync_collab=False when the room itself is the writer: it may have taken
+    # further keystrokes since it sampled `content`, and resetting it to the
+    # sample would throw those away.
+    if sync_collab:
+        from app.core.collab import collab_server
+
+        await collab_server.sync_room(vault_id, note_id, note.content)
     return ServiceResponse.ok(note)
 
 

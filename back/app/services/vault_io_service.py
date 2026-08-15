@@ -233,7 +233,10 @@ async def import_zip(
 
     stored_names: dict[str, str] = {}
     for base, entry in attachment_entries:
-        with contextlib.suppress(Exception):
+        # Best-effort per file: one unreadable image must not abort the import.
+        # But it is LOGGED — a silent skip reports "0 attachments" with no way
+        # to tell a vault that had none from one whose uploads all failed.
+        try:
             result = await attachment_service.upload(
                 db,
                 vault_id,
@@ -242,11 +245,16 @@ async def import_zip(
                 content=zf.read(entry),
                 mime_type=mimetypes.guess_type(base)[0] or "application/octet-stream",
             )
-            if result.success and result.data is not None:
-                imported_attachments += 1
-                # Uploads may be renamed on collision — remember the stored name
-                # so the PDF note embeds the file that actually exists.
-                stored_names[base] = result.data.filename
+        except Exception as e:
+            logger.warning("import_attachment_failed", file=base, error=repr(e))
+            continue
+        if result.success and result.data is not None:
+            imported_attachments += 1
+            # Uploads may be renamed on collision — remember the stored name
+            # so the PDF note embeds the file that actually exists.
+            stored_names[base] = result.data.filename
+        else:
+            logger.warning("import_attachment_rejected", file=base, error=result.message)
 
     # PDFs → notes holding their extracted text plus an embed of the original.
     # Done after upload so the embed points at the stored filename.

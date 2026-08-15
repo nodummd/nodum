@@ -38,7 +38,20 @@ redis_control: aioredis.Redis = aioredis.from_url(
 )
 
 
+# Binary plane — same logical DB as the control plane, but WITHOUT
+# decode_responses. Yjs updates are raw CRDT bytes: redis-py would try to
+# UTF-8 decode them on the way out of a decoding client and raise
+# ``'utf-8' codec can't decode byte 0x9e``, silently killing collab fanout.
+# Anything publishing or subscribing to binary payloads must use this client.
+redis_binary: aioredis.Redis = aioredis.from_url(
+    settings.REDIS_CONTROL_URL or control_url_from(settings.REDIS_URL),
+    decode_responses=False,
+    max_connections=20,
+)
+
+
 async def close_redis() -> None:
     """Close the Redis connection pools on shutdown."""
     await redis_client.aclose()
     await redis_control.aclose()
+    await redis_binary.aclose()

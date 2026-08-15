@@ -165,12 +165,22 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     new_refresh_jti = new_jti()
     session.refresh_token_jti = new_refresh_jti
     session.expires_at = datetime.now(UTC) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    await db.commit()
 
+    # BEFORE the commit, not after. A racing refresh that reads the row once the
+    # new JTI is visible finds the old JTI in neither the table nor the grace
+    # key, concludes the token was stolen, and invalidates every session for the
+    # user — logging them out for doing two things at once. Publishing the grace
+    # key first means the old JTI is always resolvable somewhere.
+    #
+    # Writing it early is safe: if the commit below fails, the key merely points
+    # at a session whose JTI never changed, and the grace path converges on
+    # whatever JTI that session currently holds.
     try:
         await redis_control.set(_GRACE_KEY.format(jti=old_jti), str(session.id), ex=REFRESH_GRACE_SECONDS)
     except Exception:
         logger.warning("refresh_grace_redis_unavailable")
+
+    await db.commit()
 
     return ServiceResponse.ok(
         TokenBundle(
