@@ -590,10 +590,13 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     const reveal = (target: { kind: "note" | "folder"; id: string } | null) => {
       const current = treeRef.current;
       if (!target || !current) return;
+      // A note is revealed by opening the folders ABOVE it. A folder is
+      // revealed by opening those AND itself — otherwise "reveal Cabinet"
+      // scrolls to a still-closed folder and shows none of its contents.
       const chain =
         target.kind === "note"
           ? (ancestorsOfNote(current.items, target.id) ?? [])
-          : (ancestorsOfFolder(current.items, target.id) ?? []);
+          : [...(ancestorsOfFolder(current.items, target.id) ?? []), target.id];
       revealItem(target.id, chain);
     };
     // Explicit requests ("Reveal file in navigation", a breadcrumb crumb).

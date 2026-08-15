@@ -42,7 +42,7 @@ export function QuickSwitcher({
   const [chosen, setChosen] = useState("");
   const queryClient = useQueryClient();
 
-  const { data: results } = useQuery({
+  const { data: results, isFetching } = useQuery({
     queryKey: ["quick-switch", vaultId, debouncedQuery],
     queryFn: () => searchApi.quickSwitch(vaultId, debouncedQuery),
     enabled: open,
@@ -56,7 +56,12 @@ export function QuickSwitcher({
         r.title.toLowerCase() === trimmed.toLowerCase() ||
         r.alias?.toLowerCase() === trimmed.toLowerCase(),
     ) ?? false;
-  const createValue = trimmed && !exactMatch ? `__create-${trimmed}` : "";
+  // Results for the CURRENT query, not a stale page from a previous keystroke.
+  // Until they land, `exactMatch` is false for every name, so the create option
+  // becomes the highlighted one — and Enter on a quickly-typed title creates a
+  // duplicate of the note the user was trying to jump to.
+  const settled = !isFetching && debouncedQuery === trimmed;
+  const createValue = settled && trimmed && !exactMatch ? `__create-${trimmed}` : "";
 
   const validValues = new Set([...(results?.map((r) => r.id) ?? []), createValue].filter(Boolean));
   const highlighted = validValues.has(chosen)
@@ -126,7 +131,28 @@ export function QuickSwitcher({
               }
               return;
             }
-            if (highlighted) selectValue(highlighted);
+            if (settled) {
+              if (highlighted) selectValue(highlighted);
+              return;
+            }
+            // Typed faster than the debounced search: resolve it now and act on
+            // the real answer. Acting on the current highlight would create a
+            // duplicate, because "no exact match yet" reads as "does not exist".
+            void (async () => {
+              if (!trimmed) return;
+              const fresh = await queryClient.fetchQuery({
+                queryKey: ["quick-switch", vaultId, trimmed],
+                queryFn: () => searchApi.quickSwitch(vaultId, trimmed),
+              });
+              const exact = fresh.find(
+                (r) =>
+                  r.title.toLowerCase() === trimmed.toLowerCase() ||
+                  r.alias?.toLowerCase() === trimmed.toLowerCase(),
+              );
+              const target = exact ?? fresh[0];
+              if (target) selectValue(target.id);
+              else createNote.mutate(trimmed);
+            })();
           }}
         />
         <CommandList>
