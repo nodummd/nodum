@@ -235,6 +235,32 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
     },
   });
 
+  // ── Adopt content replaced from outside the editor ───────────────────────
+  //
+  // Merge, import and the clipper all write a note's body through the API. The
+  // draft below is seeded once at mount and keyed by note id, so none of that
+  // reaches an already-open editor: it keeps showing the pre-write body, and
+  // the next keystroke autosaves that stale text back over the write.
+  //
+  // A cache subscription rather than an effect on `note`: this reacts to an
+  // event, so the state update never happens during render.
+  useEffect(() => {
+    const key = `["note","${vaultId}","${note.id}"]`;
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || JSON.stringify(event.query.queryKey) !== key) return;
+      const next = (event.query.state.data as Note | undefined)?.content;
+      if (next === undefined || next === draftRef.current) return;
+      // Never clobber unsaved keystrokes, and stay out of collab's way — a live
+      // room already receives external writes through its own reset channel.
+      if (saveTimer.current !== null || collabLiveRef.current) return;
+      draftRef.current = next;
+      setDraft(next);
+      baseUpdatedAt.current = (event.query.state.data as Note).updated_at;
+      // Remount CodeMirror: its document is independent of `draft` after mount.
+      setEditorEpoch((n) => n + 1);
+    });
+  }, [queryClient, vaultId, note.id]);
+
   /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior). */
   const navigate = useCallback(
     async (target: string) => {
@@ -306,8 +332,11 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
           paneIndex={paneIndex}
           getEditorView={() => editorViewRef.current}
           onRenameRequest={() => {
-            titleRef.current?.focus();
-            titleRef.current?.select();
+            // After the menu's close-focus pass, or it lands on the trigger.
+            requestAnimationFrame(() => {
+              titleRef.current?.focus();
+              titleRef.current?.select();
+            });
           }}
           backlinksInDocument={backlinksInDocument}
           onToggleBacklinksInDocument={() => setBacklinksInDocument((v) => !v)}
@@ -317,6 +346,9 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
 
       <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
         <div
+          // Printing (our "Export to PDF…") shows only this subtree — see the
+          // @media print block in globals.css.
+          data-print-root
           className={cn(
             "mx-auto min-h-full px-4 pt-4 pb-24 md:px-8",
             editorSettings.readableLineLength ? "max-w-[44rem]" : "max-w-none",

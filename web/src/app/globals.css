@@ -525,3 +525,39 @@ body {
 .nodum-canvas-card-body .nodum-reading h2 { font-size: 1.15em; }
 [data-canvas-card] { user-select: none; }
 [data-canvas-card] textarea { user-select: text; }
+
+/* ── Print / "Export to PDF…" ────────────────────────────────────────────────
+   The browser's print pipeline is our PDF export, so a print must produce the
+   NOTE — not the explorer, tab strip, ribbon and side panels that happen to be
+   on screen. Everything is hidden and the note's container is opted back in.
+   (visibility rather than display: descendants can re-show themselves, which
+   display: none does not allow.) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  [data-print-root],
+  [data-print-root] * {
+    visibility: visible;
+  }
+
+  [data-print-root] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    /* Ancestors are scroll containers clipped to the viewport; without this the
+       print stops at the fold instead of paginating the whole note. */
+    overflow: visible;
+    height: auto;
+  }
+
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+}
