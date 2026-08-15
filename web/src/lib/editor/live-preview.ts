@@ -17,10 +17,35 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view
 
 import { resolveAttachmentUrl } from "./attachment-urls";
 import { CALLOUT_MARKER_RE, calloutDefaultTitle, calloutIconElement, calloutType } from "./callouts";
+import { findInlineHtmlSpans, INLINE_HTML_CLASS } from "./inline-html";
 import { isImageTarget, parseWikiLinkText } from "./markdown-extensions";
 import { renderMathHTML } from "./math";
 
 /** Does any selection range touch [from, to]? (touch = reveal raw syntax) */
+/** Inline HTML the formatting menu emits — see lib/editor/inline-html.ts. The
+ *  markdown parser leaves these as plain text, so they are found by scanning the
+ *  visible text rather than by walking the syntax tree. */
+function inlineHtmlDecorations(state: EditorState, from: number, to: number): Range<Decoration>[] {
+  const out: Range<Decoration>[] = [];
+  const text = state.sliceDoc(from, to);
+  for (const span of findInlineHtmlSpans(text)) {
+    const openFrom = from + span.openFrom;
+    const openTo = from + span.openTo;
+    const closeFrom = from + span.closeFrom;
+    const closeTo = from + span.closeTo;
+    // Touching the span reveals its source, exactly like every other marker
+    // here — you cannot edit a tag you cannot see.
+    if (selectionTouches(state, openFrom, closeTo)) continue;
+    if (closeFrom <= openTo) continue; // empty span: nothing to style
+    const attributes: Record<string, string> = { class: `${INLINE_HTML_CLASS} nodum-inline-${span.tag}` };
+    if (span.style) attributes.style = span.style;
+    out.push(hideMark.range(openFrom, openTo));
+    out.push(Decoration.mark({ attributes }).range(openTo, closeFrom));
+    out.push(hideMark.range(closeFrom, closeTo));
+  }
+  return out;
+}
+
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
   return state.selection.ranges.some((r) => r.from <= to && r.to >= from);
 }
@@ -153,6 +178,7 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
   const tree = syntaxTree(state);
 
   for (const { from, to } of view.visibleRanges) {
+    decorations.push(...inlineHtmlDecorations(state, from, to));
     tree.iterate({
       from,
       to,
