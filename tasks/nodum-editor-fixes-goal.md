@@ -326,7 +326,18 @@ table with text selected does not delete it.
 
 ## P1-8 — Editable tables in live preview (NEW, requested)
 
-**Status:** design in progress, not started.
+**Status:** ✅ CORE DONE 2026-08-15 (`5fbd5e9`). You now type directly into the
+rendered table, with Add/Delete row and column controls and Tab navigation. Each
+keystroke is a minimal change over that cell's span — one cell moves, the rest
+of the table is byte-identical. Verified live (typed "ematics" into a cell,
+added a row, added a column, deleted a row, each confirmed in postgres) and
+covered by 9 e2e; the canary reads "Mathse" instead of "Mathsematics" when
+widget DOM reuse is broken.
+
+Deferred from the spec, none of them blocking: per-cell undo isolation
+(`isolateHistory`), grid paste of tab-separated text, arrow-key navigation
+between cells, a Move-row command, and remote-caret tints inside a table under
+collab.
 
 The maintainer's requirement: "once you insert the table, the user should see
 the real table structure and edit inside, and if possible user should be able to
