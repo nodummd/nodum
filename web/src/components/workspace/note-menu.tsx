@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { openSearchPanel } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   DropdownMenu,
@@ -85,6 +85,10 @@ export function NoteMenu({
   const closeTab = useWorkspaceStore((s) => s.closeTab);
 
   const [picker, setPicker] = useState<"move" | "merge" | null>(null);
+  // Set by the commands that move focus somewhere deliberate. Radix returns
+  // focus to the trigger when the menu closes, which lands AFTER our own
+  // focus() call and silently undoes it.
+  const claimsFocus = useRef(false);
 
   const { data: tree } = useQuery({
     queryKey: ["tree", vaultId],
@@ -152,12 +156,58 @@ export function NoteMenu({
     onError: (e) => toastError(e, "Could not delete the note."),
   });
 
-  /** Run a command against the live editor, then hand focus back to it. */
+  /** Run a command against the live editor, then hand focus back to it.
+   *
+   *  Reading view has no CodeMirror instance at all, so these commands used to
+   *  silently do nothing there — a menu item that looks live and isn't. Switch
+   *  to the editor first and wait for it to mount, as Obsidian does. */
   const inEditor = (fn: (view: EditorView) => void) => () => {
     const view = getEditorView();
-    if (!view) return;
-    fn(view);
-    view.focus();
+    if (view) {
+      fn(view);
+      view.focus();
+      return;
+    }
+    setMode("live");
+    // The view is created by an effect after this render commits; poll a few
+    // frames for it rather than guessing at a timeout.
+    let frames = 0;
+    const wait = () => {
+      const mounted = getEditorView();
+      if (mounted) {
+        fn(mounted);
+        mounted.focus();
+        return;
+      }
+      if (frames++ < 60) requestAnimationFrame(wait);
+    };
+    requestAnimationFrame(wait);
+  };
+
+  /** Open the search panel and put the caret in one of its two fields.
+   *  Without this, "Find…" and "Replace…" are the same command and neither
+   *  leaves you anywhere useful — focus returns to the menu trigger. */
+  const openSearch = (field: "search" | "replace") => () => {
+    claimsFocus.current = true;
+    inEditor((view) => {
+      openSearchPanel(view);
+      requestAnimationFrame(() => {
+        const panel = view.dom.querySelector(".cm-search");
+        const input = panel?.querySelector<HTMLInputElement>(
+          field === "search" ? 'input[name="search"]' : 'input[name="replace"]',
+        );
+        input?.focus();
+        input?.select();
+      });
+    })();
+  };
+
+  /** Print the note. Reading view first: it renders the whole document, while
+   *  CodeMirror only builds the lines near the viewport, so printing from the
+   *  editor drops everything below the fold on a long note. */
+  const exportToPdf = () => {
+    setMode("reading");
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   };
 
   const openInNewWindow = () => {
@@ -210,7 +260,15 @@ export function NoteMenu({
           <TooltipContent side="bottom">More options</TooltipContent>
         </Tooltip>
 
-        <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuContent
+          align="end"
+          className="w-60"
+          onCloseAutoFocus={(e) => {
+            if (!claimsFocus.current) return;
+            claimsFocus.current = false;
+            e.preventDefault();
+          }}
+        >
           <DropdownMenuItem onSelect={onToggleBacklinksInDocument}>
             {backlinksInDocument ? "Hide backlinks in document" : "Backlinks in document"}
           </DropdownMenuItem>
@@ -237,7 +295,16 @@ export function NoteMenu({
           <DropdownMenuItem onSelect={openInNewWindow}>Open in new window</DropdownMenuItem>
           <DropdownMenuSeparator />
 
-          <DropdownMenuItem onSelect={onRenameRequest}>Rename…</DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              // Same focus race as Find/Replace: without the claim, Radix
+              // returns focus to the trigger and the title never gets it.
+              claimsFocus.current = true;
+              onRenameRequest();
+            }}
+          >
+            Rename…
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setPicker("move")}>Move file to…</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => toggleBookmark.mutate()}>
             {isBookmarked ? "Remove bookmark" : "Bookmark"}
@@ -246,11 +313,11 @@ export function NoteMenu({
           <DropdownMenuItem onSelect={inEditor((v) => addFileProperty(v))}>
             Add file property
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => window.print()}>Export to PDF…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={exportToPdf}>Export to PDF…</DropdownMenuItem>
           <DropdownMenuSeparator />
 
-          <DropdownMenuItem onSelect={inEditor((v) => openSearchPanel(v))}>Find…</DropdownMenuItem>
-          <DropdownMenuItem onSelect={inEditor((v) => openSearchPanel(v))}>Replace…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={openSearch("search")}>Find…</DropdownMenuItem>
+          <DropdownMenuItem onSelect={openSearch("replace")}>Replace…</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void copyPath()}>Copy path</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setVersionsOpen(true)}>Open version history</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => showPanel("outgoing")}>Open linked view</DropdownMenuItem>

@@ -154,6 +154,168 @@ test.describe("note menu", () => {
     await expect(page.locator("[data-note-id][data-active]")).toHaveText(/Hidden note/);
   });
 
+  test("find and replace open the panel focused on their own field", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-find");
+    await createNoteViaApi(page, "Search me", "alpha beta gamma\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Search me");
+
+    let menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Find…", exact: true }).click();
+    await expect(page.locator(".cm-search")).toBeVisible();
+    await expect(page.locator('.cm-search input[name="search"]')).toBeFocused();
+
+    // Replace must not be a duplicate of Find — it lands in the other field.
+    menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Replace…", exact: true }).click();
+    await expect(page.locator('.cm-search input[name="replace"]')).toBeFocused();
+  });
+
+  test("editor commands work from reading view, where no editor is mounted", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-reading");
+    await createNoteViaApi(page, "Reading note", "some text\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Reading note");
+
+    await page.getByRole("button", { name: "Reading view" }).click();
+    await expect(page.locator(".cm-content")).toHaveCount(0);
+
+    // Previously a silent no-op: the command needs a CodeMirror view and
+    // reading view has none.
+    const menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Find…", exact: true }).click();
+
+    await expect(page.getByRole("button", { name: "Live preview" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.locator(".cm-search")).toBeVisible();
+  });
+
+  test("export to pdf prints from reading view", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-pdf");
+    await createNoteViaApi(page, "Printable", "content\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Printable");
+
+    // Reading view renders the whole document; CodeMirror only builds the lines
+    // near the viewport, so printing from the editor would truncate long notes.
+    await page.evaluate(() => {
+      const w = window as unknown as { __printMode?: string | null };
+      window.print = () => {
+        w.__printMode =
+          document.querySelector('button[aria-pressed="true"][aria-label="Reading view"]') === null
+            ? "not-reading"
+            : "reading";
+      };
+    });
+
+    const menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Export to PDF…", exact: true }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __printMode?: string }).__printMode))
+      .toBe("reading");
+  });
+
+  test("printing shows the note and hides the application chrome", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-printcss");
+    await createNoteViaApi(page, "Print scope", "the body\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Print scope");
+
+    await page.emulateMedia({ media: "print" });
+    // Computed visibility, not toBeVisible(): every ancestor of the note is
+    // hidden by the print rules, which Playwright's visibility heuristic reads
+    // as "not visible" even though the note itself paints.
+    const seen = await page.evaluate(() => ({
+      note: getComputedStyle(document.querySelector("[data-print-root]")!).visibility,
+      explorer: getComputedStyle(document.querySelector('[role="tree"]')!).visibility,
+    }));
+    await page.emulateMedia({ media: null });
+    expect(seen.note).toBe("visible");
+    expect(seen.explorer).toBe("hidden");
+  });
+
+  test("split right opens the note in a second pane", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-split");
+    await createNoteViaApi(page, "Splittable", "content\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Splittable");
+    await expect(page.getByLabel(/^Editor pane/)).toHaveCount(1);
+
+    const menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Split right", exact: true }).click();
+
+    await expect(page.getByLabel(/^Editor pane/)).toHaveCount(2);
+  });
+
+  test("rename focuses the title, copy path copies it, version history opens", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-misc");
+    await createInFolder(page, "Docs", "Utility note", "content\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Utility note");
+
+    let menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toBeFocused();
+
+    await page.evaluate(() => {
+      const w = window as unknown as { __copied?: string };
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (t: string) => {
+            w.__copied = t;
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+    menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Copy path", exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __copied?: string }).__copied))
+      .toBe("Docs/Utility note");
+
+    menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Open version history", exact: true }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+  });
+
+  test("delete file removes the note and closes its tab", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-delete");
+    await createNoteViaApi(page, "Doomed note", "content\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Doomed note");
+
+    const menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Delete file", exact: true }).click();
+    // confirmDelete is on by default.
+    await page.getByRole("button", { name: "Delete" }).click();
+
+    await expect(
+      page.getByRole("tree", { name: "File explorer" }).getByText("Doomed note", { exact: true }),
+    ).toHaveCount(0);
+  });
+
+  test("merge appends the other note and deletes it", async ({ page }) => {
+    await signupFreshUser(page, "notemenu-merge");
+    await createNoteViaApi(page, "Merge target", "first body\n");
+    await createNoteViaApi(page, "Merge source", "second body\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Merge target");
+
+    const menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Merge entire file with…", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Merge source", exact: true }).click();
+
+    await expect(editorSurface(page)).toContainText("second body");
+    await expect(
+      page.getByRole("tree", { name: "File explorer" }).getByText("Merge source", { exact: true }),
+    ).toHaveCount(0);
+  });
+
   test("move file to relocates the note", async ({ page }) => {
     await signupFreshUser(page, "notemenu-move");
     await createInFolder(page, "Inbox", "Wandering note", "content\n");
