@@ -158,7 +158,36 @@ test.describe("graph panel parity", () => {
     // Reset lives outside the popover; clicking it closes the popover, so reopen
     await page.getByRole("button", { name: "Reset graph settings" }).click();
     await page.getByRole("button", { name: "Graph settings", exact: true }).click();
-    await expect(page.getByLabel("Node size")).toHaveValue("1", { timeout: 10_000 });
+    await expect(page.getByLabel("Node size")).toHaveValue("0.5", { timeout: 10_000 });
+    await expect(page.getByLabel("Text size")).toHaveValue("0.6");
+  });
+
+  test("text size scales the node labels and persists", async ({ page }) => {
+    await signupFreshUser(page, "graphtext");
+
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    const label = page.locator(".nodum-graph-label").first();
+    await expect(label).toBeAttached({ timeout: 15_000 });
+    // The label font size is (base × zoom scale × user multiplier), so measure
+    // only once the first layout has settled and the camera has stopped moving —
+    // otherwise a fit transition would move the number under us.
+    await page.waitForTimeout(9_000);
+    const size = () => label.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    const before = await size();
+
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
+    await page.getByLabel("Text size").fill("2.5");
+    await expect(async () => expect(await size()).toBeGreaterThan(before * 2)).toPass({
+      timeout: 5_000,
+    });
+
+    await page.waitForTimeout(1_500); // debounce + persist
+    await page.reload();
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
+    await expect(page.getByLabel("Text size")).toHaveValue("2.5", { timeout: 10_000 });
   });
 });
 
