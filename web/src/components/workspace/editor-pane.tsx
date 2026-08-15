@@ -86,6 +86,11 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // ref mirror for event callbacks (onChange/unmount flush); render reads
   // the state below — never the ref
   const collabRef = useRef<CollabSession | null>(null);
+  // TRUE only once the socket has actually synced. collabRef holds a session
+  // object from the moment it is constructed, so using it to decide "the server
+  // is persisting for us" silently drops every keystroke when the socket never
+  // connects. This ref is what the save paths must consult.
+  const collabLiveRef = useRef(false);
   const [syncedSession, setSyncedSession] = useState<CollabSession | null>(null);
   // bumped when the socket drops post-sync → rebuild with a fresh doc
   const [collabEpoch, setCollabEpoch] = useState(0);
@@ -105,6 +110,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     );
     collabRef.current = session;
     const onSync = (synced: boolean) => {
+      collabLiveRef.current = synced;
       if (synced) setSyncedSession(session);
     };
     session.provider.on("sync", onSync);
@@ -112,6 +118,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
       session.provider.off("sync", onSync);
       session.destroy();
       collabRef.current = null;
+      collabLiveRef.current = false;
     };
     // user identity is stable within a mounted editor session
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,8 +173,9 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     (content: string) => {
       draftRef.current = content;
       setDraft(content);
-      // During a live session the collab server persists — REST autosave off
-      if (collabRef.current) return;
+      // Only a LIVE collab session persists on our behalf; a session that never
+      // connected must still autosave over REST or the work is lost.
+      if (collabLiveRef.current) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => save.mutate(content), 700);
     },
@@ -178,7 +186,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // otherwise up to 700ms of typing would be lost.
   useEffect(() => {
     return () => {
-      if (saveTimer.current && !collabRef.current) {
+      if (saveTimer.current && !collabLiveRef.current) {
         clearTimeout(saveTimer.current);
         void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
       }

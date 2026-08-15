@@ -15,6 +15,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   FilePlus2,
+  LocateFixed,
   FolderPlus,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -155,6 +156,20 @@ function flattenTree(
     });
   }
   return rows;
+}
+
+/** Folder ids from the vault root down to the folder holding `noteId`.
+ *  Empty when the note sits at the root or is not found. */
+function ancestorsOfNote(items: TreeItem[], noteId: string, trail: string[] = []): string[] | null {
+  for (const item of items) {
+    if (item.type === "note") {
+      if (item.id === noteId) return trail;
+      continue;
+    }
+    const found = ancestorsOfNote(item.children, noteId, [...trail, item.id]);
+    if (found) return found;
+  }
+  return null;
 }
 
 /** Brief confirmation notice (the store's push defaults to the error style). */
@@ -309,6 +324,9 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     queryFn: () => vaultApi.tree(vaultId),
   });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The folder new notes/folders are created in. Clicking any row sets it, so
+  // the toolbar buttons act "where you are" rather than always at the root.
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; kind: "note" | "folder"; value: string } | null>(
     null,
   );
@@ -510,6 +528,36 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
 
   const allCollapsed = allFolderIds.length > 0 && allFolderIds.every((id) => collapsed.has(id));
 
+  /** Ancestor chain of the note currently open, for reveal + default location. */
+  const activeAncestors = useMemo(
+    () => (tree && activeNoteId ? (ancestorsOfNote(tree.items, activeNoteId) ?? []) : []),
+    [tree, activeNoteId],
+  );
+
+  // Explicit click wins; otherwise inherit the open note's folder (Obsidian's
+  // "same folder as current file"); otherwise the vault root.
+  const createParentId = selectedFolderId ?? activeAncestors.at(-1) ?? null;
+
+  /** Create a note/folder in the current location, revealing it first so the
+   *  name input is actually on screen. */
+  const startCreate = (kind: "note" | "folder") => {
+    if (createParentId) {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        for (const id of [...activeAncestors, createParentId]) next.delete(id);
+        return next;
+      });
+    }
+    setCreating({ kind, parentId: createParentId, value: "" });
+  };
+
+  /** Obsidian's "reveal active file": expand only the path to the open note. */
+  const revealActive = () => {
+    if (!activeNoteId) return;
+    const keep = new Set(activeAncestors);
+    setCollapsed(new Set(allFolderIds.filter((id) => !keep.has(id))));
+  };
+
   /** One button that collapses everything, then expands everything back. */
   const toggleAll = () =>
     setCollapsed(allCollapsed ? new Set() : new Set(allFolderIds));
@@ -557,7 +605,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
         <button
           type="button"
           aria-label="New note"
-          onClick={() => setCreating({ kind: "note", parentId: null, value: "" })}
+          onClick={() => startCreate("note")}
           className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text"
         >
           <FilePlus2 className="size-4" strokeWidth={1.75} />
@@ -565,7 +613,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
         <button
           type="button"
           aria-label="New folder"
-          onClick={() => setCreating({ kind: "folder", parentId: null, value: "" })}
+          onClick={() => startCreate("folder")}
           className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text"
         >
           <FolderPlus className="size-4" strokeWidth={1.75} />
@@ -596,11 +644,21 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
 
         <button
           type="button"
+          aria-label="Reveal active note"
+          title="Show the open note, collapse everything else"
+          onClick={revealActive}
+          disabled={!activeNoteId}
+          className="ml-auto flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <LocateFixed className="size-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
           aria-label={allCollapsed ? "Expand all" : "Collapse all"}
           title={allCollapsed ? "Expand all" : "Collapse all"}
           onClick={toggleAll}
           disabled={allFolderIds.length === 0}
-          className="ml-auto flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text disabled:opacity-40 disabled:hover:bg-transparent"
+          className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {allCollapsed ? (
             <ChevronsUpDown className="size-4" strokeWidth={1.75} />
@@ -633,7 +691,10 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => toggleFolder(row.id)}
+                        onClick={() => {
+                          setSelectedFolderId(row.id);
+                          toggleFolder(row.id);
+                        }}
                         onKeyDown={(e) => e.key === "Enter" && toggleFolder(row.id)}
                         className="flex h-[26px] cursor-default items-center gap-1 rounded px-2 text-[13px] text-ob-muted hover:bg-ob-hover hover:text-ob-text"
                         style={{ paddingLeft: 8 + row.depth * 14 }}
@@ -708,7 +769,14 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => onOpenNote(row.id, row.title)}
+                        onClick={() => {
+                          // new items should land beside the file you just picked
+                          const parent = row.path.includes("/")
+                            ? (tree ? ancestorsOfNote(tree.items, row.id)?.at(-1) ?? null : null)
+                            : null;
+                          setSelectedFolderId(parent);
+                          onOpenNote(row.id, row.title);
+                        }}
                         onKeyDown={(e) => e.key === "Enter" && onOpenNote(row.id, row.title)}
                         className={cn(
                           "flex h-[26px] cursor-default items-center rounded px-2 text-[13px]",

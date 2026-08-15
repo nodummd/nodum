@@ -22,13 +22,19 @@ async def collab_ws(websocket: WebSocket, vault_id: UUID, note_id: UUID, token: 
     Auth: short-lived access token as a query parameter (browsers cannot set
     headers on websocket upgrades). Ownership is enforced before accept.
     """
+    # Every rejection below happens BEFORE accept(), so the client only ever
+    # sees a bare HTTP 403 with the reason stripped. Log which branch fired —
+    # without this a rejected handshake is undiagnosable from the server side.
     if not get_settings().COLLAB_ENABLED:
+        logger.info("collab_rejected", reason="disabled", vault_id=str(vault_id), note_id=str(note_id))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Collaboration disabled")
         return
 
     try:
         user_id = await validate_access_token(token)
     except UnauthorizedError:
+        # Overwhelmingly this is an EXPIRED access token on a reconnect.
+        logger.info("collab_rejected", reason="unauthorized", vault_id=str(vault_id), note_id=str(note_id))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
         return
 
@@ -44,6 +50,7 @@ async def collab_ws(websocket: WebSocket, vault_id: UUID, note_id: UUID, token: 
             .where(Note.id == note_id, Note.vault_id == vault_id, Vault.user_id == user_id)
         )
     if owned is None:
+        logger.info("collab_rejected", reason="not_found", vault_id=str(vault_id), note_id=str(note_id))
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Not found")
         return
 
