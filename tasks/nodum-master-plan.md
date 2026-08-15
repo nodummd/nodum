@@ -223,6 +223,33 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15 (command audit)** — Same treatment for items 1 and 4 that
+  the ⋯ menu got: execute everything, don't trust that it renders.
+  - *Eleven formatting commands had never been run* (strikethrough,
+    highlight, inline code, code block, link, horizontal rule, bullet /
+    numbered / task list, blockquote, callout). All eleven work. They are
+    now driven through the menu and asserted against raw markdown in
+    `editor-commands.spec.ts`, plus Select all — which has to be proved by
+    ACTING on the selection, because `drawSelection()` paints CodeMirror's
+    own layer and leaves the native selection empty.
+  - *Reveal-on-navigate had only been checked for wikilinks.* Quick
+    switcher and back/forward are covered by e2e now. The graph route —
+    the risky one, since it opens the note in the OTHER pane — was
+    verified live: clicking a node opened "Functional Programming" and the
+    explorer expanded Topics > Computer Science and selected it.
+  - **Fixed: revealing a FOLDER opened its ancestors but not the folder
+    itself**, so a breadcrumb crumb scrolled to a closed folder showing
+    none of its contents. A note reveals by opening the folders above it;
+    a folder must also open itself.
+  - Hardened the quick switcher's Enter: while the 150ms-debounced search
+    is in flight nothing matches, so the "Create …" row becomes the
+    highlight and Enter would create a DUPLICATE of the note being jumped
+    to. Enter now resolves the query first. Found by reading the code —
+    the window is shorter than Playwright's per-action overhead and I
+    could not reproduce it with automation, so this is a guard rather
+    than a fix for an observed failure.
+  - 118 e2e green; autosave re-confirmed against postgres.
+
 - **2026-08-15 (audit)** — Went back over the note ⋯ menu and exercised
   every entry instead of only checking that it rendered. Four were
   broken and one was a data-loss path.
