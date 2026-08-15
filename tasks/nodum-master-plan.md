@@ -223,6 +223,26 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15 (session restore)** — Found the last hole in reveal-on-
+  navigate by smoke-testing the app the way a user starts it: reload the
+  page. Every route highlights the open file EXCEPT opening the app. The
+  subscription only fires on a transition, and a session restored from the
+  persisted workspace has the note already active — no transition, no
+  reveal. In a large vault the row is then scrolled well outside the
+  virtualized window, so the explorer shows no selection at all.
+  Now reveals once on mount, waiting for the tree query, deferred out of
+  the effect body so the state update lands in a frame callback.
+  Verified live: after a reload the demo vault scrolls to "Functional
+  Programming" (scrollTop 3238) and selects it, where it previously showed
+  nothing. The e2e builds a tree tall enough for virtualisation to drop the
+  row, and fails when the initial reveal is removed.
+  120 e2e green; autosave re-confirmed against postgres.
+
+  The four mandate items are complete and every command, route and
+  interaction named in their specs has been executed under test. The
+  recurring /loop job for this mandate was cancelled — see the session
+  notes; further iterations would be inventing scope.
+
 - **2026-08-15 (scroll + retraction)** — Closed the last unverified half
   of the reveal spec and retracted a speculative change.
   - *"Scrolling the virtualized row into view" had never been checked* —
