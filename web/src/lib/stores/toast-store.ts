@@ -12,7 +12,8 @@ export interface Toast {
 
 interface ToastState {
   toasts: Toast[];
-  push: (message: string, kind?: Toast["kind"]) => void;
+  /** Returns the toast id so long-running work can dismiss it when done. */
+  push: (message: string, kind?: Toast["kind"]) => number;
   dismiss: (id: number) => void;
 }
 
@@ -26,6 +27,7 @@ export const useToastStore = create<ToastState>((set) => ({
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
     }, 5000);
+    return id;
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));

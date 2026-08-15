@@ -48,6 +48,7 @@ interface CommandPaletteProps {
   onInsertTemplate: () => void;
   onExportVault: () => void;
   onImportVault: () => void;
+  onImportFolder: () => void;
   onOpenSettings: () => void;
 }
 
@@ -61,6 +62,7 @@ export function CommandPalette({
   onInsertTemplate,
   onExportVault,
   onImportVault,
+  onImportFolder,
   onOpenSettings,
 }: CommandPaletteProps) {
   const router = useRouter();
@@ -269,6 +271,7 @@ export function CommandPalette({
     { id: "settings", label: "Open settings", hotkey: "⌘,", run: onOpenSettings },
     { id: "export-vault", label: "Export vault as a zip", run: onExportVault },
     { id: "import-vault", label: "Import notes from a zip", run: onImportVault },
+    { id: "import-folder", label: "Import a vault folder…", run: onImportFolder },
     { id: "switch-vault", label: "Change vault…", run: () => router.push("/vault") },
     { id: "reload", label: "Reload app without saving", run: () => window.location.reload() },
     {
