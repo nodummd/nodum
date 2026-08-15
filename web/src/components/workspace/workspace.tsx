@@ -196,6 +196,7 @@ export function Workspace({ vault }: { vault: Vault }) {
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const importFolderRef = useRef<HTMLInputElement>(null);
 
   const exportVault = useCallback(() => {
     // Same-origin proxy carries the cookie; access token not needed for a download
@@ -222,6 +223,47 @@ export function Workspace({ vault }: { vault: Vault }) {
           );
         } catch (err) {
           toastError(err, "Import failed.");
+        }
+      })();
+    },
+    [vault.id, queryClient],
+  );
+
+  /** Import a picked folder (or loose files) — no zipping required. Each file
+   *  is sent with its vault-relative path so the server rebuilds the tree. */
+  const importFolder = useCallback(
+    (files: FileList) => {
+      void (async () => {
+        const picked = [...files].filter((f) => f.size > 0);
+        if (picked.length === 0) return;
+        const toastId = useToastStore
+          .getState()
+          .push(`Importing ${String(picked.length)} files…`, "info");
+        try {
+          const form = new FormData();
+          for (const file of picked) {
+            // webkitRelativePath carries "MyVault/Notes/x.md"; fall back to the
+            // bare name when loose files are picked instead of a folder.
+            form.append("files", file, file.webkitRelativePath || file.name);
+          }
+          const stats = await api<{
+            imported: number;
+            renamed: number;
+            imported_attachments: number;
+            imported_pdf_notes: number;
+          }>(`/vaults/${vault.id}/import-files`, { method: "POST", body: form });
+          void queryClient.invalidateQueries({ queryKey: ["tree", vault.id] });
+          void queryClient.invalidateQueries({ queryKey: ["graph", vault.id] });
+          void queryClient.invalidateQueries({ queryKey: ["tags", vault.id] });
+          const bits = [`Imported ${String(stats.imported)} notes`];
+          if (stats.imported_pdf_notes) bits.push(`${String(stats.imported_pdf_notes)} from PDFs`);
+          if (stats.imported_attachments) bits.push(`${String(stats.imported_attachments)} attachments`);
+          if (stats.renamed) bits.push(`${String(stats.renamed)} renamed`);
+          useToastStore.getState().push(bits.join(" · "), "info");
+        } catch (err) {
+          toastError(err, "Import failed.");
+        } finally {
+          useToastStore.getState().dismiss(toastId);
         }
       })();
     },
@@ -494,6 +536,7 @@ export function Workspace({ vault }: { vault: Vault }) {
         onInsertTemplate={() => setTemplatePickerOpen(true)}
         onExportVault={exportVault}
         onImportVault={() => importInputRef.current?.click()}
+        onImportFolder={() => importFolderRef.current?.click()}
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
@@ -508,6 +551,21 @@ export function Workspace({ vault }: { vault: Vault }) {
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) importVault(file);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={importFolderRef}
+        type="file"
+        multiple
+        // @ts-expect-error — non-standard but supported by every target browser
+        webkitdirectory=""
+        directory=""
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={(e) => {
+          if (e.target.files?.length) importFolder(e.target.files);
           e.target.value = "";
         }}
       />
