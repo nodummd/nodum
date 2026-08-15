@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Nodum Web Clipper",
+  "version": "0.1.0",
+  "description": "Clip web pages into your nodum vault as clean Markdown.",
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
+  "host_permissions": ["http://localhost:8000/*", "https://*/*"],
+  "action": { "default_popup": "src/popup.html", "default_title": "Clip to nodum" },
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "icons": { "128": "icon128.png" }
+}
