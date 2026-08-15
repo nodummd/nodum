@@ -52,6 +52,15 @@ export function createCollabSession(
   const provider = new WebsocketProvider(base, `${noteId}/collab`, ydoc, {
     params: { token },
   });
+  // y-websocket's `url` getter reads `params` on every reconnect, so making it
+  // an accessor means each attempt presents whatever token the API client
+  // currently holds — never the one that happened to be live when this pane
+  // mounted. Without this, a pane that outlives one access-token lifetime
+  // reconnects forever with a JWT the server has already refused.
+  Object.defineProperty(provider, "params", {
+    get: () => ({ token: getAccessToken() ?? token }),
+    configurable: true,
+  });
   provider.awareness.setLocalStateField("user", {
     name: user.name,
     color: user.color,
@@ -68,11 +77,6 @@ export function createCollabSession(
     if (status === "disconnected" && syncedOnce && onStale) onStale();
   });
 
-  // The token is captured once at construction, but y-websocket rebuilds the
-  // URL from `params` on EVERY reconnect — so after the access token's short
-  // lifetime every retry presents a dead JWT and the server rejects the
-  // handshake (403), forever, at the backoff interval. Refresh before retrying.
-  //
   // "connection-close" is the only event emitted for a REJECTED handshake:
   // "status" fires solely from inside `if (provider.wsconnected)`, which never
   // becomes true when the upgrade itself is refused.
@@ -88,20 +92,17 @@ export function createCollabSession(
     // Give up rather than hammer the server with a token it keeps refusing.
     if (rejections > 5) {
       givenUp = true;
+      // Deliberately NOT onStale(): that asks the caller to rebuild the
+      // session, which resets this counter and reopens the same doomed loop
+      // forever (a tab whose refresh token is gone can never authenticate
+      // again). Staying disconnected lets the caller's timeout fall back to
+      // the local REST editor, which is what the user actually needs.
       // Defer out of the event's own call stack before touching the provider.
-      setTimeout(() => {
-        provider.disconnect();
-        if (onStale) onStale();
-      }, 0);
+      setTimeout(() => provider.disconnect(), 0);
       return;
     }
-    void (async () => {
-      if (await refreshAccessToken()) {
-        const fresh = getAccessToken();
-        // A late refresh must not resurrect a provider we already gave up on.
-        if (fresh && !givenUp) provider.params.token = fresh;
-      }
-    })();
+    // Refresh so the accessor above has a live token to hand the next attempt.
+    void refreshAccessToken();
   });
   return {
     ydoc,

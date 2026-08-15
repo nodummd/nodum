@@ -32,9 +32,18 @@ async def collab_ws(websocket: WebSocket, vault_id: UUID, note_id: UUID, token: 
 
     try:
         user_id = await validate_access_token(token)
-    except UnauthorizedError:
+    except UnauthorizedError as e:
         # Overwhelmingly this is an EXPIRED access token on a reconnect.
-        logger.info("collab_rejected", reason="unauthorized", vault_id=str(vault_id), note_id=str(note_id))
+        # `detail` distinguishes expiry from revocation — the two need
+        # completely different client fixes and are indistinguishable otherwise.
+        logger.info(
+            "collab_rejected",
+            reason="unauthorized",
+            detail=str(e),
+            empty_token=not token,
+            vault_id=str(vault_id),
+            note_id=str(note_id),
+        )
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
         return
 

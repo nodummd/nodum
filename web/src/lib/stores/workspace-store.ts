@@ -119,6 +119,9 @@ interface WorkspaceState {
   dragging: { tabId: string; fromPaneIndex: number } | null;
   /** Note the graph should accent-highlight (the note being viewed); transient. */
   graphFocusNoteId: string | null;
+  /** Explorer reveal request: {kind, id, nonce}. The nonce makes repeat
+   *  reveals of the SAME item distinct events, so asking twice works. */
+  revealTarget: { kind: "note" | "folder"; id: string; nonce: number } | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -162,6 +165,11 @@ interface WorkspaceState {
   setSplitRatio: (ratio: number) => void;
   setDragging: (d: { tabId: string; fromPaneIndex: number } | null) => void;
   setGraphFocus: (noteId: string | null) => void;
+  /** Expand the path to a note and scroll it into view in the file explorer. */
+  revealNote: (noteId: string) => void;
+  /** Same, for a folder. */
+  revealFolder: (folderId: string) => void;
+  setSplitOrientation: (orientation: "row" | "column") => void;
   /** Reorder a tab within its pane. */
   reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
   /** Move a tab to another existing pane (falls back to reorder if same pane). */
@@ -194,6 +202,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       splitOrientation: "row",
       dragging: null,
       graphFocusNoteId: null,
+      revealTarget: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -437,6 +446,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setSplitRatio: (r) => set({ splitRatio: Math.min(Math.max(r, 0.2), 0.8) }),
       setDragging: (d) => set({ dragging: d }),
       setGraphFocus: (noteId) => set({ graphFocusNoteId: noteId }),
+      // The nonce is what makes a repeat reveal of the same item a NEW event;
+      // without it the explorer sees an unchanged value and does nothing.
+      revealNote: (noteId) =>
+        set({ revealTarget: { kind: "note", id: noteId, nonce: (get().revealTarget?.nonce ?? 0) + 1 } }),
+      revealFolder: (folderId) =>
+        set({ revealTarget: { kind: "folder", id: folderId, nonce: (get().revealTarget?.nonce ?? 0) + 1 } }),
+      setSplitOrientation: (orientation) => set({ splitOrientation: orientation }),
 
       reorderTab: (tabId, paneIndex, toIndex) => {
         set({

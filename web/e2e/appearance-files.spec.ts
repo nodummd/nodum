@@ -56,8 +56,11 @@ test.describe("appearance & files settings", () => {
       { timeout: 10_000 },
     );
 
-    // The explorer now shows the auto-created Inbox folder
-    await expect(page.getByText("Inbox", { exact: true })).toBeVisible({ timeout: 10_000 });
+    // The explorer now shows the auto-created Inbox folder. Scoped to the
+    // explorer: the editor's breadcrumb names the folder too.
+    await expect(
+      page.getByRole("tree", { name: "File explorer" }).getByText("Inbox", { exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("delete asks for confirmation by default", async ({ page }) => {

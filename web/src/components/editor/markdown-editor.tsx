@@ -7,15 +7,23 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { searchKeymap } from "@codemirror/search";
 import { EditorState } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
 import { tagCompletion, wikiLinkCompletion } from "@/lib/editor/autocomplete";
-import { insertLink, toggleBold, toggleHighlightCmd, toggleItalic } from "@/lib/editor/format-commands";
+import {
+  insertLink,
+  toggleBold,
+  toggleHighlightCmd,
+  toggleInlineCode,
+  toggleItalic,
+  toggleUnderline,
+} from "@/lib/editor/format-commands";
 import { blockWidgets } from "@/lib/editor/block-widgets";
 import { collabExtension, type CollabSession } from "@/lib/editor/collab";
 import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
+import { EditorContextMenu, type EditorContextMenuActions } from "@/components/editor/editor-context-menu";
 import { attachmentUpload } from "@/lib/editor/attachment-upload";
 import { nodumEditorTheme } from "@/lib/editor/theme";
 
@@ -27,6 +35,10 @@ export interface MarkdownEditorProps {
   onNavigate: (target: string) => void;
   /** When set, the doc binds to the Yjs session (parent remounts by key). */
   collab?: CollabSession;
+  /** Extra right-click actions that need workspace context (new note, extract). */
+  menuActions?: EditorContextMenuActions;
+  /** Receives the live view so the pane's ⋯ menu can run editor commands. */
+  onViewReady?: (view: EditorView | null) => void;
   /** User editor prefs (S11.2) — gutter line numbers + native spellcheck. */
   showLineNumbers?: boolean;
   spellcheck?: boolean;
@@ -39,6 +51,8 @@ export function MarkdownEditor({
   onChange,
   onNavigate,
   collab,
+  menuActions,
+  onViewReady,
   showLineNumbers = false,
   spellcheck = false,
 }: MarkdownEditorProps) {
@@ -46,17 +60,22 @@ export function MarkdownEditor({
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onNavigateRef = useRef(onNavigate);
+  const onViewReadyRef = useRef(onViewReady);
 
   useEffect(() => {
     onChangeRef.current = onChange;
     onNavigateRef.current = onNavigate;
-  }, [onChange, onNavigate]);
+    onViewReadyRef.current = onViewReady;
+  }, [onChange, onNavigate, onViewReady]);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     const extensions = [
       attachmentUpload(vaultId),
+      // Keeps the selection highlighted while focus is in the context menu —
+      // the native selection clears as soon as the menu takes focus.
+      drawSelection(),
       history(),
       keymap.of([
         // Obsidian formatting hotkeys take precedence over the defaults
@@ -64,6 +83,8 @@ export function MarkdownEditor({
         { key: "Mod-i", run: toggleItalic },
         { key: "Mod-k", run: insertLink },
         { key: "Mod-Shift-h", run: toggleHighlightCmd },
+        { key: "Mod-u", run: toggleUnderline },
+        { key: "Mod-e", run: toggleInlineCode },
         // ⌘[ / ⌘] are Obsidian's navigate back/forward. CodeMirror's
         // defaultKeymap binds them to indentLess/indentMore, so without this
         // the chord would BOTH indent the line and navigate. Returning true
@@ -109,10 +130,12 @@ export function MarkdownEditor({
       parent: containerRef.current,
     });
     viewRef.current = view;
+    onViewReadyRef.current?.(view);
 
     return () => {
       view.destroy();
       viewRef.current = null;
+      onViewReadyRef.current?.(null);
     };
     // Recreate only when the note identity, mode, or editor prefs change —
     // content updates flow through the editor itself; external resets use the
@@ -120,5 +143,28 @@ export function MarkdownEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, vaultId, showLineNumbers, spellcheck]);
 
-  return <div ref={containerRef} className="min-h-[60vh]" />;
+  // Right-clicking outside the selection moves the caret there first, so the
+  // context menu acts on what the user pointed at. Clicking INSIDE a selection
+  // leaves it alone — otherwise "select a phrase, right-click, Bold" would
+  // collapse the selection and format nothing.
+  //
+  // This lives on the container, not in a CodeMirror domEventHandler: events
+  // raised inside a replaced block widget (a rendered live-preview table) never
+  // reach CodeMirror's handlers, and right-clicking a table you can see is
+  // exactly when the table commands need to be reachable.
+  const syncCaretToPointer = (event: React.MouseEvent) => {
+    const view = viewRef.current;
+    if (!view) return;
+    // `false` = never null: a widget click is not over text but still has a
+    // nearest document position, and that position is inside the widget's range.
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+    const { from, to } = view.state.selection.main;
+    if (pos < from || pos > to) view.dispatch({ selection: { anchor: pos } });
+  };
+
+  return (
+    <EditorContextMenu getView={() => viewRef.current} actions={menuActions}>
+      <div ref={containerRef} className="min-h-[60vh]" onContextMenu={syncCaretToPointer} />
+    </EditorContextMenu>
+  );
 }

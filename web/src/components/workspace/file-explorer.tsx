@@ -18,7 +18,7 @@ import {
   LocateFixed,
   FolderPlus,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ContextMenu,
@@ -37,18 +37,13 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { confirmDelete } from "./confirm-dialog";
 import { bookmarkApi, folderApi, noteApi, searchApi, vaultApi } from "@/lib/api/endpoints";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem, Vault } from "@/lib/api/types";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { type ExplorerSort, useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { PickerDialog } from "./picker-dialog";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 26;
@@ -160,6 +155,24 @@ function flattenTree(
 
 /** Folder ids from the vault root down to the folder holding `noteId`.
  *  Empty when the note sits at the root or is not found. */
+/** The active note of a pane layout — the explorer's selection follows it. */
+function activeNoteIdOf(state: { panes: { tabs: { id: string; kind: string }[]; activeTabId: string | null }[]; activePane: number }): string | null {
+  const pane = state.panes[state.activePane];
+  const tab = pane?.tabs.find((t) => t.id === pane.activeTabId);
+  return tab && tab.kind === "note" ? tab.id : null;
+}
+
+/** Folder ids from the root down to (but excluding) the target folder. */
+function ancestorsOfFolder(items: TreeItem[], folderId: string, trail: string[] = []): string[] | null {
+  for (const item of items) {
+    if (item.type !== "folder") continue;
+    if (item.id === folderId) return trail;
+    const found = ancestorsOfFolder(item.children, folderId, [...trail, item.id]);
+    if (found) return found;
+  }
+  return null;
+}
+
 function ancestorsOfNote(items: TreeItem[], noteId: string, trail: string[] = []): string[] | null {
   for (const item of items) {
     if (item.type === "note") {
@@ -268,53 +281,6 @@ function TagSubmenu({
 
 /** Searchable picker used by "Move file to…" (folders) and "Merge entire file
  *  with…" (notes). Keeps both flows to one keyboard-friendly dialog. */
-function PickerDialog({
-  title,
-  items,
-  emptyLabel,
-  onPick,
-  onClose,
-}: {
-  title: string;
-  items: { id: string | null; label: string }[];
-  emptyLabel: string;
-  onPick: (id: string | null) => void;
-  onClose: () => void;
-}) {
-  const [q, setQ] = useState("");
-  const filtered = items.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-[14px]">{title}</DialogTitle>
-        </DialogHeader>
-        <input
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Type to filter…"
-          className="h-8 w-full rounded border border-ob-border bg-ob-bg px-2 text-[13px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
-        />
-        <div className="max-h-72 overflow-y-auto">
-          {filtered.length === 0 && (
-            <p className="px-2 py-3 text-[13px] text-ob-faint">{emptyLabel}</p>
-          )}
-          {filtered.map((i) => (
-            <button
-              key={i.id ?? "__root__"}
-              type="button"
-              onClick={() => onPick(i.id)}
-              className="block w-full truncate rounded px-2 py-1.5 text-left text-[13px] text-ob-muted hover:bg-ob-hover hover:text-ob-text"
-            >
-              {i.label}
-            </button>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProps) {
   const queryClient = useQueryClient();
@@ -584,6 +550,61 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     setCollapsed(new Set(allFolderIds.filter((id) => !keep.has(id))));
   };
 
+  // ── Reveal on navigate ───────────────────────────────────────────────────
+  //
+  // Opening a note by ANY route (wikilink, graph, palette, backlink) selects
+  // it in the explorer: expand its folders, then scroll the row into view.
+  //
+  // Driven by a store subscription rather than an effect on activeNoteId: this
+  // is a reaction to an event, so the state update happens in a callback and
+  // never during render. It also lets the "Reveal file in navigation" command
+  // re-target the SAME note, which a value-diffing effect would ignore.
+  const revealRef = useRef<{ noteId: string | null }>({ noteId: null });
+  revealRef.current.noteId = activeNoteId;
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
+  /** Expand the chain to an item, then scroll it into view once laid out. */
+  const revealItem = useCallback((id: string, ancestors: string[]) => {
+    setCollapsed((prev) => {
+      if (ancestors.every((a) => !prev.has(a))) return prev; // already open
+      const next = new Set(prev);
+      for (const a of ancestors) next.delete(a);
+      return next;
+    });
+    // Two frames: one for the state flush, one for the virtualizer to measure
+    // the rows the newly-expanded folders added.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const index = rowsRef.current.findIndex((r) => "id" in r && r.id === id);
+        if (index >= 0) virtualizerRef.current.scrollToIndex(index, { align: "auto" });
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
+    const reveal = (target: { kind: "note" | "folder"; id: string } | null) => {
+      const current = treeRef.current;
+      if (!target || !current) return;
+      const chain =
+        target.kind === "note"
+          ? (ancestorsOfNote(current.items, target.id) ?? [])
+          : (ancestorsOfFolder(current.items, target.id) ?? []);
+      revealItem(target.id, chain);
+    };
+    // Explicit requests ("Reveal file in navigation", a breadcrumb crumb).
+    const unsub = useWorkspaceStore.subscribe((state, prev) => {
+      if (state.revealTarget !== prev.revealTarget) reveal(state.revealTarget);
+      const noteId = activeNoteIdOf(state);
+      if (noteId && noteId !== activeNoteIdOf(prev)) reveal({ kind: "note", id: noteId });
+    });
+    return unsub;
+  }, [revealItem]);
+
   /** One button that collapses everything, then expands everything back. */
   const toggleAll = () =>
     setCollapsed(allCollapsed ? new Set() : new Set(allFolderIds));
@@ -626,7 +647,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" role="tree" aria-label="File explorer">
       <div className="flex items-center gap-0.5 px-2 py-1.5">
         <button
           type="button"
@@ -795,6 +816,10 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       <div
                         role="button"
                         tabIndex={0}
+                        // Addressable selection state: "which note is selected"
+                        // is otherwise only expressed as a background colour.
+                        data-note-id={row.id}
+                        data-active={activeNoteId === row.id ? "" : undefined}
                         draggable
                         onDragStart={(e) => {
                           // Dropping a note into an editor should link it, so

@@ -5,8 +5,10 @@ Each test uses a unique email so runs never collide.
 """
 
 import uuid
+from uuid import UUID
 
 from httpx import AsyncClient
+from sqlalchemy import select
 
 
 def _creds() -> dict[str, str]:
@@ -102,6 +104,78 @@ async def test_refresh_rotates_with_grace_then_blocks_reuse(client: AsyncClient)
     # The current token was invalidated by the family nuke too
     r4 = await client.post("/api/v1/auth/refresh", json={"refresh_token": new_pair["refresh_token"]})
     assert r4.status_code == 401
+
+
+async def test_concurrent_refresh_does_not_kill_the_session(client: AsyncClient) -> None:
+    """Two refreshes in flight at once must both succeed.
+
+    This is the ordinary case of a tab reloading while something else (a save,
+    a websocket reconnect) refreshes too. If the grace marker is published only
+    AFTER the rotation commits, the loser sees a JTI that exists in neither the
+    table nor the grace key, calls it a stolen token, and invalidates every
+    session the user has — a spurious logout.
+    """
+    import asyncio
+
+    _, data = await _signup(client)
+    token = data["refresh_token"]
+
+    first, second = await asyncio.gather(
+        client.post("/api/v1/auth/refresh", json={"refresh_token": token}),
+        client.post("/api/v1/auth/refresh", json={"refresh_token": token}),
+    )
+    client.cookies.clear()
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    # Both racers converge on the same live token — neither is left holding one
+    # that dies when the grace window closes.
+    assert first.json()["data"]["refresh_token"] == second.json()["data"]["refresh_token"]
+
+    # And the session still works afterwards.
+    survivor = first.json()["data"]["refresh_token"]
+    again = await client.post("/api/v1/auth/refresh", json={"refresh_token": survivor})
+    assert again.status_code == 200, again.text
+
+
+async def test_grace_marker_is_published_before_the_rotation_commits(client: AsyncClient) -> None:
+    """The window that makes concurrent refresh dangerous must not exist.
+
+    Racing the two requests is timing-dependent, so assert the invariant that
+    removes the race instead: at the moment the grace key is written, the new
+    JTI must NOT yet be committed. Any other order leaves an interval in which
+    the old JTI resolves nowhere and a racer trips the stolen-token defense.
+    """
+    from app.core import redis as redis_module
+    from app.core.db import async_session_factory
+    from app.models.auth import Session
+    from app.utils.jwt_utils import decode_token
+
+    _, data = await _signup(client)
+    old_jti = str(decode_token(data["refresh_token"], expected_type="refresh")["jti"])
+
+    original_set = redis_module.redis_control.set
+    observed: dict[str, str | None] = {}
+
+    async def spy(key: str, value: str, **kwargs: object):
+        if key.startswith("refresh_grace:"):
+            # A separate connection: MVCC shows the pre-commit value, so this
+            # reads the JTI as it stands on disk right now.
+            async with async_session_factory() as probe:
+                observed["committed_jti"] = await probe.scalar(
+                    select(Session.refresh_token_jti).where(Session.id == UUID(value))
+                )
+        return await original_set(key, value, **kwargs)
+
+    redis_module.redis_control.set = spy  # type: ignore[method-assign]
+    try:
+        resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": data["refresh_token"]})
+    finally:
+        redis_module.redis_control.set = original_set  # type: ignore[method-assign]
+
+    assert resp.status_code == 200, resp.text
+    assert observed.get("committed_jti") == old_jti, (
+        "grace key was written after the rotation committed — concurrent refresh can log the user out"
+    )
 
 
 async def test_logout_invalidates_session(client: AsyncClient) -> None:
