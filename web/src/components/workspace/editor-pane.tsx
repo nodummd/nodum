@@ -110,8 +110,21 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     );
     collabRef.current = session;
     const onSync = (synced: boolean) => {
-      collabLiveRef.current = synced;
-      if (synced) setSyncedSession(session);
+      if (!synced) {
+        collabLiveRef.current = false;
+        return;
+      }
+      // A room that syncs EMPTY for a note that has content means the server
+      // failed to seed it. Binding the editor to that document would show a
+      // blank note and, worse, let collab persist the blank over the real one.
+      // Refuse the session and stay on the local editor instead.
+      const seeded = session.ytext.toString().length > 0;
+      if (!seeded && note.content.trim().length > 0) {
+        collabLiveRef.current = false;
+        return;
+      }
+      collabLiveRef.current = true;
+      setSyncedSession(session);
     };
     session.provider.on("sync", onSync);
     return () => {

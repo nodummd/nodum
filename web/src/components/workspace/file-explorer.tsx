@@ -795,6 +795,18 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       <div
                         role="button"
                         tabIndex={0}
+                        draggable
+                        onDragStart={(e) => {
+                          // Dropping a note into an editor should link it, so
+                          // carry the wikilink as the plain-text payload and a
+                          // private type the editor can recognise unambiguously.
+                          e.dataTransfer.setData("text/plain", `[[${row.title}]]`);
+                          e.dataTransfer.setData(
+                            "application/x-nodum-note",
+                            JSON.stringify({ id: row.id, title: row.title, path: row.path }),
+                          );
+                          e.dataTransfer.effectAllowed = "copyLink";
+                        }}
                         onClick={() => {
                           // new items should land beside the file you just picked
                           const parent = row.path.includes("/")
