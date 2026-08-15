@@ -343,8 +343,27 @@ mapping a cell edit to a MINIMAL source range rather than rewriting the block,
 undo granularity, and resolving the contradiction that the current reveal rule
 would make the widget vanish exactly when the user clicks into it.
 
-Three independent architectures were designed and judged; the synthesised spec
-lands here before implementation starts.
+Three independent architectures were designed and judged. The winner is the
+in-widget editable table (contenteditable cells, minimal-span writeback); the
+full spec is in `tasks/nodum-editable-table-spec.md`, decomposed into 9
+independently mergeable steps.
+
+The decisive finding: `DocView.updateSelection` early-returns while a cell holds
+focus, and `DOMObserver.readMutation` returns null for widget mutations, so the
+caret genuinely cannot be stolen — the approach is safe by construction rather
+than by careful bookkeeping. The two losing designs were rejected for concrete
+reasons: a live-row grid shows raw pipes (not "editing inside a table") and runs
+two parsers that disagree; a pinned React overlay desynchronises on async image
+layout and stores an inverted cell mapping that throws on `insertTable`'s own
+output.
+
+**Step 1 ✅ (`0a28315`)** — one parser, `table-model.ts`. Shipped alone because
+it fixed live corruption: an escaped pipe parsed as an extra column in all three
+splitters, and the row/column commands rewrote tables around it.
+
+Steps 2-9 outstanding: command API surface, widget identity, read-path widget,
+contenteditable cells + commit, controls, keyboard/IME/paste, `insertTable`
+opening a cell, then flag + styling + tests.
 
 ---
 
