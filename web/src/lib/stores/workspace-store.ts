@@ -50,6 +50,45 @@ function sortPinned(tabs: Tab[]): Tab[] {
   return [...tabs.filter((t) => t.pinned), ...tabs.filter((t) => !t.pinned)];
 }
 
+/** The history index reached by stepping `dir` from the current one, skipping
+ *  entries whose tab has been closed. null when there is nowhere to go — which
+ *  is exactly what the back/forward buttons use to disable themselves. */
+export function historyStep(p: PaneState, dir: 1 | -1): number | null {
+  let i = p.historyIndex + dir;
+  while (i >= 0 && i < p.history.length && !p.tabs.some((t) => t.id === p.history[i])) i += dir;
+  if (i < 0 || i >= p.history.length) return null;
+  return i;
+}
+
+/** Rebuild a pane's history against the tabs that still exist.
+ *  Without this, closing a tab leaves dead ids in the stack: historyIndex keeps
+ *  pointing past the tab you are actually on, so the first Back press appears to
+ *  do nothing and later ones jump several notes at once. */
+function syncedHistory(
+  p: PaneState,
+  tabs: Tab[],
+  activeTabId: string | null,
+): Pick<PaneState, "history" | "historyIndex"> {
+  const live = new Set(tabs.map((t) => t.id));
+  const history: string[] = [];
+  let historyIndex = -1;
+  p.history.forEach((id, i) => {
+    if (!live.has(id) || history.at(-1) === id) return;
+    history.push(id);
+    if (i <= p.historyIndex) historyIndex = history.length - 1;
+  });
+  // Keep the cursor on the tab that is actually showing.
+  if (activeTabId) {
+    const at = history.lastIndexOf(activeTabId);
+    if (at >= 0) historyIndex = at;
+    else {
+      history.push(activeTabId);
+      historyIndex = history.length - 1;
+    }
+  }
+  return { history, historyIndex };
+}
+
 /** Append to a pane's history (truncating any forward entries). */
 function recorded(p: PaneState, tabId: string): Pick<PaneState, "history" | "historyIndex"> {
   if (p.history[p.historyIndex] === tabId) {
@@ -111,8 +150,9 @@ interface WorkspaceState {
   openNoteBeside: (tab: Tab, fromPaneIndex: number) => void;
   closePane: (index: number) => void;
   togglePin: (tabId: string, paneIndex: number) => void;
-  navigateBack: () => void;
-  navigateForward: () => void;
+  /** paneIndex omitted → the active pane (⌘[ / ⌘]); the arrows pass their own. */
+  navigateBack: (paneIndex?: number) => void;
+  navigateForward: (paneIndex?: number) => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   setRightPane: (pane: RightPaneKind) => void;
@@ -225,7 +265,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             p.activeTabId === tabId
               ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
               : p.activeTabId;
-          return { ...p, tabs: remaining, activeTabId };
+          // Drop the closed tab from history too, else Back targets a dead entry.
+          return { ...p, tabs: remaining, activeTabId, ...syncedHistory(p, remaining, activeTabId) };
         });
         // a second pane that runs out of tabs disappears
         const kept = panes.filter((p, i) => i === 0 || p.tabs.length > 0);
@@ -357,31 +398,32 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           ),
         }),
 
-      // ⌘[ / ⌘] — walk the active pane's history, skipping closed tabs
-      navigateBack: () => {
+      // ⌘[ / ⌘] and the per-pane arrows — walk a pane's history, skipping tabs
+      // that have since been closed. paneIndex defaults to the active pane.
+      navigateBack: (paneIndex) => {
         const { panes, activePane } = get();
-        const p = panes[activePane];
-        let i = p.historyIndex - 1;
-        while (i >= 0 && !p.tabs.some((t) => t.id === p.history[i])) i--;
-        if (i < 0) return;
-        const idx = i;
+        const target = paneIndex ?? activePane;
+        const p = panes[target];
+        if (!p) return;
+        const idx = historyStep(p, -1);
+        if (idx === null) return;
         set({
           panes: panes.map((pane, j) =>
-            j === activePane ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
+            j === target ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
           ),
         });
       },
 
-      navigateForward: () => {
+      navigateForward: (paneIndex) => {
         const { panes, activePane } = get();
-        const p = panes[activePane];
-        let i = p.historyIndex + 1;
-        while (i < p.history.length && !p.tabs.some((t) => t.id === p.history[i])) i++;
-        if (i >= p.history.length) return;
-        const idx = i;
+        const target = paneIndex ?? activePane;
+        const p = panes[target];
+        if (!p) return;
+        const idx = historyStep(p, 1);
+        if (idx === null) return;
         set({
           panes: panes.map((pane, j) =>
-            j === activePane ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
+            j === target ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
           ),
         });
       },

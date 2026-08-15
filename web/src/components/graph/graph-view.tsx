@@ -894,6 +894,22 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     });
     const animateEnter = !isFirst && restored && addedPoints.length > 0 && addedPoints.length <= 8;
 
+    // A graph whose WebGL context never initialised (browsers cap live contexts,
+    // and every pane/side-panel graph holds one) has no internal store — touching
+    // it throws and would take the whole workspace down with it. Degrade to an
+    // empty canvas instead, and allow a retry on the next data change.
+    try {
+      applyToEngine(graph, filtered);
+    } catch (err) {
+      console.warn("graph: engine unavailable, skipping frame", err);
+      appliedSigRef.current = "";
+      return;
+    }
+
+    function applyToEngine(
+      graph: CosmosGraph,
+      filtered: { nodes: GraphNode[]; edges: [number, number][] },
+    ) {
     graph.setPointPositions(positions, true);
     if (animateEnter) {
       // seed the added indices invisible; runEnterAnimation ramps them up
@@ -979,6 +995,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
         label.overlay.appendChild(el);
         label.els.set(i, el);
       }
+    }
     }
 
     framesSinceApplyRef.current = 0;
