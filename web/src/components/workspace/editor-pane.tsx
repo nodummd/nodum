@@ -10,6 +10,7 @@ import { Bookmark, BookOpen, Code2, Pencil } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
+import { AttachmentPreview, isAttachmentTarget } from "@/components/editor/attachment-preview";
 import { PagePreview, usePagePreview } from "@/components/editor/page-preview";
 import { ShareButton } from "./share-button";
 import { VersionHistoryDialog } from "./version-history";
@@ -281,7 +282,19 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           )}
         </div>
       </div>
-      {preview.anchor && <PagePreview vaultId={vaultId} anchor={preview.anchor} />}
+      {preview.anchor &&
+        (isAttachmentTarget(preview.anchor.target) ? (
+          <AttachmentPreview
+            vaultId={vaultId}
+            target={preview.anchor.target}
+            x={preview.anchor.x}
+            y={preview.anchor.y}
+            onEnter={preview.cancelClose}
+            onLeave={preview.scheduleClose}
+          />
+        ) : (
+          <PagePreview vaultId={vaultId} anchor={preview.anchor} />
+        ))}
       <VersionHistoryDialog
         vaultId={vaultId}
         noteId={note.id}
