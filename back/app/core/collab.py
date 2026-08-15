@@ -23,6 +23,7 @@ import uuid
 from typing import Any
 from uuid import UUID
 
+from anyio import Event
 from pycrdt import Doc, Text
 from pycrdt.websocket import WebsocketServer, YRoom
 
@@ -255,7 +256,13 @@ class CollabServer(WebsocketServer):
     # ── App lifecycle ────────────────────────────────────────────────────────
 
     async def startup(self) -> None:
-        # start() runs the server's task group until stopped — background it
+        # WebsocketServer.stop() latches its stopped/started events and never
+        # clears them, so a second startup() would return a server whose task
+        # group is already unwinding — every room then fails to start with
+        # "task group is not active". Reset them so the lifespan is repeatable
+        # (uvicorn --reload, and any test that starts the server twice).
+        self._stopped = Event()
+        self._started = None
         self._server_task = asyncio.create_task(self.start())
         await self.started.wait()
         self._persist_task = asyncio.create_task(self._persist_loop())

@@ -223,6 +223,51 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15** — Editor menus, breadcrumb, reveal-on-navigate; three
+  data-integrity bugs fixed underneath them.
+  - *Right-click menu in the editor*: Format (bold/italic/underline/
+    strikethrough/highlight/sup/sub/code/clear), Text colour + Highlight
+    colour palettes, Paragraph H1–H6, Lists (+indent/outdent/checkbox),
+    Insert (link/wikilink/embed/tag/table/rule/footnote/math/mermaid/
+    date/time), 13 callout types, Table row/column/align/sort/format, line
+    sort & dedupe, Properties, Find. Underline and colour emit inline HTML —
+    markdown has no syntax for either, and that is what Obsidian emits too.
+    Right-clicking moves the caret to the pointer (unless inside a
+    selection) and works on rendered block widgets, so table commands are
+    reachable from a table you can see. Fixed three latent `toggleWrap`
+    bugs the menu made trivially reachable: selecting the markers
+    double-wrapped (`****bold****`), italic inside bold stole a star and
+    demoted it, and wrapping a select-all range swallowed the newline.
+  - *Note ⋯ menu* (top right): backlinks in document, reading/source view,
+    split right/down, open in new window, rename, move file to…, bookmark,
+    merge entire file with…, add file property, export to PDF, find,
+    replace, copy path, version history, linked view, reveal in navigation,
+    delete. Reveal-in-Finder / open-in-default-app stay omitted (desktop).
+  - *Breadcrumb* centred above the editor: folder crumbs reveal that folder
+    in the explorer; the last crumb renames the note in place.
+  - *Reveal on navigate*: opening a note by ANY route (wikilink, graph,
+    palette, backlink) expands its folders and scrolls the explorer row into
+    view. Driven by a store subscription so the state update happens in an
+    event, not during render.
+  - **Collab was broken, silently.** Yjs updates fanned out over
+    `redis_control`, which has `decode_responses=True` — every binary update
+    raised `'utf-8' codec can't decode byte 0x9e` and killed the
+    subscription. Worse, a room seeded before a REST save kept serving the
+    OLD body to every client that connected and would persist it back over
+    the save: the note reverted. Rooms now adopt REST writes
+    (`collab_server.sync_room`, cross-worker over `collab-reset:{room}`), and
+    `CollabServer` is restartable (`stop()` latched its events, so a second
+    `startup()` returned a server whose rooms could never start).
+  - **Concurrent refresh logged users out.** The refresh grace marker was
+    published AFTER the rotation committed; in between, the old JTI existed
+    in neither the session table nor Redis, so a racing refresh tripped the
+    stolen-token defence and invalidated every session for that user. This
+    was also the cause of the e2e suite's chronic flakiness — after the fix
+    the editor/note-menu suites went from 4 flaky in 2.7min to 0 in 35s.
+  - e2e: `editor-context-menu.spec.ts` (9) and `note-menu.spec.ts` (7);
+    backend regression tests for the grace ordering and for a REST save
+    surviving a live room. 93 e2e + 90 backend green.
+
 - **2026-08-14 (post-v3.2.0)** — Two user-reported gaps fixed: (1) there
   was NO visible settings entry point — added an Obsidian-style Settings
   gear to the left ribbon (above Log out) + a gear in the mobile top bar
