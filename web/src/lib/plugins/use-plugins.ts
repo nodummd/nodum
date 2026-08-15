@@ -3,17 +3,25 @@
 /** Runs the vault's enabled plugins and exposes their commands to the app. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { vaultApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
 
 import { PluginHost } from "./host";
-import type { InstalledPlugin, PluginCommand } from "./types";
+import { usePluginCommandStore } from "./command-store";
+import type { InstalledPlugin } from "./types";
 
-export function usePlugins(vaultId: string) {
+/**
+ * @param run  Only ONE caller may run the host. The settings tab reads the
+ *   same registry to list and toggle plugins, and if it booted its own host
+ *   every plugin would run twice — two sandboxes, duplicated commands and
+ *   doubled RPC. The workspace owns the host; everyone else passes false.
+ */
+export function usePlugins(vaultId: string, { run = false }: { run?: boolean } = {}) {
   const queryClient = useQueryClient();
-  const [commands, setCommands] = useState<PluginCommand[]>([]);
+  const commands = usePluginCommandStore((s) => s.commands);
+  const setCommands = usePluginCommandStore((s) => s.setCommands);
   const hostRef = useRef<PluginHost | null>(null);
 
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
@@ -39,6 +47,7 @@ export function usePlugins(vaultId: string) {
     plugins.filter((p) => p.enabled).map((p) => [p.manifest.id, p.manifest.version, p.code.length]),
   );
   useEffect(() => {
+    if (!run) return;
     const host = new PluginHost({
       vaultId,
       onCommandsChanged: setCommands,
@@ -54,7 +63,7 @@ export function usePlugins(vaultId: string) {
       hostRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vaultId, signature]);
+  }, [vaultId, signature, run]);
 
   const runCommand = useCallback((pluginId: string, commandId: string) => {
     hostRef.current?.runCommand(pluginId, commandId);
