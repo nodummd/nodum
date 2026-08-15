@@ -77,18 +77,29 @@ export function createCollabSession(
   // "status" fires solely from inside `if (provider.wsconnected)`, which never
   // becomes true when the upgrade itself is refused.
   let rejections = 0;
+  // provider.disconnect() SYNCHRONOUSLY emits "connection-close" again, so
+  // calling it from inside this handler re-enters it and blows the stack
+  // ("Maximum call stack size exceeded"). This latch makes giving up a
+  // one-way door: once set, the handler is inert.
+  let givenUp = false;
   provider.on("connection-close", () => {
-    void (async () => {
-      rejections += 1;
-      // Give up rather than hammer the server with a token it keeps refusing.
-      if (rejections > 5) {
+    if (givenUp) return;
+    rejections += 1;
+    // Give up rather than hammer the server with a token it keeps refusing.
+    if (rejections > 5) {
+      givenUp = true;
+      // Defer out of the event's own call stack before touching the provider.
+      setTimeout(() => {
         provider.disconnect();
         if (onStale) onStale();
-        return;
-      }
+      }, 0);
+      return;
+    }
+    void (async () => {
       if (await refreshAccessToken()) {
         const fresh = getAccessToken();
-        if (fresh) provider.params.token = fresh; // read by the next retry
+        // A late refresh must not resurrect a provider we already gave up on.
+        if (fresh && !givenUp) provider.params.token = fresh;
       }
     })();
   });
