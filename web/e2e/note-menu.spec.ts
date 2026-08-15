@@ -373,6 +373,60 @@ test.describe("note menu", () => {
     await expect(explorer.getByText("Filed note", { exact: true })).toBeVisible();
   });
 
+
+  test("reveal scrolls the virtualized row into view", async ({ page }) => {
+    await signupFreshUser(page, "reveal-scroll");
+    // A tree tall enough that the target cannot already be on screen, and long
+    // enough that virtualisation has dropped its row from the DOM entirely.
+    await page.evaluate(async () => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const vaults = await (await fetch("/api/v1/vaults", { headers })).json();
+      const vaultId = vaults.data[0].id;
+      for (let i = 0; i < 60; i++) {
+        await fetch(`/api/v1/vaults/${vaultId}/notes`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ title: `Filler ${String(i).padStart(2, "0")}`, content: "x" }),
+        });
+      }
+      await fetch(`/api/v1/vaults/${vaultId}/notes`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ title: "ZZZ last note", content: "target" }),
+      });
+    });
+    await page.reload();
+    await openNoteFromExplorer(page, "Filler 00");
+
+    const scroller = page.locator("[role='tree'] >> css=div").filter({ has: page.locator("[data-note-id]") }).last();
+    await scroller.evaluate((el) => {
+      const s = el.closest("div[class*='overflow-y-auto']") ?? el;
+      s.scrollTop = 0;
+    });
+
+    // The target is far below the fold — virtualisation has not rendered it.
+    await expect(page.locator('[data-note-id]:has-text("ZZZ last note")')).toHaveCount(0);
+
+    await page.keyboard.press("ControlOrMeta+o");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder(/find or create/i).fill("ZZZ last note");
+    await dialog.getByText("ZZZ last note", { exact: true }).first().click();
+
+    const row = page.locator("[data-note-id][data-active]");
+    await expect(row).toHaveText(/ZZZ last note/);
+    // Rendered AND within the scroll viewport, not merely present in the DOM.
+    const inView = await row.evaluate((el) => {
+      const scrollBox = el.closest("div[class*='overflow-y-auto']");
+      if (!scrollBox) return false;
+      const r = el.getBoundingClientRect();
+      const s = scrollBox.getBoundingClientRect();
+      return r.top >= s.top - 1 && r.bottom <= s.bottom + 1;
+    });
+    expect(inView).toBe(true);
+  });
+
   test("move file to relocates the note", async ({ page }) => {
     await signupFreshUser(page, "notemenu-move");
     await createInFolder(page, "Inbox", "Wandering note", "content\n");
