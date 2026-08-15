@@ -100,3 +100,43 @@ test.describe("inline HTML", () => {
     }
   });
 });
+  test("clicking into the line does NOT reveal the tags — only source mode does", async ({
+    page,
+  }) => {
+    // The reported bug: clicking the line to edit it replaced the styled text
+    // with a wall of markup. `**` is two characters and reveals harmlessly;
+    // `<span style="color:#e93147">` is twenty-nine and reflows the sentence.
+    await open(
+      page,
+      "ihtml-reveal",
+      'Keeping hot data <u>close</u> to cut latency — <span style="color:#e93147">and the hard problem</span> of invalidation.\n',
+    );
+
+    const surface = editorSurface(page);
+    await surface.locator(".cm-line").first().click();
+
+    await expect(surface).not.toContainText("<u>");
+    await expect(surface).not.toContainText("<span style=");
+    await expect(surface.locator(".nodum-inline-html")).toHaveCount(2);
+
+    // Source mode is where the markup lives.
+    await page.getByRole("button", { name: "Source mode" }).click();
+    await expect(surface).toContainText('<span style="color:#e93147">');
+    await expect(surface).toContainText("<u>close</u>");
+  });
+
+  test("a hidden tag is atomic — one Backspace cannot half-delete it", async ({ page }) => {
+    await open(page, "ihtml-atomic", "before <u>word</u> after\n");
+    const surface = editorSurface(page);
+    await surface.locator(".cm-line").first().click();
+    await page.keyboard.press("End");
+    // Walk back over " after" and into the closing tag's position.
+    for (let i = 0; i < 6; i++) await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Backspace");
+
+    await page.getByRole("button", { name: "Source mode" }).click();
+    const text = await surface.innerText();
+    // Whatever was removed, we must never be left with a broken tag on screen.
+    expect(text).not.toMatch(/<\/u(?!>)/);
+    expect(text).not.toMatch(/<u(?![>])/);
+  });

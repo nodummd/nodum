@@ -25,7 +25,13 @@ import { renderMathHTML } from "./math";
 /** Inline HTML the formatting menu emits — see lib/editor/inline-html.ts. The
  *  markdown parser leaves these as plain text, so they are found by scanning the
  *  visible text rather than by walking the syntax tree. */
-function inlineHtmlDecorations(state: EditorState, from: number, to: number): Range<Decoration>[] {
+function inlineHtmlDecorations(
+  state: EditorState,
+  from: number,
+  to: number,
+  /** Hidden tag ranges are pushed here as well, to be registered atomic. */
+  tagRanges: Range<Decoration>[],
+): Range<Decoration>[] {
   const out: Range<Decoration>[] = [];
   const text = state.sliceDoc(from, to);
   for (const span of findInlineHtmlSpans(text)) {
@@ -33,15 +39,21 @@ function inlineHtmlDecorations(state: EditorState, from: number, to: number): Ra
     const openTo = from + span.openTo;
     const closeFrom = from + span.closeFrom;
     const closeTo = from + span.closeTo;
-    // Touching the span reveals its source, exactly like every other marker
-    // here — you cannot edit a tag you cannot see.
-    if (selectionTouches(state, openFrom, closeTo)) continue;
+    // NOT revealed on selection touch, unlike the markdown markers around it.
+    // `**` is two characters; `<span style="color:#e93147">` is twenty-nine, and
+    // revealing it reflows the line into a wall of code the moment you click in
+    // to edit. Source mode is where the markup belongs.
     if (closeFrom <= openTo) continue; // empty span: nothing to style
     const attributes: Record<string, string> = { class: `${INLINE_HTML_CLASS} nodum-inline-${span.tag}` };
     if (span.style) attributes.style = span.style;
     out.push(hideMark.range(openFrom, openTo));
     out.push(Decoration.mark({ attributes }).range(openTo, closeFrom));
     out.push(hideMark.range(closeFrom, closeTo));
+    // Atomic: the caret steps over a hidden tag rather than into it, and a
+    // single Backspace cannot shave one character off `</u>` and leave `</u`
+    // sitting visibly in the sentence.
+    tagRanges.push(hideMark.range(openFrom, openTo));
+    tagRanges.push(hideMark.range(closeFrom, closeTo));
   }
   return out;
 }
@@ -172,13 +184,17 @@ class CalloutHeaderWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView, vaultId: string | null): DecorationSet {
+function buildDecorations(
+  view: EditorView,
+  vaultId: string | null,
+  tagRanges: Range<Decoration>[] = [],
+): DecorationSet {
   const { state } = view;
   const decorations: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
 
   for (const { from, to } of view.visibleRanges) {
-    decorations.push(...inlineHtmlDecorations(state, from, to));
+    decorations.push(...inlineHtmlDecorations(state, from, to, tagRanges));
     tree.iterate({
       from,
       to,
@@ -448,19 +464,25 @@ export interface LivePreviewCallbacks {
 
 export function livePreview(callbacks: LivePreviewCallbacks = {}) {
   const vaultId = callbacks.vaultId ?? null;
-  return ViewPlugin.fromClass(
+  const plugin = ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      /** Hidden inline-HTML tags, registered atomic below. */
+      atomicTags: DecorationSet;
 
       constructor(view: EditorView) {
-        this.decorations = buildDecorations(view, vaultId);
+        const tags: Range<Decoration>[] = [];
+        this.decorations = buildDecorations(view, vaultId, tags);
+        this.atomicTags = Decoration.set(tags, true);
       }
 
       update(update: ViewUpdate) {
         // IME + pointer-drag guards (research: the classic failure modes)
         if (update.transactions.some((tr) => tr.isUserEvent("input.type.compose"))) return;
         if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          this.decorations = buildDecorations(update.view, vaultId);
+          const tags: Range<Decoration>[] = [];
+          this.decorations = buildDecorations(update.view, vaultId, tags);
+          this.atomicTags = Decoration.set(tags, true);
         }
       }
     },
@@ -505,6 +527,12 @@ export function livePreview(callbacks: LivePreviewCallbacks = {}) {
       },
     },
   );
+
+  return [
+    plugin,
+    // Cursor motion and deletion treat each hidden tag as a single unit.
+    EditorView.atomicRanges.of((view) => view.plugin(plugin)?.atomicTags ?? Decoration.none),
+  ];
 }
 
 function selectionTouchesDOM(view: EditorView, el: HTMLElement): boolean {
