@@ -276,11 +276,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       closeOtherTabs: () => {
         const { panes, activePane } = get();
         set({
-          panes: panes.map((p, i) =>
-            i === activePane
-              ? { ...p, tabs: p.tabs.filter((t) => t.id === p.activeTabId || t.pinned) }
-              : p,
-          ),
+          panes: panes.map((p, i) => {
+            if (i !== activePane) return p;
+            const tabs = p.tabs.filter((t) => t.id === p.activeTabId || t.pinned);
+            // Prune history too, else Back stays enabled and goes nowhere.
+            return { ...p, tabs, ...syncedHistory(p, tabs, p.activeTabId) };
+          }),
         });
       },
 
@@ -468,7 +469,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               p.activeTabId === tabId
                 ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
                 : p.activeTabId;
-            return { ...p, tabs: remaining, activeTabId };
+            // The tab left this pane — drop it from this pane's history as well.
+            return { ...p, tabs: remaining, activeTabId, ...syncedHistory(p, remaining, activeTabId) };
           }
           if (i === toPaneIndex) {
             // Dedupe: the same note/graph/canvas may already be open here —

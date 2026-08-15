@@ -70,9 +70,17 @@ async function boot() {
     $("preview").value = page.selection || page.markdown;
 
     const vaults = await api(endpoint, token, "/vaults");
-    $("vault").innerHTML = vaults
-      .map((v) => `<option value="${v.id}">${v.name}</option>`)
-      .join("");
+    // Build options with the DOM API: vault names are user data, and this popup
+    // runs in the privileged extension origin that holds the clipper token.
+    const select = $("vault");
+    select.replaceChildren(
+      ...vaults.map((v) => {
+        const opt = document.createElement("option");
+        opt.value = v.id;
+        opt.textContent = v.name;
+        return opt;
+      }),
+    );
   } catch (err) {
     setStatus(status, err.message, "error");
     if (String(err.message).includes("401")) show("setup");

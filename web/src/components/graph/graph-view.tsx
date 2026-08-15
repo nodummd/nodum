@@ -1236,7 +1236,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
         <ForceSlider label="Center force" min={0} max={1} step={0.05} value={centerForce} onChange={setCenterDraft} />
         <ForceSlider label="Repel force" min={0.1} max={8} step={0.1} value={repelForce} onChange={setRepelDraft} />
         <ForceSlider label="Link force" min={0} max={2} step={0.1} value={linkForce} onChange={setLinkForceDraft} />
-        <ForceSlider label="Link distance" min={4} max={40} step={1} value={linkDistance} onChange={setDistDraft} />
+        <ForceSlider label="Link distance" min={10} max={140} step={2} value={linkDistance} onChange={setDistDraft} />
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Groups</p>
         {groups.map((g, i) => (

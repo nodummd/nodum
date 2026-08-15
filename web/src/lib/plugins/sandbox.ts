@@ -42,6 +42,10 @@ function bootstrapSource(manifest: PluginManifest, code: string): string {
   var handlers = new Map();
 
   window.addEventListener("message", function (e) {
+    // Only the host may drive this plugin. Without this check any window that
+    // can get a handle on this frame could invoke its commands or forge RPC
+    // responses to it — the host validates senders; the guest must too.
+    if (e.source !== parent) return;
     var msg = e.data;
     if (!msg || typeof msg !== "object") return;
     if (msg.nodum === "response") {
