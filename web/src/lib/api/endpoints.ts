@@ -137,6 +137,12 @@ export const searchApi = {
 
 // ── Bookmarks ────────────────────────────────────────────────────────────────
 
+export const clipperApi = {
+  status: () => api<{ configured: boolean }>(`/clipper/token`),
+  issue: () => apiJson<{ token: string }>(`/clipper/token`, "POST"),
+  revoke: () => apiJson<void>(`/clipper/token`, "DELETE"),
+};
+
 export const bookmarkApi = {
   list: (vaultId: string) =>
     api<{ note_id: string; title: string; path: string }[]>(`/vaults/${vaultId}/bookmarks`),

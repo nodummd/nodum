@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Clip to nodum</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; width: 340px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #1e1e1e; color: #dadada;
+      }
+      header { padding: 10px 12px; border-bottom: 1px solid #333; font-weight: 600; }
+      main { padding: 12px; display: grid; gap: 8px; }
+      label { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #888; }
+      input, select, textarea {
+        width: 100%; box-sizing: border-box; background: #262626; color: #dadada;
+        border: 1px solid #3a3a3a; border-radius: 4px; padding: 6px 8px; font: inherit;
+      }
+      input:focus, select:focus, textarea:focus { outline: none; border-color: #8a5cf5; }
+      button {
+        background: #8a5cf5; color: #fff; border: 0; border-radius: 4px;
+        padding: 8px 10px; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      button.secondary { background: #333; color: #dadada; font-weight: 400; }
+      button:disabled { opacity: .5; cursor: default; }
+      .row { display: flex; gap: 6px; }
+      .row > * { flex: 1; }
+      #status { font-size: 12px; color: #888; min-height: 16px; }
+      #status.error { color: #eb3b5a; }
+      #status.ok { color: #20bf6b; }
+      .hint { font-size: 11px; color: #777; }
+      section[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <header>Clip to nodum</header>
+
+    <!-- Shown until a token is saved -->
+    <section id="setup" hidden>
+      <main>
+        <label for="endpoint">Server</label>
+        <input id="endpoint" type="url" placeholder="http://localhost:8000" />
+        <label for="token">Clipper token</label>
+        <input id="token" type="password" placeholder="Paste from Settings → Web Clipper" />
+        <p class="hint">nodum → Settings → Web Clipper → Generate token.</p>
+        <button id="save">Connect</button>
+        <div id="setup-status"></div>
+      </main>
+    </section>
+
+    <section id="clip" hidden>
+      <main>
+        <label for="title">Title</label>
+        <input id="title" type="text" />
+        <label for="vault">Vault</label>
+        <select id="vault"></select>
+        <div class="row">
+          <div>
+            <label for="folder">Folder</label>
+            <input id="folder" type="text" value="Clippings" />
+          </div>
+          <div>
+            <label for="tags">Tags</label>
+            <input id="tags" type="text" placeholder="clipped, research" />
+          </div>
+        </div>
+        <label for="preview">Markdown preview</label>
+        <textarea id="preview" rows="7" spellcheck="false"></textarea>
+        <div class="row">
+          <button id="send">Save to nodum</button>
+          <button id="reset" class="secondary" title="Forget token">Sign out</button>
+        </div>
+        <div id="status"></div>
+      </main>
+    </section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
