@@ -8,7 +8,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowUpDown, ChevronDown, ChevronRight, FilePlus2, FolderPlus } from "lucide-react";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FilePlus2,
+  FolderPlus,
+} from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
@@ -484,6 +492,28 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     onError: (err) => toastError(err, "Could not delete folder."),
   });
 
+  /** Every folder id in the vault, so collapse-all reaches nested folders too
+   *  (the flattened rows only contain folders that are currently visible). */
+  const allFolderIds = useMemo(() => {
+    const ids: string[] = [];
+    const walk = (items: TreeItem[]) => {
+      for (const item of items) {
+        if (item.type === "folder") {
+          ids.push(item.id);
+          walk(item.children);
+        }
+      }
+    };
+    if (tree) walk(tree.items);
+    return ids;
+  }, [tree]);
+
+  const allCollapsed = allFolderIds.length > 0 && allFolderIds.every((id) => collapsed.has(id));
+
+  /** One button that collapses everything, then expands everything back. */
+  const toggleAll = () =>
+    setCollapsed(allCollapsed ? new Set() : new Set(allFolderIds));
+
   const toggleFolder = (id: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -563,6 +593,21 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <button
+          type="button"
+          aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+          title={allCollapsed ? "Expand all" : "Collapse all"}
+          onClick={toggleAll}
+          disabled={allFolderIds.length === 0}
+          className="ml-auto flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          {allCollapsed ? (
+            <ChevronsUpDown className="size-4" strokeWidth={1.75} />
+          ) : (
+            <ChevronsDownUp className="size-4" strokeWidth={1.75} />
+          )}
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-2 pb-4">

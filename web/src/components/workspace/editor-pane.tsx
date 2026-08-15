@@ -119,6 +119,20 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // gate on the flag so a just-disabled vault never reuses a destroyed session
   const activeCollab = collabEnabled ? syncedSession : null;
 
+  // If the collab socket never syncs (server down, rejected handshake, flaky
+  // network) we must NOT leave the user staring at "Connecting…" with no way to
+  // type. Give it a few seconds, then fall back to the ordinary local editor —
+  // a note that saves over REST beats a note you cannot edit at all.
+  // Only ever latches true (EditorBody is keyed by note id, so it resets when
+  // you switch notes). Once collab does sync, activeCollab wins regardless.
+  const [collabTimedOut, setCollabTimedOut] = useState(false);
+  useEffect(() => {
+    if (!collabEnabled || activeCollab) return;
+    const timer = setTimeout(() => setCollabTimedOut(true), 4000);
+    return () => clearTimeout(timer);
+  }, [collabEnabled, activeCollab, collabEpoch]);
+  const waitingForCollab = collabEnabled && !activeCollab && !collabTimedOut;
+
   const save = useMutation({
     mutationFn: (content: string) =>
       noteApi.saveContent(vaultId, note.id, content, baseUpdatedAt.current),
@@ -265,7 +279,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           />
           {mode === "reading" ? (
             <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
-          ) : collabEnabled && !activeCollab ? (
+          ) : waitingForCollab ? (
             <p className="pt-2 text-[13px] text-ob-faint">Connecting live session…</p>
           ) : (
             <MarkdownEditor
