@@ -316,6 +316,63 @@ test.describe("note menu", () => {
     ).toHaveCount(0);
   });
 
+
+  test("reveal follows the quick switcher", async ({ page }) => {
+    await signupFreshUser(page, "reveal-switcher");
+    await createInFolder(page, "Vault", "Switcher target", "x\n");
+    await createInFolder(page, "Start", "Starting point", "y\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Starting point");
+    await page.getByRole("button", { name: /Collapse all|Expand all/ }).click();
+    await expect(page.locator("[data-note-id][data-active]")).toHaveCount(0);
+
+    await page.keyboard.press("ControlOrMeta+o");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder(/find or create/i).fill("Switcher target");
+    await dialog.getByText("Switcher target", { exact: true }).first().click();
+
+    await expect(page.locator("[data-note-id][data-active]")).toHaveText(/Switcher target/);
+  });
+
+  test("reveal follows back and forward", async ({ page }) => {
+    await signupFreshUser(page, "reveal-history");
+    await createInFolder(page, "Alpha", "First note", "x\n");
+    await createInFolder(page, "Beta", "Second note", "y\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "First note");
+    await openNoteFromExplorer(page, "Second note");
+    await page.getByRole("button", { name: /Collapse all|Expand all/ }).click();
+    await expect(page.locator("[data-note-id][data-active]")).toHaveCount(0);
+
+    await page.keyboard.press("ControlOrMeta+[");
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("First note");
+    await expect(page.locator("[data-note-id][data-active]")).toHaveText(/First note/);
+
+    await page.getByRole("button", { name: /Collapse all|Expand all/ }).click();
+    await page.keyboard.press("ControlOrMeta+]");
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Second note");
+    await expect(page.locator("[data-note-id][data-active]")).toHaveText(/Second note/);
+  });
+
+  test("a breadcrumb folder crumb opens that folder in the explorer", async ({ page }) => {
+    await signupFreshUser(page, "crumb-folder");
+    await createInFolder(page, "Cabinet", "Filed note", "x\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Filed note");
+    const explorer = page.getByRole("tree", { name: "File explorer" });
+    await page.getByRole("button", { name: /Collapse all|Expand all/ }).click();
+    await expect(explorer.getByText("Filed note", { exact: true })).toHaveCount(0);
+
+    await page
+      .getByRole("navigation", { name: "Note location" })
+      .getByRole("button", { name: "Cabinet" })
+      .click();
+
+    // The folder itself opens, not merely its ancestors — otherwise "reveal"
+    // scrolls to a closed folder and shows none of its contents.
+    await expect(explorer.getByText("Filed note", { exact: true })).toBeVisible();
+  });
+
   test("move file to relocates the note", async ({ page }) => {
     await signupFreshUser(page, "notemenu-move");
     await createInFolder(page, "Inbox", "Wandering note", "content\n");
