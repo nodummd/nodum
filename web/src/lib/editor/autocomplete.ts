@@ -1,6 +1,7 @@
 /** Autocomplete sources: [[wikilinks]] from note titles, #tags from the vault. */
 
 import type { CompletionContext, CompletionResult } from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
 
 import { noteApi, searchApi } from "@/lib/api/endpoints";
 import { listBlockIds } from "@/lib/editor/block-slice";
@@ -14,6 +15,26 @@ async function fetchNoteContent(vaultId: string, target: string): Promise<string
     if (!exact) return null;
     return (await noteApi.get(vaultId, exact.id)).content;
   }
+}
+
+/** Apply a completion inside `[[…]]`, closing the link exactly once.
+ *
+ *  closeBrackets auto-closes as soon as `[` is typed, so by the time a
+ *  completion runs the document usually already reads `[[query]]` with the
+ *  caret before the `]]`. Appending our own pair produced `[[target]]]]` —
+ *  which then rendered as a broken link with two stray brackets beside it.
+ *  Only close what is not already closed, and leave the caret after the link. */
+function applyInsideLink(text: string) {
+  return (view: EditorView, _completion: unknown, from: number, to: number) => {
+    const alreadyClosed = view.state.sliceDoc(to, to + 2) === "]]";
+    const insert = alreadyClosed ? text : `${text}]]`;
+    const caret = from + insert.length + (alreadyClosed ? 2 : 0);
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: caret },
+      userEvent: "input.complete",
+    });
+  };
 }
 
 export function wikiLinkCompletion(vaultId: string) {
@@ -34,7 +55,7 @@ export function wikiLinkCompletion(vaultId: string) {
         const options = listBlockIds(content)
           .filter((id) => !query || id.toLowerCase().startsWith(query))
           .slice(0, 12)
-          .map((id) => ({ label: `^${id}`, type: "text", apply: `^${id}]]` }));
+          .map((id) => ({ label: `^${id}`, type: "text", apply: applyInsideLink(`^${id}`) }));
         return options.length ? { from, options, filter: false } : null;
       }
       const query = frag.toLowerCase();
@@ -42,7 +63,7 @@ export function wikiLinkCompletion(vaultId: string) {
       const options = [...new Set(headings)]
         .filter((h) => !query || h.toLowerCase().includes(query))
         .slice(0, 12)
-        .map((h) => ({ label: h, type: "text", apply: `${h}]]` }));
+        .map((h) => ({ label: h, type: "text", apply: applyInsideLink(h) }));
       return options.length ? { from, options, filter: false } : null;
     }
 
@@ -59,7 +80,7 @@ export function wikiLinkCompletion(vaultId: string) {
         label: r.title,
         detail: r.path !== r.title ? r.path : undefined,
         type: "text",
-        apply: `${r.path === r.title ? r.title : r.path}]]`,
+        apply: applyInsideLink(r.path === r.title ? r.title : r.path),
       })),
       filter: false,
     };

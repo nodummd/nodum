@@ -313,6 +313,14 @@ function buildDecorations(
               // show only the alias: hide "target#heading|"
               const pipe = state.doc.sliceString(open, close).indexOf("|");
               if (pipe >= 0) decorations.push(hideMark.range(open, open + pipe + 1));
+            } else {
+              // A path-style target reads as the note, not the route to it:
+              // `[[Topics/Computer Science/Caching]]` shows "Caching". The
+              // folders stay in the SOURCE, where they disambiguate two notes
+              // of the same name — and putting the caret in the link reveals
+              // them again, so it can still be retargeted.
+              const slash = target.lastIndexOf("/");
+              if (slash >= 0) decorations.push(hideMark.range(open, open + slash + 1));
             }
           }
           return;
