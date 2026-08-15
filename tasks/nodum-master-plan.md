@@ -223,6 +223,24 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15 (later)** — Editor context menu now reports ACTIVE STATE.
+  Bold/Italic/Underline/Strikethrough/Highlight/Inline code, the six
+  heading levels and the list & quote toggles render as
+  `menuitemcheckbox` with `aria-checked`, so the state is exposed to
+  assistive tech and assertable in tests rather than just drawn.
+  Detection reads the syntax tree (`activeFormats`), because the caret
+  normally sits INSIDE `**bold**` and a marker-matching check would call
+  that unformatted. It resolves on BOTH sides of the caret and unions:
+  a `.cm-line` spans the full editor width, so clicking the empty space
+  right of `## Heading` leaves the caret at end-of-line with the heading
+  only on its left, and a one-way resolve called it plain text.
+  Verified live against the demo vault (bold run -> Bold checked;
+  `## Related` -> Heading 2 checked; bullet line -> Bullet list checked)
+  and covered by two new e2e cases. Autosave re-confirmed against
+  postgres, and a REST save was observed propagating into the open
+  editor with no reload — the `sync_room` fix working end to end.
+  95 e2e green.
+
 - **2026-08-15** — Editor menus, breadcrumb, reveal-on-navigate; three
   data-integrity bugs fixed underneath them.
   - *Right-click menu in the editor*: Format (bold/italic/underline/
