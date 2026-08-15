@@ -223,6 +223,36 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15 (audit)** — Went back over the note ⋯ menu and exercised
+  every entry instead of only checking that it rendered. Four were
+  broken and one was a data-loss path.
+  - *Find… and Replace… were the same command* (both `openSearchPanel`)
+    and neither left the caret in a field: Radix restores focus to the
+    trigger on close, landing AFTER our own `focus()`. They now claim
+    focus through `onCloseAutoFocus` and target their own input.
+  - *Add file property / Find / Replace did nothing in Reading view*,
+    which mounts no CodeMirror at all — live-looking items that weren't.
+    They switch to the editor and wait for it to mount.
+  - *Rename…* lost the same focus race.
+  - *Export to PDF…* had no print stylesheet, so it printed the
+    explorer, ribbon, tab strip and panels. Now scoped via
+    `@media print` + `data-print-root`, and it switches to Reading view
+    first because CodeMirror only builds lines near the viewport —
+    printing from the editor truncated long notes.
+  - **Merge left the open editor on the PRE-merge body.** The draft is
+    seeded once at mount and keyed by note id, so an API write never
+    reached it; the next keystroke would autosave the stale text back
+    over the merge. `EditorBody` now adopts externally-replaced content
+    via a query-cache subscription (guarded against unsaved keystrokes
+    and against collab, which has its own reset channel). This also
+    covers import and the clipper writing into an open note.
+  - Verified live: Replace → replace field focused, Find → search field;
+    Find from Reading view switches to Live preview and opens the panel;
+    print rules hide the explorer and show the note (measured via
+    computed visibility); Export calls print exactly once, in Reading
+    view; merge appears in the open editor immediately. Autosave
+    re-confirmed against postgres. 103 e2e green.
+
 - **2026-08-15 (later)** — Editor context menu now reports ACTIVE STATE.
   Bold/Italic/Underline/Strikethrough/Highlight/Inline code, the six
   heading levels and the list & quote toggles render as
