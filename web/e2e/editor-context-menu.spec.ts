@@ -151,7 +151,10 @@ test.describe("editor context menu", () => {
     expect(text.split("\n").filter((l) => l.trim().startsWith("|")).length).toBe(4);
 
     await page.getByRole("button", { name: "Live preview" }).click();
-    await editorSurface(page).locator(".cm-line").first().click({ button: "right" });
+    // Right-click the TABLE again, not a .cm-line: a table no longer reverts to
+    // raw source lines when the selection touches it — it stays an editable
+    // widget, which is the point of the feature.
+    await editorSurface(page).locator(".cm-table-widget").click({ button: "right" });
     menu = page.getByRole("menu").first();
     await menu.getByRole("menuitem", { name: "Table", exact: true }).click();
     await page.getByRole("menu").last().getByRole("menuitem", { name: /^Insert column right/ }).click();

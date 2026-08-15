@@ -105,3 +105,14 @@ export function alignSpec(a: Align, width: number): string {
   if (a === "left") return `:${"-".repeat(dashes - 1)}`;
   return "-".repeat(dashes);
 }
+
+/** Minimal inline markdown for a table cell — bold, italic, code, strike.
+ *  Escapes first, so cell text can never inject markup. */
+export function renderCellHTML(cell: string): string {
+  const escaped = cell.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return escaped
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/~~([^~]+)~~/g, "<del>$1</del>");
+}
