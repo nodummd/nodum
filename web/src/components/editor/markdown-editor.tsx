@@ -163,7 +163,7 @@ export function MarkdownEditor({
   };
 
   return (
-    <EditorContextMenu getView={() => viewRef.current} actions={menuActions}>
+    <EditorContextMenu getView={() => viewRef.current} vaultId={vaultId} actions={menuActions}>
       <div ref={containerRef} className="min-h-[60vh]" onContextMenu={syncCaretToPointer} />
     </EditorContextMenu>
   );

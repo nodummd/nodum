@@ -10,7 +10,15 @@
 
 import { openSearchPanel } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
+import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PickerDialog } from "@/components/workspace/picker-dialog";
+import { attachmentApi, vaultApi } from "@/lib/api/endpoints";
+import type { TreeItem } from "@/lib/api/types";
+import { toastError, useToastStore } from "@/lib/stores/toast-store";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 import {
   ContextMenu,
@@ -27,6 +35,11 @@ import {
 import {
   activeFormats,
   addFileProperty,
+  deleteSelection,
+  insertExternalLink,
+  insertTextAtSelection,
+  insertVaultLink,
+  toPlainText,
   CALLOUT_TYPES,
   clearFormatting,
   dedupeLines,
@@ -82,6 +95,48 @@ import {
 } from "@/lib/editor/table-commands";
 
 type Cmd = (view: EditorView) => boolean;
+
+/** Every note in the vault, with its full path, for the link picker. */
+function flattenNotes(items: TreeItem[], trail = ""): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  for (const item of items) {
+    const name = item.type === "folder" ? item.name : item.title;
+    const label = trail ? `${trail}/${name}` : name;
+    if (item.type === "folder") out.push(...flattenNotes(item.children, label));
+    else out.push({ id: item.title, label });
+  }
+  return out;
+}
+
+/** A one-field dialog — used for "Add external link". */
+function UrlDialog({ onSubmit, onClose }: { onSubmit: (url: string) => void; onClose: () => void }) {
+  const [url, setUrl] = useState("https://");
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[14px]">Add external link</DialogTitle>
+        </DialogHeader>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const trimmed = url.trim();
+            if (trimmed && trimmed !== "https://") onSubmit(trimmed);
+          }}
+        >
+          <input
+            autoFocus
+            value={url}
+            aria-label="Link URL"
+            onChange={(e) => setUrl(e.target.value)}
+            onFocus={(e) => e.currentTarget.setSelectionRange(url.length, url.length)}
+            className="h-8 w-full rounded border border-ob-border bg-ob-bg px-2 text-[13px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
+          />
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const EMPTY_ACTIVE: ActiveFormats = {
   bold: false,
@@ -171,14 +226,35 @@ export interface EditorContextMenuActions {
 
 export function EditorContextMenu({
   getView,
+  vaultId,
   actions,
   children,
 }: {
   /** The live editor. A getter, because the view is created after mount. */
   getView: () => EditorView | null;
+  vaultId: string;
   actions?: EditorContextMenuActions;
   children: ReactNode;
 }) {
+  const toast = useToastStore((s) => s.push);
+  const setLeftPane = useWorkspaceStore((s) => s.setLeftPane);
+  const setSearchSeed = useWorkspaceStore((s) => s.setSearchSeed);
+  const leftSidebarOpen = useWorkspaceStore((s) => s.leftSidebarOpen);
+  const toggleLeftSidebar = useWorkspaceStore((s) => s.toggleLeftSidebar);
+
+  /** "note" opens the vault picker, "url" the external-link dialog. */
+  const [linking, setLinking] = useState<"note" | "url" | null>(null);
+
+  const { data: tree } = useQuery({
+    queryKey: ["tree", vaultId],
+    queryFn: () => vaultApi.tree(vaultId),
+    enabled: linking === "note",
+  });
+  const { data: attachments } = useQuery({
+    queryKey: ["attachments", vaultId],
+    queryFn: () => attachmentApi.list(vaultId),
+    enabled: linking === "note",
+  });
   // Sampled when the menu opens: the editor's selection is what the commands
   // will act on, and reading it during render would be a live-state read.
   const [ctx, setCtx] = useState<{
@@ -210,13 +286,67 @@ export function EditorContextMenu({
     });
   };
 
+  /** Send the selected words to the sidebar search pane. */
+  const searchSelection = () => {
+    setLeftPane("search");
+    if (!leftSidebarOpen) toggleLeftSidebar();
+    setSearchSeed(ctx.selected.trim());
+  };
+
+  /** Clipboard reads can be refused by the browser — Chrome asks for
+   *  permission, Firefox declines outright — so failures are reported rather
+   *  than swallowed. ⌘V always works regardless. */
+  const paste = (plain: boolean) => async () => {
+    const view = getView();
+    if (!view) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      insertTextAtSelection(plain ? toPlainText(text) : text)(view);
+      view.focus();
+    } catch {
+      toast("The browser would not let the editor read the clipboard — use ⌘V.");
+    }
+  };
+
+  const copy = (cut: boolean) => async () => {
+    const view = getView();
+    if (!view || !ctx.selected) return;
+    try {
+      await navigator.clipboard.writeText(ctx.selected);
+      if (cut) deleteSelection(view);
+      view.focus();
+    } catch (e) {
+      toastError(e, "Could not write to the clipboard.");
+    }
+  };
+
+  const linkTargets = [
+    ...flattenNotes(tree?.items ?? []),
+    ...(attachments ?? []).map((a) => ({ id: a.filename, label: a.filename })),
+  ];
+
   // Nothing sampled yet (menu never opened): render everything unchecked.
   const f = ctx.formats ?? EMPTY_ACTIVE;
+  const word = ctx.selected.trim().replace(/\s+/g, " ");
+  const shortWord = word.length > 24 ? `${word.slice(0, 24)}…` : word;
 
   return (
     <ContextMenu onOpenChange={onOpenChange}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-60">
+        {/* 1 — what you do with the words you just selected. */}
+        <Item label="Add link" onSelect={() => setLinking("note")} />
+        <Item label="Add external link" onSelect={() => setLinking("url")} />
+        <Item
+          label={word ? `Search for “${shortWord}”` : "Search for…"}
+          disabled={!word}
+          onSelect={searchSelection}
+        />
+
+        <ContextMenuSeparator />
+
+        {/* 2 — formatting. */}
         <ContextMenuSub>
           <ContextMenuSubTrigger>Format</ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-56">
@@ -399,7 +529,6 @@ export function EditorContextMenu({
           />
         )}
 
-        <ContextMenuSeparator />
         <Item
           label="Find…"
           shortcut="⌘F"
@@ -408,6 +537,14 @@ export function EditorContextMenu({
             if (view) openSearchPanel(view);
           }}
         />
+
+        <ContextMenuSeparator />
+
+        {/* 3 — clipboard. */}
+        <Item label="Cut" shortcut="⌘X" disabled={!ctx.hasSelection} onSelect={() => void copy(true)()} />
+        <Item label="Copy" shortcut="⌘C" disabled={!ctx.hasSelection} onSelect={() => void copy(false)()} />
+        <Item label="Paste" shortcut="⌘V" onSelect={() => void paste(false)()} />
+        <Item label="Paste in plain text" shortcut="⌘⇧V" onSelect={() => void paste(true)()} />
         <ContextMenuItem
           onSelect={() => {
             const view = getView();
@@ -420,6 +557,34 @@ export function EditorContextMenu({
           <ContextMenuShortcut>⌘A</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
+
+      {linking === "note" && (
+        <PickerDialog
+          title="Link to a note or file"
+          items={linkTargets}
+          emptyLabel="Nothing to link to yet."
+          onPick={(id) => {
+            setLinking(null);
+            const view = getView();
+            if (!view || !id) return;
+            insertVaultLink(id)(view);
+            view.focus();
+          }}
+          onClose={() => setLinking(null)}
+        />
+      )}
+      {linking === "url" && (
+        <UrlDialog
+          onSubmit={(url) => {
+            setLinking(null);
+            const view = getView();
+            if (!view) return;
+            insertExternalLink(url)(view);
+            view.focus();
+          }}
+          onClose={() => setLinking(null)}
+        />
+      )}
     </ContextMenu>
   );
 }

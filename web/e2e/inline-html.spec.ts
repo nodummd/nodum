@@ -99,7 +99,7 @@ test.describe("inline HTML", () => {
       await expect(root).toContainText("<u>never closed");
     }
   });
-});
+
   test("clicking into the line does NOT reveal the tags — only source mode does", async ({
     page,
   }) => {
@@ -140,3 +140,4 @@ test.describe("inline HTML", () => {
     expect(text).not.toMatch(/<\/u(?!>)/);
     expect(text).not.toMatch(/<u(?![>])/);
   });
+});
