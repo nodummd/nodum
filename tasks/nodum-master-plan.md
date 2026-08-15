@@ -223,6 +223,33 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15 (scroll + retraction)** — Closed the last unverified half
+  of the reveal spec and retracted a speculative change.
+  - *"Scrolling the virtualized row into view" had never been checked* —
+    the assertions only required the row to be in the DOM. Verified live
+    in the demo vault: 5892px of tree against an 870px viewport, scrolled
+    to the top, reveal moved `scrollTop` to 3238 and put the row inside
+    the viewport. Now covered by an e2e that builds a tree tall enough for
+    virtualisation to have dropped the target row entirely, then asserts
+    its rect sits within the scroll container's. Confirmed the test FAILS
+    when `scrollToIndex` is removed, so it is not vacuous.
+  - **Reverted the quick-switcher Enter guard from the previous session.**
+    It was written from a code-reading hypothesis: that while the
+    debounced search is in flight nothing matches, so "Create …" becomes
+    the highlight and Enter creates a duplicate. Three attempts to
+    demonstrate it — through the UI, through synthetic events, and with
+    the debounce widened tenfold AND the guard removed — all showed Enter
+    opening the correct note and creating nothing. The reasoning was
+    wrong: for an empty debounced query the result set is the RECENTS
+    list, not `undefined`, so the exact-match test has real data and the
+    fallback chain never misfires. No change beats a speculative one.
+  - 119 e2e green; autosave re-confirmed against postgres.
+
+  All four mandate items (editor context menu with active state, note ⋯
+  menu, breadcrumb, reveal-on-navigate) are implemented, and every
+  command and route named in their specs has now been executed at least
+  once under test.
+
 - **2026-08-15 (command audit)** — Same treatment for items 1 and 4 that
   the ⋯ menu got: execute everything, don't trust that it renders.
   - *Eleven formatting commands had never been run* (strikethrough,
