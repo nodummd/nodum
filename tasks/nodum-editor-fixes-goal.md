@@ -113,7 +113,9 @@ and one user's work is gone on reload. Empty notes replicate fine (no seed, no
 gap), which is why this was never caught. The e2e passes only because CI runs a
 single worker (`.github/workflows/ci-e2e.yml:58`).
 
-**R1 — Redis pub/sub connection leak, reproduced.** `_subscribe` creates a
+**R1 — ✅ FIXED 2026-08-15 (`fc8428e`).** Redis pub/sub connection leak,
+reproduced against dev Redis (dies at cycle 20) and closed with a `finally:
+await pubsub.aclose()`. Regression test proved non-vacuous. Original writeup: `_subscribe` creates a
 `pubsub` (`collab.py:161-162`) and never closes it; `delete_room` only cancels
 the task. redis-py's `PubSub.__del__` does not return the connection to the pool,
 and `redis_binary` caps at `max_connections=20`. After 20 room opens per worker —
@@ -275,7 +277,12 @@ opens a new tab; arrows are present and working on note, graph and empty panes.
 
 ## P2-5 — "Table" in the right-click menu is greyed out and unclickable
 
-**Status:** verified, not started.
+**Status:** ✅ DONE 2026-08-15 (`0fe2434`). Table group ungated with "Insert
+table" first; the 13 table ops disable individually; sub-triggers gained the
+`data-disabled` tokens so every disabled submenu app-wide now greys honestly;
+`caretInTable` requires a delimiter row; `insertTable` appends instead of
+replacing the selection. Verified live and both new e2e cases fail when
+reverted.
 
 **Reproduction (live).** Right-click in ordinary prose: `Table` and
 `Sort & filter lines` report `disabled: true`. Inserting a table is only
@@ -352,8 +359,8 @@ Only after P0/P1 land. Check migrations, prod compose smoke, secrets, and the
 
 | # | Item | Effort | Why here |
 |---|------|--------|----------|
-| 0 | Disable collab on the demo vault | XS | It can lose work today |
-| 1 | P2-5 table menu + disabled styling | S | Cheap, fixes a visibly dead control app-wide |
+| 0 | ~~Disable collab on the demo vault~~ → fixed the leak instead (`fc8428e`) | S | ✅ Root cause removed rather than masked |
+| 1 | ~~P2-5 table menu + disabled styling~~ (`0fe2434`) | S | ✅ Done |
 | 2 | P0-1 inline HTML | M | Worst user-visible defect; corrupts notes |
 | 3 | P1-3 undo/redo (stages A→C) | L | Core editing safety |
 | 4 | P1-4 link navigation + arrows | L | Daily friction; largest store change |
