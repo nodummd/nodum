@@ -103,6 +103,27 @@ export function attachmentUpload(vaultId: string) {
       return true;
     },
     drop(event, view) {
+      // A note dragged from the explorer links rather than uploads.
+      const noteJson = event.dataTransfer?.getData("application/x-nodum-note");
+      if (noteJson) {
+        event.preventDefault();
+        try {
+          const note = JSON.parse(noteJson) as { title: string };
+          const at =
+            view.posAtCoords({ x: event.clientX, y: event.clientY }) ??
+            view.state.selection.main.from;
+          const link = `[[${note.title}]]`;
+          view.dispatch({
+            changes: { from: at, insert: link },
+            selection: { anchor: at + link.length },
+          });
+          view.focus();
+        } catch {
+          /* malformed payload — nothing sensible to insert */
+        }
+        return true;
+      }
+
       const files = [...(event.dataTransfer?.files ?? [])];
       if (files.length === 0) return false;
       event.preventDefault();
@@ -112,8 +133,12 @@ export function attachmentUpload(vaultId: string) {
       return true;
     },
     dragover(event) {
-      // Without this the browser navigates away to the dropped file.
-      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+      // Without this the browser navigates away to the dropped file, and a
+      // dragged note would never produce a drop event at all.
+      const types = event.dataTransfer?.types ?? [];
+      if (types.includes("Files") || types.includes("application/x-nodum-note")) {
+        event.preventDefault();
+      }
       return false;
     },
   });
