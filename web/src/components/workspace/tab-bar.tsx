@@ -2,7 +2,8 @@
 
 /** Tab bar — Obsidian-style workspace tabs, one bar per editor pane. */
 
-import { GitFork, Pin, Plus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, GitFork, Pin, Plus, X } from "lucide-react";
+import { useState } from "react";
 
 import {
   ContextMenu,
@@ -11,7 +12,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { historyStep, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
 export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote: () => void }) {
@@ -24,26 +25,42 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
   const setDragging = useWorkspaceStore((s) => s.setDragging);
   const reorderTab = useWorkspaceStore((s) => s.reorderTab);
   const moveTabToPane = useWorkspaceStore((s) => s.moveTabToPane);
+  const dragging = useWorkspaceStore((s) => s.dragging);
+  // VS Code-style live insertion indicator: where the dragged tab will land.
+  const [caret, setCaret] = useState<{ index: number; x: number } | null>(null);
 
   if (!pane) return null;
 
-  // Drop onto the strip: reorder within this pane, or move a tab in from
-  // another pane. Insertion index = the tab whose midpoint the cursor passed.
+  // Last line of defence against a pane holding the same tab id twice: React
+  // would throw on the duplicate key. moveTabToPane and the persist `merge`
+  // both prevent it, but a corrupted layout from an older build could still
+  // reach here — dedupe at render so it can never crash.
+  const tabs = pane.tabs.filter((t, i, arr) => arr.findIndex((x) => x.id === t.id) === i);
+
+  // The tab boundary the cursor is nearest → insertion index + its x (for the
+  // caret), content-relative so it stays correct when the strip scrolls.
+  const caretFor = (strip: HTMLElement, clientX: number): { index: number; x: number } => {
+    const stripRect = strip.getBoundingClientRect();
+    const tabEls = [...strip.querySelectorAll('[role="tab"]')] as HTMLElement[];
+    for (let i = 0; i < tabEls.length; i++) {
+      const r = tabEls[i].getBoundingClientRect();
+      if (clientX < r.left + r.width / 2) {
+        return { index: i, x: r.left - stripRect.left + strip.scrollLeft };
+      }
+    }
+    const last = tabEls.at(-1);
+    return {
+      index: tabEls.length,
+      x: last ? last.getBoundingClientRect().right - stripRect.left + strip.scrollLeft : 4,
+    };
+  };
+
   const onStripDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const drag = useWorkspaceStore.getState().dragging;
+    setCaret(null);
     if (!drag) return;
-    const tabEls = [
-      ...(e.currentTarget as HTMLElement).querySelectorAll('[role="tab"]'),
-    ] as HTMLElement[];
-    let toIndex = tabEls.length;
-    for (let i = 0; i < tabEls.length; i++) {
-      const r = tabEls[i].getBoundingClientRect();
-      if (e.clientX < r.left + r.width / 2) {
-        toIndex = i;
-        break;
-      }
-    }
+    const toIndex = caretFor(e.currentTarget as HTMLElement, e.clientX).index;
     if (drag.fromPaneIndex === paneIndex) reorderTab(drag.tabId, paneIndex, toIndex);
     else moveTabToPane(drag.tabId, drag.fromPaneIndex, paneIndex, toIndex);
     setDragging(null);
@@ -55,14 +72,26 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
         if (!useWorkspaceStore.getState().dragging) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
+        setCaret(caretFor(e.currentTarget, e.clientX));
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setCaret(null);
       }}
       onDrop={onStripDrop}
       className={cn(
-        "flex h-9 shrink-0 items-stretch gap-px overflow-x-auto border-b bg-ob-sidebar-alt px-1 pt-1",
+        "relative flex h-9 shrink-0 items-stretch gap-px overflow-x-auto border-b bg-ob-sidebar-alt px-1 pt-1",
         isActivePane ? "border-ob-border" : "border-ob-border opacity-80",
       )}
     >
-      {pane.tabs.map((tab) => {
+      <NavArrows paneIndex={paneIndex} />
+      {caret && dragging && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-1 bottom-0 z-10 w-0.5 rounded-full bg-ob-accent"
+          style={{ left: caret.x - 1 }}
+        />
+      )}
+      {tabs.map((tab) => {
         const active = tab.id === pane.activeTabId;
         return (
           <ContextMenu key={tab.id}>
@@ -84,10 +113,11 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
                   if (e.button === 1) closeTab(tab.id, paneIndex);
                 }}
                 className={cn(
-                  "group flex min-w-0 max-w-52 flex-1 cursor-default items-center gap-1.5 rounded-t-md px-3 text-[13px] transition-colors duration-150",
+                  "group flex min-w-0 max-w-52 flex-1 cursor-grab items-center gap-1.5 rounded-t-md px-3 text-[13px] transition-[background-color,color,opacity] duration-150 active:cursor-grabbing",
                   active
                     ? "bg-ob-bg text-ob-text"
                     : "bg-transparent text-ob-faint hover:bg-ob-hover hover:text-ob-muted",
+                  dragging?.tabId === tab.id && "opacity-40",
                 )}
               >
                 {tab.kind === "graph" && (
@@ -142,6 +172,49 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
         className="mb-1 ml-1 flex w-8 shrink-0 items-center justify-center self-center rounded-md py-1 text-ob-faint hover:bg-ob-hover hover:text-ob-text"
       >
         <Plus className="size-4" strokeWidth={1.75} />
+      </button>
+    </div>
+  );
+}
+
+/** Obsidian's per-pane history arrows, at the left of the tab strip. Lives here
+ *  rather than in the editor toolbar so it is present for EVERY view (notes,
+ *  graph, canvas). Reachability uses the same helper the store navigates with,
+ *  so a disabled arrow always means "nowhere to go" (closed tabs are skipped). */
+function NavArrows({ paneIndex }: { paneIndex: number }) {
+  const pane = useWorkspaceStore((s) => s.panes[paneIndex]);
+  const navigateBack = useWorkspaceStore((s) => s.navigateBack);
+  const navigateForward = useWorkspaceStore((s) => s.navigateForward);
+  const canBack = pane ? historyStep(pane, -1) !== null : false;
+  const canForward = pane ? historyStep(pane, 1) !== null : false;
+
+  const cls = (enabled: boolean) =>
+    cn(
+      "flex size-6 shrink-0 items-center justify-center self-center rounded transition-colors",
+      enabled ? "text-ob-muted hover:bg-ob-hover hover:text-ob-text" : "text-ob-faint/40",
+    );
+
+  return (
+    <div className="mr-1 flex shrink-0 items-center gap-0.5 self-center">
+      <button
+        type="button"
+        aria-label="Navigate back (⌘[)"
+        title="Back (⌘[)"
+        disabled={!canBack}
+        onClick={() => navigateBack(paneIndex)}
+        className={cls(canBack)}
+      >
+        <ArrowLeft className="size-3.5" strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        aria-label="Navigate forward (⌘])"
+        title="Forward (⌘])"
+        disabled={!canForward}
+        onClick={() => navigateForward(paneIndex)}
+        className={cls(canForward)}
+      >
+        <ArrowRight className="size-3.5" strokeWidth={1.75} />
       </button>
     </div>
   );

@@ -16,6 +16,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -25,11 +28,17 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { confirmDelete } from "./confirm-dialog";
-import { folderApi, noteApi, vaultApi } from "@/lib/api/endpoints";
+import { bookmarkApi, folderApi, noteApi, searchApi, vaultApi } from "@/lib/api/endpoints";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
-import type { TreeItem } from "@/lib/api/types";
-import { toastError } from "@/lib/stores/toast-store";
+import type { TreeItem, Vault } from "@/lib/api/types";
+import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { type ExplorerSort, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
@@ -43,9 +52,24 @@ interface ExplorerProps {
 }
 
 type FlatRow =
-  | { kind: "folder"; id: string; name: string; depth: number; collapsed: boolean }
-  | { kind: "note"; id: string; title: string; depth: number }
+  | { kind: "folder"; id: string; name: string; depth: number; collapsed: boolean; path: string; color?: string }
+  | { kind: "note"; id: string; title: string; depth: number; path: string; color?: string }
   | { kind: "create-input"; parentId: string | null; createKind: "note" | "folder"; depth: number };
+
+/** Obsidian-ish swatches for colouring files and folders. */
+const ITEM_COLORS = [
+  { name: "Red", value: "#eb3b5a" },
+  { name: "Orange", value: "#fa8231" },
+  { name: "Yellow", value: "#f7b731" },
+  { name: "Green", value: "#20bf6b" },
+  { name: "Teal", value: "#0fb9b1" },
+  { name: "Blue", value: "#2d98da" },
+  { name: "Purple", value: "#8854d0" },
+];
+
+/** Colours are stored per vault as a flat {itemId: hex} map (no migration
+ *  needed) — folders pass theirs down to descendants that set none. */
+type ColorMap = Record<string, string>;
 
 const SORT_LABELS: Record<ExplorerSort, string> = {
   "title-asc": "File name (A to Z)",
@@ -84,14 +108,22 @@ function flattenTree(
   sort: ExplorerSort,
   depth = 0,
   parentId: string | null = null,
+  colors: ColorMap = {},
+  inherited: string | undefined = undefined,
+  parentPath = "",
 ): FlatRow[] {
   const rows: FlatRow[] = [];
   for (const item of items) {
     if (item.type === "folder") {
       const isCollapsed = collapsed.has(item.id);
-      rows.push({ kind: "folder", id: item.id, name: item.name, depth, collapsed: isCollapsed });
+      // Own colour wins; otherwise keep carrying the nearest ancestor's down.
+      const color = colors[item.id] ?? inherited;
+      const path = parentPath ? `${parentPath}/${item.name}` : item.name;
+      rows.push({ kind: "folder", id: item.id, name: item.name, depth, collapsed: isCollapsed, path, color });
       if (!isCollapsed) {
-        rows.push(...flattenTree(item.children, collapsed, creating, sort, depth + 1, item.id));
+        rows.push(
+          ...flattenTree(item.children, collapsed, creating, sort, depth + 1, item.id, colors, color, path),
+        );
       }
     }
   }
@@ -105,9 +137,160 @@ function flattenTree(
   }
   const noteItems = items.filter((i): i is Extract<TreeItem, { type: "note" }> => i.type === "note");
   for (const item of sortNotes(noteItems, sort)) {
-    rows.push({ kind: "note", id: item.id, title: item.title, depth });
+    rows.push({
+      kind: "note",
+      id: item.id,
+      title: item.title,
+      depth,
+      path: parentPath ? `${parentPath}/${item.title}` : item.title,
+      color: colors[item.id] ?? inherited,
+    });
   }
   return rows;
+}
+
+/** Brief confirmation notice (the store's push defaults to the error style). */
+function toast(message: string) {
+  useToastStore.getState().push(message, "info");
+}
+
+/** Copy a vault-relative path; clipboard access can be denied, so report it. */
+async function copyPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path);
+    toast("Path copied");
+  } catch {
+    toastError(null, "Could not copy path.");
+  }
+}
+
+/** Colour swatches + "None", shared by the file and folder menus. */
+function ColorSubmenu({
+  current,
+  onPick,
+}: {
+  current?: string;
+  onPick: (color: string | null) => void;
+}) {
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>Colour</ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-40">
+        {ITEM_COLORS.map((c) => (
+          <ContextMenuItem key={c.value} onClick={() => onPick(c.value)}>
+            <span
+              aria-hidden
+              className="mr-2 size-3 shrink-0 rounded-full"
+              style={{ backgroundColor: c.value }}
+            />
+            {c.name}
+            {current === c.value && <span className="ml-auto text-ob-faint">✓</span>}
+          </ContextMenuItem>
+        ))}
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => onPick(null)}>None</ContextMenuItem>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
+/** Tags submenu: pick from the vault's existing tags or type a new one. Tags
+ *  are written to the note's frontmatter server-side, so prose is never edited. */
+function TagSubmenu({
+  vaultId,
+  onAdd,
+}: {
+  vaultId: string;
+  onAdd: (tag: string) => void;
+}) {
+  const { data: tags } = useQuery({
+    queryKey: ["tags", vaultId],
+    queryFn: () => searchApi.tags(vaultId),
+  });
+  const [draft, setDraft] = useState("");
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>Tags</ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-56">
+        <div className="p-1">
+          <input
+            value={draft}
+            placeholder="New tag + Enter"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter" && draft.trim()) {
+                onAdd(draft);
+                setDraft("");
+              }
+            }}
+            className="h-7 w-full rounded border border-ob-border bg-ob-bg px-2 text-[12px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto">
+          {(tags ?? []).slice(0, 60).map((t) => (
+            <ContextMenuItem key={t.name} onClick={() => onAdd(t.name)}>
+              <span className="truncate">#{t.name}</span>
+              <span className="ml-auto text-ob-faint">{t.count}</span>
+            </ContextMenuItem>
+          ))}
+          {(tags ?? []).length === 0 && (
+            <p className="px-2 py-1.5 text-[12px] text-ob-faint">No tags yet.</p>
+          )}
+        </div>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
+/** Searchable picker used by "Move file to…" (folders) and "Merge entire file
+ *  with…" (notes). Keeps both flows to one keyboard-friendly dialog. */
+function PickerDialog({
+  title,
+  items,
+  emptyLabel,
+  onPick,
+  onClose,
+}: {
+  title: string;
+  items: { id: string | null; label: string }[];
+  emptyLabel: string;
+  onPick: (id: string | null) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const filtered = items.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-[14px]">{title}</DialogTitle>
+        </DialogHeader>
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Type to filter…"
+          className="h-8 w-full rounded border border-ob-border bg-ob-bg px-2 text-[13px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
+        />
+        <div className="max-h-72 overflow-y-auto">
+          {filtered.length === 0 && (
+            <p className="px-2 py-3 text-[13px] text-ob-faint">{emptyLabel}</p>
+          )}
+          {filtered.map((i) => (
+            <button
+              key={i.id ?? "__root__"}
+              type="button"
+              onClick={() => onPick(i.id)}
+              className="block w-full truncate rounded px-2 py-1.5 text-left text-[13px] text-ob-muted hover:bg-ob-hover hover:text-ob-text"
+            >
+              {i.label}
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProps) {
@@ -128,6 +311,109 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   } | null>(null);
   const explorerSort = useWorkspaceStore((s) => s.explorerSort);
   const setExplorerSort = useWorkspaceStore((s) => s.setExplorerSort);
+  const openNoteBeside = useWorkspaceStore((s) => s.openNoteBeside);
+  const activePane = useWorkspaceStore((s) => s.activePane);
+  const setVersionsOpen = useWorkspaceStore((s) => s.setVersionsOpen);
+
+  // Item colours live on the vault (settings.itemColors) so they follow the
+  // vault across devices; a PATCH merges just that key.
+  const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
+  const itemColors = useMemo<ColorMap>(() => {
+    const v = vaults?.find((x) => x.id === vaultId);
+    return ((v?.settings as { itemColors?: ColorMap } | undefined)?.itemColors ?? {}) as ColorMap;
+  }, [vaults, vaultId]);
+  const saveColors = useMutation({
+    mutationFn: (next: ColorMap) => vaultApi.update(vaultId, { settings: { itemColors: next } }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["vaults"], (old: Vault[] | undefined) =>
+        old?.map((v) => (v.id === updated.id ? updated : v)),
+      );
+    },
+    onError: (e) => toastError(e, "Could not save colour."),
+  });
+  const setItemColor = (id: string, color: string | null) => {
+    const next = { ...itemColors };
+    if (color) next[id] = color;
+    else delete next[id];
+    saveColors.mutate(next);
+  };
+
+  // "Move file to…" / "Merge entire file with…" open a picker dialog.
+  const [moving, setMoving] = useState<{ noteId: string; title: string } | null>(null);
+  const [merging, setMerging] = useState<{ noteId: string; title: string } | null>(null);
+
+  const bookmark = useMutation({
+    mutationFn: (noteId: string) => bookmarkApi.add(vaultId, noteId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["bookmarks", vaultId] });
+      toast("Bookmarked");
+    },
+    onError: (e) => toastError(e, "Could not bookmark."),
+  });
+
+  const addTag = useMutation({
+    mutationFn: ({ noteId, tag }: { noteId: string; tag: string }) =>
+      noteApi.setTags(vaultId, noteId, { add: [tag] }),
+    onSuccess: (note) => {
+      void queryClient.invalidateQueries({ queryKey: ["tags", vaultId] });
+      void queryClient.invalidateQueries({ queryKey: ["note", vaultId, note.id] });
+      toast("Tag added");
+    },
+    onError: (e) => toastError(e, "Could not add tag."),
+  });
+
+  const duplicateNote = useMutation({
+    mutationFn: async (noteId: string) => {
+      const src = await noteApi.get(vaultId, noteId);
+      return noteApi.create(vaultId, {
+        title: `${src.title} 1`,
+        folder_id: src.folder_id ?? null,
+        content: src.content,
+      });
+    },
+    onSuccess: (created) => {
+      void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
+      void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
+      onOpenNote(created.id, created.title);
+    },
+    onError: (e) => toastError(e, "Could not duplicate note."),
+  });
+
+  // Move: repoint the note at another folder (null = vault root).
+  const moveNote = useMutation({
+    mutationFn: ({ noteId, folderId }: { noteId: string; folderId: string | null }) =>
+      noteApi.rename(vaultId, noteId, folderId ? { folder_id: folderId } : { move_to_root: true }),
+    onSuccess: () => {
+      setMoving(null);
+      void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
+      toast("Moved");
+    },
+    onError: (e) => toastError(e, "Could not move note."),
+  });
+
+  // Merge: append the source's body to the target, then delete the source
+  // (Obsidian's semantics).
+  const mergeNote = useMutation({
+    mutationFn: async ({ sourceId, targetId }: { sourceId: string; targetId: string }) => {
+      const [source, target] = await Promise.all([
+        noteApi.get(vaultId, sourceId),
+        noteApi.get(vaultId, targetId),
+      ]);
+      const merged = `${target.content.trimEnd()}\n\n${source.content.trimStart()}`;
+      await noteApi.saveContent(vaultId, targetId, merged, target.updated_at);
+      await noteApi.remove(vaultId, sourceId);
+      return target;
+    },
+    onSuccess: (target) => {
+      setMerging(null);
+      void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
+      void queryClient.invalidateQueries({ queryKey: ["note", vaultId, target.id] });
+      void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
+      onOpenNote(target.id, target.title);
+      toast("Merged");
+    },
+    onError: (e) => toastError(e, "Could not merge notes."),
+  });
 
   const rows = useMemo(
     () =>
@@ -137,9 +423,12 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
             collapsed,
             creating ? { kind: creating.kind, parentId: creating.parentId } : null,
             explorerSort,
+            0,
+            null,
+            itemColors,
           )
         : [],
-    [tree, collapsed, creating, explorerSort],
+    [tree, collapsed, creating, explorerSort, itemColors],
   );
 
   const isMobile = useIsMobile();
@@ -317,7 +606,9 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                             onCancel={() => setRenaming(null)}
                           />
                         ) : (
-                          <span className="truncate font-medium">{row.name}</span>
+                          <span className="truncate font-medium" style={row.color ? { color: row.color } : undefined}>
+                            {row.name}
+                          </span>
                         )}
                       </div>
                     </ContextMenuTrigger>
@@ -337,6 +628,14 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                         }}
                       >
                         New folder
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ColorSubmenu
+                        current={itemColors[row.id]}
+                        onPick={(c) => setItemColor(row.id, c)}
+                      />
+                      <ContextMenuItem onClick={() => void copyPath(row.path)}>
+                        Copy path
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem
@@ -382,17 +681,69 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                             onCancel={() => setRenaming(null)}
                           />
                         ) : (
-                          <span className="truncate">{row.title}</span>
+                          <span className="truncate" style={row.color ? { color: row.color } : undefined}>
+                            {row.title}
+                          </span>
                         )}
                       </div>
                     </ContextMenuTrigger>
-                    <ContextMenuContent className="w-48">
+                    <ContextMenuContent className="w-56">
+                      <ContextMenuItem onClick={() => onOpenNote(row.id, row.title)}>
+                        Open in new tab
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() =>
+                          openNoteBeside({ id: row.id, kind: "note", title: row.title }, activePane)
+                        }
+                      >
+                        Open to the right
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() =>
+                          window.open(`/vault/${vaultId}?note=${row.id}`, "_blank", "noopener")
+                        }
+                      >
+                        Open in new window
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => duplicateNote.mutate(row.id)}>
+                        Duplicate
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => setMoving({ noteId: row.id, title: row.title })}>
+                        Move file to…
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => bookmark.mutate(row.id)}>
+                        Bookmark
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => setMerging({ noteId: row.id, title: row.title })}>
+                        Merge entire file with…
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <TagSubmenu
+                        vaultId={vaultId}
+                        onAdd={(tag) => addTag.mutate({ noteId: row.id, tag })}
+                      />
+                      <ColorSubmenu
+                        current={itemColors[row.id]}
+                        onPick={(c) => setItemColor(row.id, c)}
+                      />
+                      <ContextMenuItem onClick={() => void copyPath(row.path)}>
+                        Copy path
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => {
+                          onOpenNote(row.id, row.title);
+                          setVersionsOpen(true);
+                        }}
+                      >
+                        Open version history
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
                       <ContextMenuItem
                         onClick={() => setRenaming({ id: row.id, kind: "note", value: row.title })}
                       >
                         Rename…
                       </ContextMenuItem>
-                      <ContextMenuSeparator />
                       <ContextMenuItem
                         variant="destructive"
                         onClick={() =>
@@ -426,6 +777,37 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
           })}
         </div>
       </div>
+
+      {moving && (
+        <PickerDialog
+          title={`Move “${moving.title}” to…`}
+          emptyLabel="No folders match."
+          items={[
+            { id: null, label: "(vault root)" },
+            ...rows
+              .filter((r): r is Extract<FlatRow, { kind: "folder" }> => r.kind === "folder")
+              .map((r) => ({ id: r.id, label: r.path })),
+          ]}
+          onPick={(folderId) => moveNote.mutate({ noteId: moving.noteId, folderId })}
+          onClose={() => setMoving(null)}
+        />
+      )}
+      {merging && (
+        <PickerDialog
+          title={`Merge “${merging.title}” into…`}
+          emptyLabel="No other notes match."
+          items={rows
+            .filter(
+              (r): r is Extract<FlatRow, { kind: "note" }> =>
+                r.kind === "note" && r.id !== merging.noteId,
+            )
+            .map((r) => ({ id: r.id, label: r.path }))}
+          onPick={(targetId) =>
+            targetId && mergeNote.mutate({ sourceId: merging.noteId, targetId })
+          }
+          onClose={() => setMerging(null)}
+        />
+      )}
     </div>
   );
 }

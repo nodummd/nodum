@@ -8,11 +8,12 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { noteApi, searchApi } from "@/lib/api/endpoints";
 import { sliceFragment } from "@/lib/editor/block-slice";
 import { useUserPrefs } from "@/lib/hooks/use-editor-settings";
+import { isAttachmentTarget } from "./attachment-preview";
 import { ReadingView } from "./reading-view";
 
 export interface PreviewAnchor {
@@ -37,20 +38,38 @@ export function usePagePreview() {
   // "Require ⌘/Ctrl while hovering" (S11.3) — Obsidian's page-preview toggle
   const requireCmd = useUserPrefs().previewRequireCmd;
 
+  // Closing is deferred so the pointer can travel from the link into the card
+  // (needed to scroll a PDF preview); entering the card cancels the timer.
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  }, []);
+  const scheduleClose = useCallback(() => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setAnchor(null), 220);
+  }, [cancelClose]);
+
   const handlers = {
     onMouseOver: (e: React.MouseEvent) => {
-      if (requireCmd && !e.metaKey && !e.ctrlKey) return;
       const el = (e.target as HTMLElement).closest?.("[data-wikilink-target]");
       const target = el?.getAttribute("data-wikilink-target");
+      if (!target) return;
+      // Files preview on plain hover; notes honour the "require Cmd" pref.
+      if (requireCmd && !isAttachmentTarget(target) && !e.metaKey && !e.ctrlKey) return;
       const fragment = el?.getAttribute("data-wikilink-fragment") ?? null;
-      if (target) setAnchor({ target, fragment, x: e.clientX, y: e.clientY });
+      cancelClose();
+      setAnchor({ target, fragment, x: e.clientX, y: e.clientY });
     },
     onMouseOut: (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest?.("[data-wikilink-target]")) setAnchor(null);
+      if ((e.target as HTMLElement).closest?.("[data-wikilink-target]")) scheduleClose();
     },
-    onMouseDown: () => setAnchor(null),
+    onMouseDown: () => {
+      cancelClose();
+      setAnchor(null);
+    },
   };
-  return { anchor, handlers };
+  return { anchor, handlers, cancelClose, scheduleClose };
 }
 
 export function PagePreview({ vaultId, anchor }: { vaultId: string; anchor: PreviewAnchor }) {

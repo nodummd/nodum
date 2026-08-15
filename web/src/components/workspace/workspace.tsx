@@ -38,7 +38,7 @@ import { dailyApi, noteApi } from "@/lib/api/endpoints";
 import type { Vault } from "@/lib/api/types";
 import { api } from "@/lib/api/client";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
-import { Menu, PanelRight } from "lucide-react";
+import { Menu, PanelRight, Settings as SettingsIcon } from "lucide-react";
 
 import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
 import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
@@ -51,6 +51,9 @@ export function Workspace({ vault }: { vault: Vault }) {
   const panes = useWorkspaceStore((s) => s.panes);
   const activePane = useWorkspaceStore((s) => s.activePane);
   const openTab = useWorkspaceStore((s) => s.openTab);
+  const openNoteBeside = useWorkspaceStore((s) => s.openNoteBeside);
+  const setGraphFocus = useWorkspaceStore((s) => s.setGraphFocus);
+  const graphFocusNoteId = useWorkspaceStore((s) => s.graphFocusNoteId);
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
   const setSwitcherOpen = useWorkspaceStore((s) => s.setSwitcherOpen);
   const switcherOpen = useWorkspaceStore((s) => s.switcherOpen);
@@ -142,10 +145,12 @@ export function Workspace({ vault }: { vault: Vault }) {
   const openNote = useCallback(
     (noteId: string, title: string) => {
       openTab({ id: noteId, kind: "note", title });
+      // The open note is the one the graph accents as "selected".
+      setGraphFocus(noteId);
       setMobileLeftOpen(false);
       setMobileRightOpen(false);
     },
-    [openTab],
+    [openTab, setGraphFocus],
   );
 
   const openGraph = useCallback(() => {
@@ -325,6 +330,14 @@ export function Workspace({ vault }: { vault: Vault }) {
           </span>
           <button
             type="button"
+            aria-label="Settings"
+            onClick={() => setSettingsOpen(true)}
+            className="flex size-10 items-center justify-center rounded-md text-ob-muted hover:bg-ob-hover"
+          >
+            <SettingsIcon className="size-5" strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
             aria-label="Open panels"
             onClick={() => setMobileRightOpen(true)}
             className="flex size-10 items-center justify-center rounded-md text-ob-muted hover:bg-ob-hover"
@@ -335,7 +348,12 @@ export function Workspace({ vault }: { vault: Vault }) {
       )}
 
       {!isMobile && ribbonVisible && (
-        <Ribbon onNewNote={() => newNote.mutate()} onOpenGraph={openGraph} onOpenDailyNote={openDailyNote} />
+        <Ribbon
+          onNewNote={() => newNote.mutate()}
+          onOpenGraph={openGraph}
+          onOpenDailyNote={openDailyNote}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
       )}
       {!isMobile && (
         <SidebarLeft
@@ -382,7 +400,12 @@ export function Workspace({ vault }: { vault: Vault }) {
                 {paneTab?.kind === "graph" && (
                   <GraphView
                     vaultId={vault.id}
-                    onOpenNote={openNote}
+                    focusNoteId={graphFocusNoteId}
+                    // Clicking a node opens the note BESIDE the graph (graph
+                    // stays put) and marks that node selected.
+                    onOpenNote={(id, title) =>
+                      openNoteBeside({ id, kind: "note", title }, paneIndex)
+                    }
                     onCreateNote={createFromGraph}
                   />
                 )}

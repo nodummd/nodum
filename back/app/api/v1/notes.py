@@ -13,6 +13,7 @@ from app.schemas.vaults import (
     NoteMetaOut,
     NoteOut,
     NoteRenameRequest,
+    NoteTagsRequest,
 )
 from app.services import folder_service, note_service
 
@@ -56,6 +57,16 @@ async def update_note_content(
         await note_service.update_content(
             db, vault_id, user_id, note_id, content=body.content, base_updated_at=body.base_updated_at
         )
+    ).unwrap()
+    return {"data": NoteOut.model_validate(note).model_dump()}
+
+
+@router.patch("/{note_id}/tags")
+async def update_note_tags(
+    vault_id: UUID, note_id: UUID, body: NoteTagsRequest, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    note = (
+        await note_service.set_tags(db, vault_id, user_id, note_id, add=body.add, remove=body.remove)
     ).unwrap()
     return {"data": NoteOut.model_validate(note).model_dump()}
 

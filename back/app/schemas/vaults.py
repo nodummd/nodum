@@ -78,6 +78,13 @@ class NoteRenameRequest(BaseModel):
     move_to_root: bool = False
 
 
+class NoteTagsRequest(BaseModel):
+    """Add/remove frontmatter tags (leading '#' optional, case-insensitive)."""
+
+    add: list[str] = Field(default_factory=list, max_length=50)
+    remove: list[str] = Field(default_factory=list, max_length=50)
+
+
 class NoteMetaOut(BaseModel):
     """Note without content — for lists and tree responses."""
 

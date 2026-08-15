@@ -86,6 +86,8 @@ export const noteApi = {
     noteId: string,
     body: { title?: string; folder_id?: string | null; move_to_root?: boolean },
   ) => apiJson<NoteMeta>(`/vaults/${vaultId}/notes/${noteId}/rename`, "PATCH", body),
+  setTags: (vaultId: string, noteId: string, body: { add?: string[]; remove?: string[] }) =>
+    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/tags`, "PATCH", body),
   remove: (vaultId: string, noteId: string) =>
     apiJson<{ message: string }>(`/vaults/${vaultId}/notes/${noteId}`, "DELETE"),
 };

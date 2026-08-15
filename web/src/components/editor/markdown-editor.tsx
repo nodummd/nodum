@@ -16,6 +16,7 @@ import { blockWidgets } from "@/lib/editor/block-widgets";
 import { collabExtension, type CollabSession } from "@/lib/editor/collab";
 import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
+import { attachmentUpload } from "@/lib/editor/attachment-upload";
 import { nodumEditorTheme } from "@/lib/editor/theme";
 
 export interface MarkdownEditorProps {
@@ -55,6 +56,7 @@ export function MarkdownEditor({
     if (!containerRef.current) return;
 
     const extensions = [
+      attachmentUpload(vaultId),
       history(),
       keymap.of([
         // Obsidian formatting hotkeys take precedence over the defaults
@@ -62,6 +64,13 @@ export function MarkdownEditor({
         { key: "Mod-i", run: toggleItalic },
         { key: "Mod-k", run: insertLink },
         { key: "Mod-Shift-h", run: toggleHighlightCmd },
+        // ⌘[ / ⌘] are Obsidian's navigate back/forward. CodeMirror's
+        // defaultKeymap binds them to indentLess/indentMore, so without this
+        // the chord would BOTH indent the line and navigate. Returning true
+        // consumes the key (no indent); CM doesn't stop propagation, so the
+        // window-level hotkey listener still navigates.
+        { key: "Mod-[", run: () => true },
+        { key: "Mod-]", run: () => true },
         ...defaultKeymap,
         ...historyKeymap,
         ...searchKeymap,

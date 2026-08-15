@@ -50,6 +50,45 @@ function sortPinned(tabs: Tab[]): Tab[] {
   return [...tabs.filter((t) => t.pinned), ...tabs.filter((t) => !t.pinned)];
 }
 
+/** The history index reached by stepping `dir` from the current one, skipping
+ *  entries whose tab has been closed. null when there is nowhere to go — which
+ *  is exactly what the back/forward buttons use to disable themselves. */
+export function historyStep(p: PaneState, dir: 1 | -1): number | null {
+  let i = p.historyIndex + dir;
+  while (i >= 0 && i < p.history.length && !p.tabs.some((t) => t.id === p.history[i])) i += dir;
+  if (i < 0 || i >= p.history.length) return null;
+  return i;
+}
+
+/** Rebuild a pane's history against the tabs that still exist.
+ *  Without this, closing a tab leaves dead ids in the stack: historyIndex keeps
+ *  pointing past the tab you are actually on, so the first Back press appears to
+ *  do nothing and later ones jump several notes at once. */
+function syncedHistory(
+  p: PaneState,
+  tabs: Tab[],
+  activeTabId: string | null,
+): Pick<PaneState, "history" | "historyIndex"> {
+  const live = new Set(tabs.map((t) => t.id));
+  const history: string[] = [];
+  let historyIndex = -1;
+  p.history.forEach((id, i) => {
+    if (!live.has(id) || history.at(-1) === id) return;
+    history.push(id);
+    if (i <= p.historyIndex) historyIndex = history.length - 1;
+  });
+  // Keep the cursor on the tab that is actually showing.
+  if (activeTabId) {
+    const at = history.lastIndexOf(activeTabId);
+    if (at >= 0) historyIndex = at;
+    else {
+      history.push(activeTabId);
+      historyIndex = history.length - 1;
+    }
+  }
+  return { history, historyIndex };
+}
+
 /** Append to a pane's history (truncating any forward entries). */
 function recorded(p: PaneState, tabId: string): Pick<PaneState, "history" | "historyIndex"> {
   if (p.history[p.historyIndex] === tabId) {
@@ -78,6 +117,8 @@ interface WorkspaceState {
   splitOrientation: "row" | "column";
   /** Transient drag state for tab drag-and-drop (never persisted). */
   dragging: { tabId: string; fromPaneIndex: number } | null;
+  /** Note the graph should accent-highlight (the note being viewed); transient. */
+  graphFocusNoteId: string | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -105,10 +146,13 @@ interface WorkspaceState {
   renameTab: (tabId: string, title: string) => void;
   setActivePane: (index: number) => void;
   splitRight: () => void;
+  /** Open a tab in the pane beside `fromPaneIndex` (splitting if there's one pane). */
+  openNoteBeside: (tab: Tab, fromPaneIndex: number) => void;
   closePane: (index: number) => void;
   togglePin: (tabId: string, paneIndex: number) => void;
-  navigateBack: () => void;
-  navigateForward: () => void;
+  /** paneIndex omitted → the active pane (⌘[ / ⌘]); the arrows pass their own. */
+  navigateBack: (paneIndex?: number) => void;
+  navigateForward: (paneIndex?: number) => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
   setRightPane: (pane: RightPaneKind) => void;
@@ -117,6 +161,7 @@ interface WorkspaceState {
   setRightWidth: (w: number) => void;
   setSplitRatio: (ratio: number) => void;
   setDragging: (d: { tabId: string; fromPaneIndex: number } | null) => void;
+  setGraphFocus: (noteId: string | null) => void;
   /** Reorder a tab within its pane. */
   reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
   /** Move a tab to another existing pane (falls back to reorder if same pane). */
@@ -148,6 +193,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       splitRatio: 0.5,
       splitOrientation: "row",
       dragging: null,
+      graphFocusNoteId: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -219,7 +265,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             p.activeTabId === tabId
               ? (remaining[idx]?.id ?? remaining[idx - 1]?.id ?? null)
               : p.activeTabId;
-          return { ...p, tabs: remaining, activeTabId };
+          // Drop the closed tab from history too, else Back targets a dead entry.
+          return { ...p, tabs: remaining, activeTabId, ...syncedHistory(p, remaining, activeTabId) };
         });
         // a second pane that runs out of tabs disappears
         const kept = panes.filter((p, i) => i === 0 || p.tabs.length > 0);
@@ -293,6 +340,42 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
       },
 
+      // Open a tab in the OTHER pane (Obsidian's "open in split"): keep the
+      // source pane — the graph — where it is, and put the note beside it. With
+      // one pane, create the second; with two, target the non-source pane.
+      openNoteBeside: (tab, fromPaneIndex) => {
+        const { panes, graphFocusNoteId } = get();
+        const focus = tab.kind === "note" ? tab.id : graphFocusNoteId;
+        if (panes.length >= 2) {
+          const target = fromPaneIndex === 0 ? 1 : 0;
+          set({
+            panes: panes.map((p, i) =>
+              i === target
+                ? {
+                    ...p,
+                    tabs: p.tabs.some((t) => t.id === tab.id)
+                      ? p.tabs
+                      : sortPinned([...p.tabs, tab]),
+                    activeTabId: tab.id,
+                    ...recorded(p, tab.id),
+                  }
+                : p,
+            ),
+            activePane: target,
+            graphFocusNoteId: focus,
+          });
+        } else {
+          set({
+            panes: [
+              panes[0],
+              { tabs: [tab], activeTabId: tab.id, history: [tab.id], historyIndex: 0 },
+            ],
+            activePane: 1,
+            graphFocusNoteId: focus,
+          });
+        }
+      },
+
       // Close a whole tab group (pane). With a single pane this is a no-op —
       // there's always at least one; otherwise drop it and keep the survivor.
       closePane: (index) => {
@@ -315,31 +398,32 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           ),
         }),
 
-      // ⌘[ / ⌘] — walk the active pane's history, skipping closed tabs
-      navigateBack: () => {
+      // ⌘[ / ⌘] and the per-pane arrows — walk a pane's history, skipping tabs
+      // that have since been closed. paneIndex defaults to the active pane.
+      navigateBack: (paneIndex) => {
         const { panes, activePane } = get();
-        const p = panes[activePane];
-        let i = p.historyIndex - 1;
-        while (i >= 0 && !p.tabs.some((t) => t.id === p.history[i])) i--;
-        if (i < 0) return;
-        const idx = i;
+        const target = paneIndex ?? activePane;
+        const p = panes[target];
+        if (!p) return;
+        const idx = historyStep(p, -1);
+        if (idx === null) return;
         set({
           panes: panes.map((pane, j) =>
-            j === activePane ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
+            j === target ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
           ),
         });
       },
 
-      navigateForward: () => {
+      navigateForward: (paneIndex) => {
         const { panes, activePane } = get();
-        const p = panes[activePane];
-        let i = p.historyIndex + 1;
-        while (i < p.history.length && !p.tabs.some((t) => t.id === p.history[i])) i++;
-        if (i >= p.history.length) return;
-        const idx = i;
+        const target = paneIndex ?? activePane;
+        const p = panes[target];
+        if (!p) return;
+        const idx = historyStep(p, 1);
+        if (idx === null) return;
         set({
           panes: panes.map((pane, j) =>
-            j === activePane ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
+            j === target ? { ...pane, activeTabId: pane.history[idx], historyIndex: idx } : pane,
           ),
         });
       },
@@ -351,6 +435,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setRightWidth: (w) => set({ rightWidth: Math.min(Math.max(w, 220), 520) }),
       setSplitRatio: (r) => set({ splitRatio: Math.min(Math.max(r, 0.2), 0.8) }),
       setDragging: (d) => set({ dragging: d }),
+      setGraphFocus: (noteId) => set({ graphFocusNoteId: noteId }),
 
       reorderTab: (tabId, paneIndex, toIndex) => {
         set({
@@ -386,7 +471,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             return { ...p, tabs: remaining, activeTabId };
           }
           if (i === toPaneIndex) {
-            const tabs = [...p.tabs];
+            // Dedupe: the same note/graph/canvas may already be open here —
+            // never insert a second tab with the same id (React key collision).
+            const tabs = p.tabs.filter((t) => t.id !== tabId);
             tabs.splice(Math.max(0, Math.min(toIndex, tabs.length)), 0, tab);
             return { ...p, tabs: sortPinned(tabs), activeTabId: tab.id, ...recorded(p, tab.id) };
           }
@@ -466,6 +553,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           historyIndex: p.historyIndex ?? (p.activeTabId ? 0 : -1),
         }));
         return old;
+      },
+      // Defensive on EVERY load: a pane must never hold two tabs with the same
+      // id (React key collision → render crash). Older builds could persist a
+      // duplicate; this drops the extras, keeping the first.
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<WorkspaceState>;
+        const rawPanes = p.panes ?? current.panes;
+        const panes = rawPanes.map((pane) => {
+          const seen = new Set<string>();
+          const tabs = (pane.tabs ?? []).filter((t) => {
+            if (!t || seen.has(t.id)) return false;
+            seen.add(t.id);
+            return true;
+          });
+          return { ...pane, tabs };
+        });
+        return { ...current, ...p, panes };
       },
       partialize: (s) => ({
         activeVaultId: s.activeVaultId,

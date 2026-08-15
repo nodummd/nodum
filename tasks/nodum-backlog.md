@@ -3,7 +3,7 @@
 > **How to use:** every work session starts by reading this file top-to-bottom
 > and picks the first unchecked item in the active sprint. Check items off
 > with the date when the acceptance criteria pass (tests + browser verify).
-> Suites must stay green: currently **81 backend + 75 e2e**. Feature branches
+> Suites must stay green: currently **81 backend + 76 e2e**. Feature branches
 > off `dev`, merged `--no-ff`, pushed. Release checkpoints are marked 🏁.
 >
 > ALL SPRINTS COMPLETE (2026-08-13): Phase A-C shipped v1.0.0→v2.0.0;
@@ -371,8 +371,11 @@
   *Accept:* e2e sets the background to dots, asserts the canvas style, survives
   reload.
 
-- [ ] **S16 🏁 Release v3.2.0** — full suites green, merge dev→main, tag,
-  prod-compose smoke, backlog + master-plan close-out.
+- [x] **S16 🏁 Release v3.2.0** — 2026-08-14 — full suites green (81
+  backend + 75 e2e), dev→main merged, tagged v3.2.0 and pushed; prod-
+  compose smoke passed on the verify stack (health + signup + user-
+  settings [fonts/ribbon] + vault-settings [canvasBackground/linkFormat]
+  + graph round-trips), backlog + master-plan closed out.
 
 ## Icebox (still later)
 - Full recursive split-tree layout (2×2 tab nesting) — plan in phase-f-plan workflow output
