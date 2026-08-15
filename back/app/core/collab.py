@@ -159,23 +159,37 @@ class CollabServer(WebsocketServer):
 
             reset_channel = f"collab-reset:{name}".encode()
             pubsub = redis_binary.pubsub(ignore_subscribe_messages=True)
-            await pubsub.subscribe(f"collab:{name}", f"collab-reset:{name}")
-            async for message in pubsub.listen():
-                data = message.get("data")
-                if not isinstance(data, bytes) or data[:32] == WORKER_ID:
-                    continue
-                if message.get("channel") == reset_channel:
-                    # A REST save landed on another worker — adopt its text or
-                    # this room would rebroadcast (and re-persist) the old body.
-                    self._reset_local(name, room, data[32:].decode("utf-8"))
-                    continue
-                self._applying_remote.add(name)
-                try:
-                    room.ydoc.apply_update(data[32:])
-                except Exception as e:  # one bad update must not kill fanout
-                    logger.warning("collab_apply_failed", room=name, error=str(e))
-                finally:
-                    self._applying_remote.discard(name)
+            # The pubsub holds a pooled connection for as long as it lives, and
+            # delete_room only CANCELS this task. redis-py's PubSub.__del__ does
+            # not return the connection, so without this finally the pool
+            # (max_connections=20) is exhausted after ~20 note opens — every
+            # later subscribe AND publish then raises "Too many connections",
+            # both are swallowed as warnings, and the worker keeps serving rooms
+            # with fanout silently dead and deaf to collab-reset. That is the
+            # "REST save reverts the note" bug coming back, permanently, until
+            # the process restarts.
+            try:
+                await pubsub.subscribe(f"collab:{name}", f"collab-reset:{name}")
+                async for message in pubsub.listen():
+                    data = message.get("data")
+                    if not isinstance(data, bytes) or data[:32] == WORKER_ID:
+                        continue
+                    if message.get("channel") == reset_channel:
+                        # A REST save landed on another worker — adopt its text
+                        # or this room would rebroadcast (and re-persist) the
+                        # old body.
+                        self._reset_local(name, room, data[32:].decode("utf-8"))
+                        continue
+                    self._applying_remote.add(name)
+                    try:
+                        room.ydoc.apply_update(data[32:])
+                    except Exception as e:  # one bad update must not kill fanout
+                        logger.warning("collab_apply_failed", room=name, error=str(e))
+                    finally:
+                        self._applying_remote.discard(name)
+            finally:
+                # Runs on CancelledError too, which is the normal exit path.
+                await pubsub.aclose()
         except asyncio.CancelledError:
             raise
         except Exception as e:
