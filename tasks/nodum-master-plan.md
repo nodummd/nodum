@@ -401,3 +401,36 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
   main and tagged v1.0.0. Next: Phase B (embeds, properties UI, live-preview
   math/tables, virtualization) and Phase C differentiators — see
   tasks/nodum-audit-and-roadmap.md §6.
+
+- **2026-08-15: Navigation, explorer parity, attachments, import, plugins,
+  clipper.** Three-phase mandate delivered and verified live.
+  - *Navigation*: per-pane back/forward arrows in every tab strip. Fixed three
+    latent bugs — closeTab never pruned history (Back appeared dead after a
+    close), navigateBack targeted the active pane not its own, and CodeMirror's
+    defaultKeymap bound Mod-[ / Mod-] to indent so the chord both indented and
+    navigated.
+  - *Explorer*: Obsidian-parity context menu (open in new tab / to the right /
+    new window, duplicate, move, bookmark, merge, copy path, version history,
+    rename, delete), item colours inherited down the folder tree
+    (vault.settings.itemColors), and tag assignment via a new
+    PATCH /notes/{id}/tags that edits YAML frontmatter server-side.
+    Reveal-in-Finder / open-in-default-app deliberately omitted (desktop only).
+  - *Attachments*: paste + drag-drop upload inserting an embed at the cursor,
+    hover preview cards (images inline, PDFs scrollable). Security: 5MB cap,
+    extension-driven canonical MIME with magic-byte verification, no .svg/.html,
+    inline disposition only for safe types.
+  - *Import*: root-unwrapping (a normally-zipped vault nested everything one
+    level deep and broke every path-style wikilink — resolution went 1/5 -> 4/5),
+    .obsidian config detected by suffix, .txt/.markdown as notes, PDFs as an
+    attachment plus a note of their extracted text (pypdf), and direct folder
+    import via POST /vaults/{id}/import-files.
+  - *Plugins*: capability-scoped API in an opaque-origin iframe
+    (sandbox="allow-scripts", no allow-same-origin; connect-src 'none'), host-side
+    permission checks, registry UI in Settings. Obsidian-plugin compatibility
+    assessed honestly: 0-5% unmodified drop-in, 12-18 engineer-months for 20-35%
+    partial — recommend never promising it.
+  - *Web Clipper*: scoped clipper tokens (hashed, note-create only, revocable
+    without touching the session), POST /clipper/clip with frontmatter
+    provenance, and an MV3 extension under clipper/.
+  - Graph also gained an Obsidian-grade layout pass, richer interactions, and a
+    guard so a failed WebGL context can no longer take down the workspace.

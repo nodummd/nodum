@@ -99,7 +99,7 @@ test.describe("graph time travel", () => {
 });
 
 test.describe("graph panel parity", () => {
-  test("search filters nodes; display sliders + arrows persist across reload", async ({
+  test("search dims without filtering; display sliders + arrows persist across reload", async ({
     page,
   }) => {
     await signupFreshUser(page, "panelparity");
@@ -113,15 +113,22 @@ test.describe("graph panel parity", () => {
     const full = Number(/(\d+) nodes/.exec((await counts.textContent()) ?? "")?.[1] ?? "0");
     expect(full).toBeGreaterThan(2);
 
-    // Search narrows the graph without a teardown
+    // Close the popover so the floating search control is reachable.
+    await page.keyboard.press("Escape");
+
+    // Search DIMS non-matches rather than hiding them: the node count is
+    // unchanged, so the graph never reshapes under you while you search.
+    await page.getByRole("button", { name: "Search graph" }).click();
     await page.getByLabel("Search graph").fill("Welcome");
+    await page.waitForTimeout(800); // debounced highlight
+    await page.getByRole("button", { name: "Clear search" }).click();
+
+    await page.getByRole("button", { name: "Graph settings", exact: true }).click();
     await expect(async () => {
       const text = (await counts.textContent()) ?? "";
       const nodes = Number(/(\d+) nodes/.exec(text)?.[1] ?? "0");
-      expect(nodes).toBeLessThan(full);
-      expect(nodes).toBeGreaterThanOrEqual(1);
+      expect(nodes).toBe(full);
     }).toPass({ timeout: 10_000 });
-    await page.getByLabel("Search graph").fill("");
 
     // Display settings persist
     await page.getByLabel("Arrows").check();
