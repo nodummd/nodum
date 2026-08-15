@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { confirmDelete } from "./confirm-dialog";
 import { bookmarkApi, folderApi, noteApi, searchApi, vaultApi } from "@/lib/api/endpoints";
+import { setNoteHover } from "@/lib/graph/hover-bus";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem, Vault } from "@/lib/api/types";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
@@ -283,6 +284,9 @@ function TagSubmenu({
  *  with…" (notes). Keeps both flows to one keyboard-friendly dialog. */
 
 export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProps) {
+  // Rows are virtualized: one scrolled out from under the pointer never fires
+  // its mouseleave, so drop the hover when the list itself goes away.
+  useEffect(() => () => setNoteHover(null), []);
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { data: tree } = useQuery({
@@ -846,6 +850,10 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                         // is otherwise only expressed as a background colour.
                         data-note-id={row.id}
                         data-active={activeNoteId === row.id ? "" : undefined}
+                        // Points the open graph at this note (it breathes the
+                        // matching node) — see lib/graph/hover-bus.
+                        onMouseEnter={() => setNoteHover({ id: row.id })}
+                        onMouseLeave={() => setNoteHover(null)}
                         draggable
                         onDragStart={(e) => {
                           // Dropping a note into an editor should link it, so

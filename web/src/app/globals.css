@@ -230,12 +230,25 @@ body {
   /* font-size inherits the overlay's value, which the render loop scales by zoom */
   letter-spacing: 0.01em;
   color: var(--ob-text-muted);
-  /* A stronger shadow keeps small labels legible over nodes/links in dense areas. */
+  /* A stronger shadow keeps small labels legible over nodes/links in dense areas.
+     (--ob-bg is the Tailwind alias, not a CSS variable: naming it here made the
+     whole declaration invalid, so labels had no shadow at all.) */
   text-shadow:
-    0 0 4px var(--ob-bg),
+    0 0 4px var(--ob-background-primary),
     0 1px 3px rgba(0, 0, 0, 0.9);
   white-space: nowrap;
   will-change: transform, opacity;
+}
+
+/* The node under the pointer elsewhere in the app (explorer row, editor link).
+   Weight + an accent glow, not colour: group-coloured labels carry an inline
+   colour, and this must read the same on every one of them. */
+.nodum-graph-label[data-hover-pulse] {
+  font-weight: 700;
+  text-shadow:
+    0 0 7px var(--ob-interactive-accent),
+    0 0 3px var(--ob-background-primary),
+    0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 /* ============================================================
