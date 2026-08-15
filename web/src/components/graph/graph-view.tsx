@@ -48,6 +48,8 @@ interface PersistedGraph {
   linkForce?: number;
   arrows?: boolean;
   nodeSize?: number;
+  /** Multiplier on the node-label font size (1 = the built-in 10.5px base). */
+  labelSize?: number;
   linkThickness?: number;
   /** Reheat/​swim the whole graph when clicking empty space (off = stays still). */
   moveOnClick?: boolean;
@@ -64,7 +66,8 @@ const GRAPH_DEFAULTS: Required<PersistedGraph> = {
   linkDistance: 65,
   linkForce: 1,
   arrows: false,
-  nodeSize: 1,
+  nodeSize: 0.5,
+  labelSize: 0.6,
   linkThickness: 1,
   moveOnClick: false,
 };
@@ -131,6 +134,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const [linkForceDraft, setLinkForceDraft] = useState<number | null>(null);
   const [arrowsDraft, setArrowsDraft] = useState<boolean | null>(null);
   const [nodeSizeDraft, setNodeSizeDraft] = useState<number | null>(null);
+  const [labelSizeDraft, setLabelSizeDraft] = useState<number | null>(null);
   const [thicknessDraft, setThicknessDraft] = useState<number | null>(null);
   const [moveOnClickDraft, setMoveOnClickDraft] = useState<boolean | null>(null);
   // graph search is session-only (matches Obsidian's transient filter box);
@@ -148,6 +152,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const linkForce = linkForceDraft ?? persisted.linkForce ?? GRAPH_DEFAULTS.linkForce;
   const arrows = arrowsDraft ?? persisted.arrows ?? GRAPH_DEFAULTS.arrows;
   const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? GRAPH_DEFAULTS.nodeSize;
+  const labelSize = labelSizeDraft ?? persisted.labelSize ?? GRAPH_DEFAULTS.labelSize;
   const linkThickness = thicknessDraft ?? persisted.linkThickness ?? GRAPH_DEFAULTS.linkThickness;
   const moveOnClick = moveOnClickDraft ?? persisted.moveOnClick ?? GRAPH_DEFAULTS.moveOnClick;
   const groups = useMemo(
@@ -167,6 +172,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     setLinkForceDraft(GRAPH_DEFAULTS.linkForce);
     setArrowsDraft(GRAPH_DEFAULTS.arrows);
     setNodeSizeDraft(GRAPH_DEFAULTS.nodeSize);
+    setLabelSizeDraft(GRAPH_DEFAULTS.labelSize);
     setThicknessDraft(GRAPH_DEFAULTS.linkThickness);
     setMoveOnClickDraft(GRAPH_DEFAULTS.moveOnClick);
     // Resetting the *view* must not delete curated colour groups — they're
@@ -234,6 +240,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     linkForceDraft !== null ||
     arrowsDraft !== null ||
     nodeSizeDraft !== null ||
+    labelSizeDraft !== null ||
     thicknessDraft !== null ||
     moveOnClickDraft !== null ||
     groupsDraft !== null;
@@ -247,6 +254,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     linkForce,
     arrows,
     nodeSize,
+    labelSize,
     linkThickness,
     moveOnClick,
   } satisfies PersistedGraph);
@@ -276,6 +284,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       if (linkForceDraft !== null) patch.linkForce = linkForce;
       if (arrowsDraft !== null) patch.arrows = arrows;
       if (nodeSizeDraft !== null) patch.nodeSize = nodeSize;
+      if (labelSizeDraft !== null) patch.labelSize = labelSize;
       if (thicknessDraft !== null) patch.linkThickness = linkThickness;
       if (moveOnClickDraft !== null) patch.moveOnClick = moveOnClick;
       if (groupsDraft !== null) patch.groups = groups;
@@ -364,7 +373,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const forceLabelsRef = useRef<Set<number> | null>(null);
   // Zoom-adaptive sizing: last applied node-size scale so we only push a new
   // pointSizeScale when it moved enough to matter.
-  const nodeSizeRef = useRef(1);
+  const nodeSizeRef = useRef(GRAPH_DEFAULTS.nodeSize);
+  // User multiplier on the label font size, read by the render loop.
+  const labelSizeRef = useRef(GRAPH_DEFAULTS.labelSize);
   const lastSizeScaleRef = useRef(1);
   const moveOnClickRef = useRef(false);
   // Zoom level right after a fit — the reference "100%" view. Label opacity and
@@ -710,7 +721,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       if (Math.abs(sizeScale - lastSizeScaleRef.current) > 0.03) {
         lastSizeScaleRef.current = sizeScale;
         graph.setConfigPartial({ pointSizeScale: nodeSizeRef.current * sizeScale });
-        if (labelRef.current) labelRef.current.overlay.style.fontSize = `${(10.5 * sizeScale).toFixed(1)}px`;
+        if (labelRef.current)
+          labelRef.current.overlay.style.fontSize = `${(10.5 * sizeScale * labelSizeRef.current).toFixed(1)}px`;
       }
       const forceSet = forceLabelsRef.current;
       const els = labelRef.current?.els;
@@ -1080,9 +1092,11 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
-    // The render loop owns pointSizeScale (nodeSize × zoom scale); mirror the
-    // user's node-size here and force a re-apply next frame.
+    // The render loop owns pointSizeScale (nodeSize × zoom scale) and the label
+    // font size (labelSize × zoom scale); mirror both here and force a re-apply
+    // next frame — the loop otherwise only reacts to zoom changes.
     nodeSizeRef.current = nodeSize;
+    labelSizeRef.current = labelSize;
     lastSizeScaleRef.current = -1;
     const key = JSON.stringify({ arrows, linkThickness });
     if (prevDisplayRef.current === key) return;
@@ -1092,7 +1106,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       linkDefaultArrows: arrows,
       linkWidthScale: linkThickness,
     });
-  }, [arrows, nodeSize, linkThickness]);
+  }, [arrows, nodeSize, labelSize, linkThickness]);
 
   useEffect(() => {
     moveOnClickRef.current = moveOnClick;
@@ -1230,6 +1244,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
           />
         </label>
         <ForceSlider label="Node size" min={0.1} max={5} step={0.1} value={nodeSize} onChange={setNodeSizeDraft} />
+        <ForceSlider label="Text size" min={0.3} max={3} step={0.1} value={labelSize} onChange={setLabelSizeDraft} />
         <ForceSlider label="Link thickness" min={0.1} max={5} step={0.1} value={linkThickness} onChange={setThicknessDraft} />
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Forces</p>
