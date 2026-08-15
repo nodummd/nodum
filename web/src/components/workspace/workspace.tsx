@@ -44,6 +44,7 @@ import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
 import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
+import { usePlugins } from "@/lib/plugins/use-plugins";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -196,6 +197,7 @@ export function Workspace({ vault }: { vault: Vault }) {
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const { commands: pluginCommands, runCommand: runPluginCommand } = usePlugins(vault.id);
   const importFolderRef = useRef<HTMLInputElement>(null);
 
   const exportVault = useCallback(() => {
@@ -537,6 +539,8 @@ export function Workspace({ vault }: { vault: Vault }) {
         onExportVault={exportVault}
         onImportVault={() => importInputRef.current?.click()}
         onImportFolder={() => importFolderRef.current?.click()}
+        pluginCommands={pluginCommands}
+        onRunPluginCommand={runPluginCommand}
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
