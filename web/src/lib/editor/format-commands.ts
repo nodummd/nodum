@@ -585,3 +585,79 @@ export const addFileProperty: StateCommand = ({ state, dispatch }) => {
   );
   return true;
 };
+
+// ── Linking and clipboard ──────────────────────────────────────────────────
+
+/** Link to a note or attachment in this vault.
+ *
+ *  When the selected text differs from the target, it is kept as the alias —
+ *  `[[Target|the words you selected]]` — so linking never rewrites the
+ *  sentence you were reading. */
+export function insertVaultLink(target: string, embed = false): StateCommand {
+  return ({ state, dispatch }) => {
+    const changes = state.changeByRange((range) => {
+      const selected = state.sliceDoc(range.from, range.to).trim();
+      const body = selected && selected !== target ? `${target}|${selected}` : target;
+      const insert = `${embed ? "!" : ""}[[${body}]]`;
+      return {
+        changes: { from: range.from, to: range.to, insert },
+        range: EditorSelection.cursor(range.from + insert.length),
+      };
+    });
+    dispatch(state.update(changes, { userEvent: "input.format" }));
+    return true;
+  };
+}
+
+/** `[selected text](https://…)`. With no selection the URL becomes the text. */
+export function insertExternalLink(url: string): StateCommand {
+  return ({ state, dispatch }) => {
+    const changes = state.changeByRange((range) => {
+      const selected = state.sliceDoc(range.from, range.to).trim();
+      const insert = `[${selected || url}](${url})`;
+      return {
+        changes: { from: range.from, to: range.to, insert },
+        range: EditorSelection.cursor(range.from + insert.length),
+      };
+    });
+    dispatch(state.update(changes, { userEvent: "input.format" }));
+    return true;
+  };
+}
+
+/** Insert text at the selection, replacing it. */
+export function insertTextAtSelection(text: string): StateCommand {
+  return ({ state, dispatch }) => {
+    const changes = state.changeByRange((range) => ({
+      changes: { from: range.from, to: range.to, insert: text },
+      range: EditorSelection.cursor(range.from + text.length),
+    }));
+    dispatch(state.update(changes, { userEvent: "input.paste" }));
+    return true;
+  };
+}
+
+/** Strip markdown syntax, for "Paste in plain text". Leaves the words, drops
+ *  the punctuation that would make them render as something. */
+export function toPlainText(text: string): string {
+  return text
+    .replace(/<\/?[a-z][^<>]{0,160}>/gi, "")
+    .replace(/!?\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, target: string, alias?: string) => alias ?? target)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s*([-*+]|\d+[.)])\s+(\[[ xX]\]\s+)?/gm, "")
+    .replace(/```[a-z]*\n?/gi, "")
+    .replace(/(\*\*\*|\*\*|\*|__|_|~~|==|`)/g, "");
+}
+
+/** Delete the selection — the document half of Cut. */
+export const deleteSelection: StateCommand = ({ state, dispatch }) => {
+  if (state.selection.main.empty) return false;
+  const changes = state.changeByRange((range) => ({
+    changes: { from: range.from, to: range.to, insert: "" },
+    range: EditorSelection.cursor(range.from),
+  }));
+  dispatch(state.update(changes, { userEvent: "delete.cut" }));
+  return true;
+};
