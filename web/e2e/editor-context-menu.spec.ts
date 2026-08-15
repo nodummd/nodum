@@ -233,6 +233,51 @@ test.describe("editor context menu", () => {
     );
   });
 
+
+  test("the Table group is reachable in prose and inserts without eating a selection", async ({
+    page,
+  }) => {
+    await setup(page, "ctxmenu-tablegroup", "keep me\n");
+
+    // Select the line, then insert a table from the group people actually look
+    // in. The group used to be disabled outright here.
+    await editorSurface(page).locator(".cm-line").first().click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+
+    const menu = await openMenu(page, 0);
+    const table = menu.getByRole("menuitem", { name: "Table", exact: true });
+    await expect(table).not.toHaveAttribute("data-disabled", "");
+    await table.click();
+
+    const sub = page.getByRole("menu").last();
+    await expect(sub.getByRole("menuitem", { name: "Insert table" })).not.toHaveAttribute(
+      "data-disabled",
+      "",
+    );
+    // The row operations stay off until there IS a table.
+    await expect(sub.getByRole("menuitem", { name: "Insert row above" })).toHaveAttribute(
+      "data-disabled",
+      "",
+    );
+    await sub.getByRole("menuitem", { name: "Insert table" }).click();
+
+    const text = await sourceText(page);
+    expect(text).toContain("| Column 1 | Column 2 | Column 3 |");
+    expect(text).toContain("keep me"); // the selection survived
+  });
+
+  test("table commands ignore prose that merely contains pipes", async ({ page }) => {
+    // "a | b" is not a table: no delimiter row. Rewriting it would be
+    // destructive, so the operations must stay disabled.
+    await setup(page, "ctxmenu-pipes", "cost | benefit | verdict\n");
+    const menu = await openMenu(page, 0);
+    await menu.getByRole("menuitem", { name: "Table", exact: true }).click();
+    await expect(
+      page.getByRole("menu").last().getByRole("menuitem", { name: "Delete row" }),
+    ).toHaveAttribute("data-disabled", "");
+  });
+
   test("add file property creates frontmatter", async ({ page }) => {
     await setup(page, "ctxmenu-props", "body text\n");
     await choose(page, "Properties", "Add file property");
