@@ -25,7 +25,14 @@ Companion to `tasks/nodum-master-plan.md`; log outcomes there as items land.
 
 ## P0-1 — Inline HTML renders as literal source text
 
-**Status:** verified, not started.
+**Status:** ✅ DONE 2026-08-15 (`0988105`). Shared allowlist module
+`lib/editor/inline-html.ts` feeds a CM6 decoration (live preview) and a remark
+plugin (reading view). Verified live on the user's own note — "Computation"
+underlined, "pure" at `rgb(236, 117, 0)` = the chosen `#ec7500`, no raw tags —
+and a hostile probe (`<script>`, `onerror`, `url(javascript:)`, a
+two-declaration style, `<img onerror>`, an unclosed tag) produced **zero**
+elements on either surface. 29 unit cases + 3 e2e; the rendering cases fail when
+the decoration/plugin are removed.
 
 **Reproduction (live, demo vault).** "Functional Programming" contains
 `**<u>Computation</u>**` and `<span style="color:#ec7500">pure</span>`. Both
@@ -317,6 +324,30 @@ table with text selected does not delete it.
 
 ---
 
+## P1-8 — Editable tables in live preview (NEW, requested)
+
+**Status:** design in progress, not started.
+
+The maintainer's requirement: "once you insert the table, the user should see
+the real table structure and edit inside, and if possible user should be able to
+add more column, rows, delete, rows etc."
+
+Today `block-widgets.ts` renders a table as a READ-ONLY widget that swaps back
+to raw markdown when the selection touches it. The row/column/align/sort
+commands all exist in `table-commands.ts` and operate on the source — they
+should be reused, not reimplemented.
+
+The hard parts, all of which the design must answer explicitly: keeping caret
+focus alive when a cell edit rebuilds the decoration set (`updateDOM`/`eq`),
+mapping a cell edit to a MINIMAL source range rather than rewriting the block,
+undo granularity, and resolving the contradiction that the current reveal rule
+would make the widget vanish exactly when the user clicks into it.
+
+Three independent architectures were designed and judged; the synthesised spec
+lands here before implementation starts.
+
+---
+
 ## P2-6 — Graph view: no control for node label font size
 
 **Status:** verified, not started.
@@ -361,7 +392,7 @@ Only after P0/P1 land. Check migrations, prod compose smoke, secrets, and the
 |---|------|--------|----------|
 | 0 | ~~Disable collab on the demo vault~~ → fixed the leak instead (`fc8428e`) | S | ✅ Root cause removed rather than masked |
 | 1 | ~~P2-5 table menu + disabled styling~~ (`0fe2434`) | S | ✅ Done |
-| 2 | P0-1 inline HTML | M | Worst user-visible defect; corrupts notes |
+| 2 | ~~P0-1 inline HTML~~ (`0988105`) | M | ✅ Done |
 | 3 | P1-3 undo/redo (stages A→C) | L | Core editing safety |
 | 4 | P1-4 link navigation + arrows | L | Daily friction; largest store change |
 | 5 | P2-6 graph label size | S | Self-contained |
