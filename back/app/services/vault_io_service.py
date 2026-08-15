@@ -31,7 +31,34 @@ from app.utils.path_utils import validate_segment
 
 logger = get_logger("vault_io")
 
-_ATTACHMENT_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".mp3", ".mp4", ".webm", ".wav"}
+# Kept in step with attachment_service.ALLOWED_ATTACHMENT_TYPES — listing a type
+# here that the attachment allowlist refuses (e.g. .svg) would silently drop it.
+_ATTACHMENT_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".pdf", ".mp3", ".mp4", ".webm", ".wav", ".m4a", ".mov", ".ogg"}
+
+# Plain-text formats imported AS NOTES rather than attachments, so their content
+# is searchable, linkable and editable like any other note.
+_TEXT_NOTE_EXTS = {".md", ".markdown", ".txt", ".text"}
+
+
+def _pdf_to_markdown(data: bytes) -> str | None:
+    """Extract a PDF's text so it becomes a searchable note. None if unreadable
+    (encrypted, or a pure scan with no text layer — OCR is out of scope)."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            return None
+        pages = []
+        for page in reader.pages[:200]:  # bound the work on huge documents
+            with contextlib.suppress(Exception):
+                text = (page.extract_text() or "").strip()
+                if text:
+                    pages.append(text)
+        body = "\n\n---\n\n".join(pages).strip()
+        return body or None
+    except Exception:
+        return None
 
 
 async def export_zip(db: AsyncSession, vault_id: UUID, user_id: UUID) -> ServiceResponse[bytes]:
@@ -69,11 +96,33 @@ async def import_zip(
     except zipfile.BadZipFile:
         return ServiceResponse.fail("validation_failed", "Not a valid zip archive.")
 
+    # A vault is normally zipped WITH its own folder ("MyVault/Notes/x.md").
+    # Recreating that wrapper would nest the whole vault one level deep and
+    # break every path-style wikilink ([[Projects/Alpha]] would no longer match
+    # "MyVault/Projects/Alpha"), so strip a root that every entry shares.
+    def _archive_root(names: list[str]) -> str:
+        roots = set()
+        for n in names:
+            n = posixpath.normpath(n)
+            if n.startswith(("..", "/")) or "__MACOSX" in n or n.endswith(".DS_Store"):
+                continue
+            head = n.split("/", 1)
+            if len(head) == 1:
+                return ""  # a file sits at the archive root — nothing to strip
+            roots.add(head[0])
+            if len(roots) > 1:
+                return ""
+        return roots.pop() if len(roots) == 1 else ""
+
+    root_prefix = _archive_root([e.filename for e in zf.infolist() if not e.is_dir()])
+
     imported = 0
     renamed = 0
     imported_attachments = 0
     obsidian_configs: dict[str, Any] = {}
     attachment_entries: list[tuple[str, zipfile.ZipInfo]] = []
+    pdf_entries: list[tuple[str, zipfile.ZipInfo, str]] = []
+    imported_pdf_notes = 0
     skipped_non_md = 0
     skipped_too_large = 0
     created_notes: list[Note] = []
@@ -86,20 +135,33 @@ async def import_zip(
         # zip-slip guard + junk entries
         if raw_path.startswith(("..", "/")) or "__MACOSX" in raw_path or raw_path.endswith(".DS_Store"):
             continue
-        if not raw_path.lower().endswith(".md"):
+        if root_prefix and raw_path.startswith(f"{root_prefix}/"):
+            raw_path = raw_path[len(root_prefix) + 1 :]
+            if not raw_path:
+                continue
+        ext_lower = posixpath.splitext(raw_path)[1].lower()
+        if ext_lower not in _TEXT_NOTE_EXTS:
             lower = raw_path.lower()
             base = posixpath.basename(raw_path)
-            if lower in (".obsidian/daily-notes.json", ".obsidian/app.json"):
+            # Vaults are normally zipped WITH their top folder, so match the
+            # ".obsidian/…" suffix rather than the whole path — otherwise a
+            # real Obsidian export never has its config detected.
+            in_obsidian_dir = "/.obsidian/" in f"/{lower}"
+            if in_obsidian_dir and base in ("daily-notes.json", "app.json"):
                 import json as _json
 
                 with contextlib.suppress(Exception):
                     obsidian_configs[base] = _json.loads(zf.read(entry).decode("utf-8", errors="replace"))
                 continue
-            if lower.startswith(".obsidian/"):
+            if in_obsidian_dir:
                 continue
             ext = posixpath.splitext(base)[1].lower()
             if ext in _ATTACHMENT_EXTS and entry.file_size <= MAX_ATTACHMENT_SIZE_BYTES:
                 attachment_entries.append((base, entry))
+                # A PDF also becomes a note holding its extracted text, so the
+                # document is searchable and linkable rather than just a blob.
+                if ext == ".pdf":
+                    pdf_entries.append((base, entry, posixpath.dirname(raw_path)))
                 continue
             skipped_non_md += 1
             continue
@@ -108,7 +170,8 @@ async def import_zip(
             continue
 
         content = zf.read(entry).decode("utf-8", errors="replace")
-        parts = [_sanitize_segment(p) for p in raw_path[:-3].split("/") if p]
+        stem = raw_path[: -len(ext_lower)] if ext_lower else raw_path
+        parts = [_sanitize_segment(p) for p in stem.split("/") if p]
         if not parts:
             continue
         title = parts[-1]
@@ -165,6 +228,7 @@ async def import_zip(
 
     from app.services import attachment_service
 
+    stored_names: dict[str, str] = {}
     for base, entry in attachment_entries:
         with contextlib.suppress(Exception):
             result = await attachment_service.upload(
@@ -175,8 +239,53 @@ async def import_zip(
                 content=zf.read(entry),
                 mime_type=mimetypes.guess_type(base)[0] or "application/octet-stream",
             )
-            if result.success:
+            if result.success and result.data is not None:
                 imported_attachments += 1
+                # Uploads may be renamed on collision — remember the stored name
+                # so the PDF note embeds the file that actually exists.
+                stored_names[base] = result.data.filename
+
+    # PDFs → notes holding their extracted text plus an embed of the original.
+    # Done after upload so the embed points at the stored filename.
+    pdf_notes: list[Note] = []
+    for base, entry, parent_dir in pdf_entries:
+        stored = stored_names.get(base)
+        if stored is None:
+            continue  # upload was refused; nothing to embed
+        text = _pdf_to_markdown(zf.read(entry))
+        if text is None:
+            continue  # encrypted or scanned with no text layer
+        title = _sanitize_segment(posixpath.splitext(base)[0])
+        folder_path = "/".join(_sanitize_segment(p) for p in parent_dir.split("/") if p)
+        if folder_path not in folder_cache:
+            folder_cache[folder_path] = await _ensure_folder(db, vault_id, user_id, folder_path)
+        attempt_title = title
+        n = 0
+        while True:
+            candidate = f"{folder_path}/{attempt_title}" if folder_path else attempt_title
+            if await db.scalar(select(Note.id).where(Note.vault_id == vault_id, Note.path == candidate)) is None:
+                break
+            n += 1
+            attempt_title = f"{title} {n}"
+        note = Note(
+            vault_id=vault_id,
+            folder_id=folder_cache[folder_path],
+            title=attempt_title,
+            path=f"{folder_path}/{attempt_title}" if folder_path else attempt_title,
+        )
+        if await note_service._apply_content(note, f"![[{stored}]]\n\n{text}"):
+            continue
+        db.add(note)
+        pdf_notes.append(note)
+        imported_pdf_notes += 1
+
+    if pdf_notes:
+        await db.flush()
+        for note in pdf_notes:
+            await sync_note_links(db, note)
+            await sync_note_tags(db, note)
+            await resolve_links_for_new_note(db, note)
+        await db.commit()
 
     # .obsidian config → vault settings (daily notes + templates basics)
     settings_mapped = False
@@ -212,6 +321,7 @@ async def import_zip(
             "imported": imported,
             "renamed": renamed,
             "imported_attachments": imported_attachments,
+            "imported_pdf_notes": imported_pdf_notes,
             "settings_mapped": settings_mapped,
             "skipped_non_markdown": skipped_non_md,
             "skipped_too_large": skipped_too_large,
