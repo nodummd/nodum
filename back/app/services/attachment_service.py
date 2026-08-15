@@ -19,6 +19,76 @@ from app.settings import get_settings
 
 _SAFE_FILENAME_RE = re.compile(r"[^\w.\- ()]", re.UNICODE)
 
+# Extension → canonical MIME. The client's Content-Type is NEVER trusted: a
+# browser (or a crafted request) can claim anything, and the stored type is what
+# we later hand back to viewers. Anything not listed here is refused.
+# Deliberately absent: .svg and .html — both execute script in the origin that
+# serves them, and object storage serves them from its own origin.
+ALLOWED_ATTACHMENT_TYPES: dict[str, str] = {
+    # images
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "avif": "image/avif",
+    "bmp": "image/bmp",
+    "ico": "image/x-icon",
+    # documents
+    "pdf": "application/pdf",
+    "txt": "text/plain",
+    "md": "text/markdown",
+    "csv": "text/csv",
+    "json": "application/json",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    # audio / video
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "ogg": "audio/ogg",
+    "m4a": "audio/mp4",
+    "mp4": "video/mp4",
+    "webm": "video/webm",
+    "mov": "video/quicktime",
+    # archives
+    "zip": "application/zip",
+}
+
+# Types safe to render in a browser tab; everything else downloads instead of
+# being interpreted (defence in depth on top of the allowlist).
+_INLINE_TYPES = {
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp",
+    "image/x-icon", "application/pdf", "text/plain", "text/markdown", "text/csv",
+    "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "video/mp4", "video/webm",
+    "video/quicktime",
+}
+
+# Leading bytes that must match when the extension claims a sniffable format —
+# stops "payload.exe renamed to .png" from being stored as an image.
+_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    "application/pdf": (b"%PDF-",),
+    "application/zip": (b"PK\x03\x04", b"PK\x05\x06"),
+}
+
+
+def _resolve_type(filename: str, content: bytes) -> tuple[str, str] | None:
+    """(mime, disposition) for an allowed file, or None when it must be refused."""
+    ext = filename.rpartition(".")[2].lower() if "." in filename else ""
+    mime = ALLOWED_ATTACHMENT_TYPES.get(ext)
+    if mime is None:
+        return None
+    expected = _MAGIC.get(mime)
+    if expected and not content.startswith(expected):
+        return None
+    # OOXML files are zips; verify the container rather than the office type.
+    if ext in {"docx", "xlsx", "pptx"} and not content.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+        return None
+    return mime, "inline" if mime in _INLINE_TYPES else "attachment"
+
 
 def _sanitize_filename(filename: str) -> str:
     name = os.path.basename(filename or "file").strip()
@@ -54,12 +124,25 @@ async def upload(
     if await get_owned_vault(db, vault_id, user_id) is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
     if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
-        return ServiceResponse.fail("validation_failed", "Attachment is too large.")
+        mb = MAX_ATTACHMENT_SIZE_BYTES / (1024 * 1024)
+        return ServiceResponse.fail(
+            "validation_failed",
+            f"“{filename}” is {len(content) / (1024 * 1024):.1f} MB — the limit is {mb:.0f} MB.",
+        )
     if not content:
         return ServiceResponse.fail("validation_failed", "Attachment is empty.")
 
     settings = get_settings()
     safe_name = await _unique_filename(db, vault_id, _sanitize_filename(filename))
+    # The extension decides the stored type (never the client's Content-Type),
+    # and the leading bytes must agree with it.
+    resolved = _resolve_type(safe_name, content)
+    if resolved is None:
+        return ServiceResponse.fail(
+            "validation_failed",
+            f"“{filename}” is not an accepted file type.",
+        )
+    stored_mime, disposition = resolved
     s3_key = f"vaults/{vault_id}/attachments/{uuid4().hex}/{safe_name}"
 
     def _put() -> None:
@@ -67,7 +150,10 @@ async def upload(
             Bucket=settings.S3_BUCKET_NAME,
             Key=s3_key,
             Body=content,
-            ContentType=mime_type or "application/octet-stream",
+            ContentType=stored_mime,
+            # Non-previewable types download rather than render, so a served
+            # object can never be interpreted as active content.
+            ContentDisposition=f'{disposition}; filename="{safe_name}"',
         )
 
     await asyncio.to_thread(_put)
@@ -76,7 +162,7 @@ async def upload(
         vault_id=vault_id,
         filename=safe_name,
         s3_key=s3_key,
-        mime_type=mime_type or "application/octet-stream",
+        mime_type=stored_mime,
         size_bytes=len(content),
     )
     db.add(attachment)
