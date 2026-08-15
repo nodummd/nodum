@@ -391,8 +391,13 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   const duplicateNote = useMutation({
     mutationFn: async (noteId: string) => {
       const src = await noteApi.get(vaultId, noteId);
+      // Find the next free suffix rather than always "<title> 1", which failed
+      // with already_exists the second time you duplicated the same note.
+      const taken = new Set(allItems.notes.map((n) => n.path.split("/").pop()));
+      let title = `${src.title} 1`;
+      for (let n = 1; taken.has(title); n++) title = `${src.title} ${n}`;
       return noteApi.create(vaultId, {
-        title: `${src.title} 1`,
+        title,
         folder_id: src.folder_id ?? null,
         content: src.content,
       });
@@ -527,6 +532,27 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   }, [tree]);
 
   const allCollapsed = allFolderIds.length > 0 && allFolderIds.every((id) => collapsed.has(id));
+
+  /** Every folder and note with its full path, independent of what is expanded.
+   *  The pickers must offer the WHOLE vault — building them from the visible
+   *  rows silently hid every target inside a collapsed folder. */
+  const allItems = useMemo(() => {
+    const folders: { id: string; path: string }[] = [];
+    const notes: { id: string; path: string }[] = [];
+    const walk = (items: TreeItem[], prefix: string) => {
+      for (const item of items) {
+        if (item.type === "folder") {
+          const path = prefix ? `${prefix}/${item.name}` : item.name;
+          folders.push({ id: item.id, path });
+          walk(item.children, path);
+        } else {
+          notes.push({ id: item.id, path: prefix ? `${prefix}/${item.title}` : item.title });
+        }
+      }
+    };
+    if (tree) walk(tree.items, "");
+    return { folders, notes };
+  }, [tree]);
 
   /** Ancestor chain of the note currently open, for reveal + default location. */
   const activeAncestors = useMemo(
@@ -897,9 +923,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
           emptyLabel="No folders match."
           items={[
             { id: null, label: "(vault root)" },
-            ...rows
-              .filter((r): r is Extract<FlatRow, { kind: "folder" }> => r.kind === "folder")
-              .map((r) => ({ id: r.id, label: r.path })),
+            ...allItems.folders.map((f) => ({ id: f.id, label: f.path })),
           ]}
           onPick={(folderId) => moveNote.mutate({ noteId: moving.noteId, folderId })}
           onClose={() => setMoving(null)}
@@ -909,12 +933,9 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
         <PickerDialog
           title={`Merge “${merging.title}” into…`}
           emptyLabel="No other notes match."
-          items={rows
-            .filter(
-              (r): r is Extract<FlatRow, { kind: "note" }> =>
-                r.kind === "note" && r.id !== merging.noteId,
-            )
-            .map((r) => ({ id: r.id, label: r.path }))}
+          items={allItems.notes
+            .filter((n) => n.id !== merging.noteId)
+            .map((n) => ({ id: n.id, label: n.path }))}
           onPick={(targetId) =>
             targetId && mergeNote.mutate({ sourceId: merging.noteId, targetId })
           }

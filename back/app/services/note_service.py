@@ -219,7 +219,18 @@ async def set_tags(
 
     additions, removals = _clean(add), set(_clean(remove))
 
-    post = frontmatter.loads(note.content)
+    # A note can contain anything a user typed: malformed YAML, or a leading
+    # "---" block that is a list/scalar rather than a mapping. frontmatter.loads
+    # raises on the former and returns non-dict metadata on the latter — and
+    # dumping that back would silently eat the top of the note. Fall back to
+    # treating the whole file as body when we cannot parse it safely.
+    try:
+        post = frontmatter.loads(note.content)
+        if not isinstance(post.metadata, dict):
+            raise ValueError("frontmatter is not a mapping")
+    except Exception:
+        post = frontmatter.Post(note.content, **{})
+
     raw = post.metadata.get("tags")
     current = [raw] if isinstance(raw, str) else [str(t) for t in raw] if isinstance(raw, list) else []
     merged = [t for t in (_clean(current) + additions) if t not in removals]

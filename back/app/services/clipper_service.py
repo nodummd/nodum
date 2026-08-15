@@ -66,13 +66,21 @@ async def user_for_token(db: AsyncSession, token: str) -> User | None:
     if not token:
         return None
     digest = _hash(token)
-    # The hash is unique per user, so an equality lookup is exact; compare_digest
-    # guards the final comparison against timing analysis.
-    rows = await db.execute(select(User).where(User.is_active.is_(True)))
-    for user in rows.scalars():
-        stored = (user.settings or {}).get(_SETTINGS_KEY)
-        if isinstance(stored, str) and secrets.compare_digest(stored, digest):
-            return user
+    # Match in SQL on the JSONB key rather than hydrating every active user:
+    # this endpoint takes an UNAUTHENTICATED token, so a scan per garbage
+    # request is a free denial-of-service against the users table.
+    user = await db.scalar(
+        select(User).where(
+            User.is_active.is_(True),
+            User.settings[_SETTINGS_KEY].astext == digest,
+        )
+    )
+    if user is None:
+        return None
+    stored = (user.settings or {}).get(_SETTINGS_KEY)
+    # Constant-time confirmation of the value we matched on.
+    if isinstance(stored, str) and secrets.compare_digest(stored, digest):
+        return user
     return None
 
 

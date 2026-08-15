@@ -154,6 +154,28 @@ export function Workspace({ vault }: { vault: Vault }) {
     [openTab, setGraphFocus],
   );
 
+  // "Open in new window" navigates to /vault/{id}?note={noteId}; without this
+  // the new window opened the vault and ignored the note entirely.
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current) return;
+    const wanted = new URLSearchParams(window.location.search).get("note");
+    if (!wanted) return;
+    openedFromUrl.current = true;
+    void (async () => {
+      try {
+        const note = await noteApi.get(vault.id, wanted);
+        openTab({ id: note.id, kind: "note", title: note.title });
+        setGraphFocus(note.id);
+      } catch {
+        // A stale or foreign id should not break the workspace — just ignore it.
+      } finally {
+        // Drop the param so a reload doesn't force the note back open.
+        window.history.replaceState(null, "", `/vault/${vault.id}`);
+      }
+    })();
+  }, [vault.id, openTab, setGraphFocus]);
+
   const openGraph = useCallback(() => {
     openTab({ id: "graph", kind: "graph", title: "Graph view" });
   }, [openTab]);
