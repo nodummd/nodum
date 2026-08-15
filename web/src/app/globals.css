@@ -591,3 +591,49 @@ body {
 }
 .nodum-inline-sup { vertical-align: super; }
 .nodum-inline-sub { vertical-align: sub; }
+
+/* ── Editable tables in live preview ─────────────────────────────────────── */
+.nodum-table-editable {
+  position: relative;
+}
+
+.nodum-table-editable [data-table-cell] {
+  outline: none;
+  min-width: 3rem;
+}
+
+.nodum-table-editable [data-table-cell]:focus {
+  background: var(--ob-color-base-25, rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 0 0 1px var(--ob-color-accent, #7852ee);
+}
+
+/* Controls stay out of the way until the table is in use. opacity rather than
+   display, so Playwright still treats them as clickable targets. */
+.nodum-table-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nodum-table-editable:hover .nodum-table-toolbar,
+.nodum-table-editable:focus-within .nodum-table-toolbar {
+  opacity: 1;
+}
+
+.nodum-table-toolbar button {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--ob-color-border, #333);
+  background: var(--ob-color-base-25, #202020);
+  color: var(--ob-color-muted, #9a9a9a);
+  cursor: pointer;
+}
+
+.nodum-table-toolbar button:hover {
+  color: var(--ob-color-text, #dadada);
+  border-color: var(--ob-color-accent, #7852ee);
+}

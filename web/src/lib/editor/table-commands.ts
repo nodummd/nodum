@@ -8,7 +8,7 @@
  */
 
 import type { StateCommand } from "@codemirror/state";
-import { EditorSelection, type EditorState } from "@codemirror/state";
+import { EditorSelection, StateEffect, type EditorState } from "@codemirror/state";
 
 import {
   type Align,
@@ -22,7 +22,9 @@ import {
   splitRow,
 } from "./table-model";
 
-interface Table {
+export interface Table {
+  /** Line numbers of every non-divider row, parallel to `rows`. */
+  rowLines: number[];
   /** Document offsets of the whole table block. */
   from: number;
   to: number;
@@ -37,8 +39,11 @@ interface Table {
 // Parsing lives in table-model.ts so the widget and the commands cannot
 // disagree about where a cell starts — see the escaped-pipe note there.
 
-function findTable(state: EditorState): Table | null {
-  const caret = state.selection.main.head;
+/** Locate the table containing `pos` (default: the caret).
+ *  The explicit position is what lets a widget resolve its own table from
+ *  `view.posAtDOM(dom)` instead of relying on where the caret happens to be. */
+export function findTable(state: EditorState, pos?: number): Table | null {
+  const caret = pos ?? state.selection.main.head;
   const here = state.doc.lineAt(caret);
   if (!isRow(here.text)) return null;
 
@@ -48,6 +53,7 @@ function findTable(state: EditorState): Table | null {
   while (last < state.doc.lines && isRow(state.doc.line(last + 1).text)) last++;
 
   const rows: string[][] = [];
+  const rowLines: number[] = [];
   let aligns: Align[] = [];
   let caretRow = 0;
   let sawDivider = false;
@@ -59,6 +65,7 @@ function findTable(state: EditorState): Table | null {
       continue;
     }
     if (n <= here.number) caretRow = rows.length;
+    rowLines.push(n);
     rows.push(splitRow(line.text));
   }
   if (rows.length === 0) return null;
@@ -82,6 +89,7 @@ function findTable(state: EditorState): Table | null {
     from: state.doc.line(first).from,
     to: state.doc.line(last).to,
     rows,
+    rowLines,
     aligns,
     row: caretRow,
     col,
@@ -89,7 +97,7 @@ function findTable(state: EditorState): Table | null {
 }
 
 /** Re-emit the table with every column padded to its widest cell. */
-function render(rows: string[][], aligns: Align[]): string {
+export function render(rows: string[][], aligns: Align[]): string {
   const cols = Math.max(...rows.map((r) => r.length));
   const widths: number[] = [];
   for (let c = 0; c < cols; c++) {
@@ -108,11 +116,23 @@ function render(rows: string[][], aligns: Align[]): string {
 }
 
 /** Build a table command from a pure transform over the parsed table. */
+/** Document ranges of every cell's trimmed content, indexed [row][col].
+ *
+ *  Derived from PIPE POSITIONS, not from the parser's TableCell nodes: an
+ *  all-whitespace cell emits no node at all, and `emptyRow` writes exactly that
+ *  for every cell of a freshly inserted row. */
+export function tableCellSpans(state: EditorState, table: Table): { from: number; to: number }[][] {
+  return table.rowLines.map((n) => {
+    const line = state.doc.line(n);
+    return splitCells(line.text).map((c) => ({ from: line.from + c.from, to: line.from + c.to }));
+  });
+}
+
 function tableCommand(
-  edit: (t: Table) => { rows: string[][]; aligns: Align[] } | null,
+  edit: (t: Table) => { rows: string[][]; aligns: Align[]; caret?: { row: number; col: number } } | null,
 ): StateCommand {
   return ({ state, dispatch }) => {
-    const table = findTable(state);
+    const table = findTable(state, tableAnchor ?? undefined);
     if (!table) return false;
     const next = edit(table);
     if (!next) return false;
@@ -122,11 +142,30 @@ function tableCommand(
         changes: { from: table.from, to: table.to, insert: text },
         selection: EditorSelection.cursor(table.from),
         userEvent: "input.format",
+        effects: next.caret ? [focusTableCell.of(next.caret)] : [],
       }),
     );
     return true;
   };
 }
+
+/** Set while a widget control runs a command, so the command acts on THAT
+ *  table rather than wherever the document caret happens to be. */
+let tableAnchor: number | null = null;
+
+export function withTableAnchor<T>(pos: number, fn: () => T): T {
+  const prev = tableAnchor;
+  tableAnchor = pos;
+  try {
+    return fn();
+  } finally {
+    tableAnchor = prev;
+  }
+}
+
+/** Emitted by structural commands so the widget can put focus in the cell the
+ *  user expects afterwards. */
+export const focusTableCell = StateEffect.define<{ row: number; col: number }>();
 
 const emptyRow = (cols: number) => Array.from({ length: cols }, () => "   ");
 
@@ -135,19 +174,19 @@ export const tableInsertRowAbove = tableCommand((t) => {
   const at = Math.max(1, t.row);
   const rows = [...t.rows];
   rows.splice(at, 0, emptyRow(t.rows[0]?.length ?? 1));
-  return { rows, aligns: t.aligns };
+  return { rows, aligns: t.aligns, caret: { row: at, col: t.col } };
 });
 
 export const tableInsertRowBelow = tableCommand((t) => {
   const rows = [...t.rows];
   rows.splice(t.row + 1, 0, emptyRow(t.rows[0]?.length ?? 1));
-  return { rows, aligns: t.aligns };
+  return { rows, aligns: t.aligns, caret: { row: t.row + 1, col: t.col } };
 });
 
 export const tableDeleteRow = tableCommand((t) => {
   if (t.rows.length <= 1 || t.row === 0) return null; // keep the header
   const rows = t.rows.filter((_, i) => i !== t.row);
-  return { rows, aligns: t.aligns };
+  return { rows, aligns: t.aligns, caret: { row: Math.min(t.row, rows.length - 1), col: t.col } };
 });
 
 function insertColumn(offset: 0 | 1): StateCommand {
@@ -160,7 +199,7 @@ function insertColumn(offset: 0 | 1): StateCommand {
     });
     const aligns = [...t.aligns];
     aligns.splice(at, 0, "none");
-    return { rows, aligns };
+    return { rows, aligns, caret: { row: t.row, col: at } };
   });
 }
 
@@ -170,7 +209,11 @@ export const tableInsertColumnRight = insertColumn(1);
 export const tableDeleteColumn = tableCommand((t) => {
   if ((t.rows[0]?.length ?? 0) <= 1) return null;
   const rows = t.rows.map((r) => r.filter((_, i) => i !== t.col));
-  return { rows, aligns: t.aligns.filter((_, i) => i !== t.col) };
+  return {
+    rows,
+    aligns: t.aligns.filter((_, i) => i !== t.col),
+    caret: { row: t.row, col: Math.max(0, Math.min(t.col, (rows[0]?.length ?? 1) - 1)) },
+  };
 });
 
 export function tableAlignColumn(align: Align): StateCommand {

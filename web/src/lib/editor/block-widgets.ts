@@ -16,7 +16,8 @@ import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 import { renderMathHTML } from "./math";
-import { splitRow } from "./table-model";
+import { renderCellHTML, splitRow } from "./table-model";
+import { EditableTableWidget } from "./table-widget";
 import { renderMermaidSvg } from "./mermaid";
 import { cachedHighlight, highlightToHtml } from "./shiki";
 
@@ -27,17 +28,7 @@ function selectionTouches(state: EditorState, from: number, to: number): boolean
 // ── Table widget ─────────────────────────────────────────────────────────────
 
 /** Minimal inline-markdown for table cells: bold/italic/code/strike as text styling. */
-function renderCellHTML(cell: string): string {
-  const escaped = cell
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-  return escaped
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/~~([^~]+)~~/g, "<del>$1</del>");
-}
+
 
 class TableWidget extends WidgetType {
   constructor(readonly source: string) {
@@ -369,17 +360,31 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
 
   // GFM tables + fenced code from the syntax tree
   const fenceRanges: [number, number][] = [];
+  // Ordinal position of each table in the document. Stable while typing in a
+  // cell, so the widget's eq() keeps the same identity and CodeMirror reuses
+  // the DOM node the caret lives in.
+  let tableOrdinal = 0;
   syntaxTree(state).iterate({
     enter(node) {
       if (node.name === "Table") {
-        if (!selectionTouches(state, node.from, node.to)) {
-          decorations.push(
-            Decoration.replace({
-              widget: new TableWidget(state.doc.sliceString(node.from, node.to)),
-              block: true,
-            }).range(node.from, node.to),
-          );
-        }
+        // No selectionTouches gate: the table is EDITABLE now, so revealing the
+        // raw markdown when the selection enters it would make the table vanish
+        // at exactly the moment the user clicks in to edit a cell. The caret
+        // parked at the block start by the widget would trip that gate on every
+        // focus. Source mode is where the pipes live.
+        //
+        // The id is the table's ordinal within the document, which is stable
+        // while you type in a cell — unlike a document offset, which changes on
+        // every edit above and would rebuild the DOM under the user's caret.
+        decorations.push(
+          Decoration.replace({
+            widget: new EditableTableWidget(
+              tableOrdinal++,
+              state.doc.sliceString(node.from, node.to),
+            ),
+            block: true,
+          }).range(node.from, node.to),
+        );
         return false;
       }
       if (node.name === "FencedCode") {
