@@ -25,6 +25,7 @@ import {
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
+import type { PluginCommand } from "@/lib/plugins/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export interface PaletteCommand {
@@ -49,6 +50,9 @@ interface CommandPaletteProps {
   onExportVault: () => void;
   onImportVault: () => void;
   onImportFolder: () => void;
+  /** Commands contributed by enabled plugins. */
+  pluginCommands: PluginCommand[];
+  onRunPluginCommand: (pluginId: string, commandId: string) => void;
   onOpenSettings: () => void;
 }
 
@@ -63,6 +67,8 @@ export function CommandPalette({
   onExportVault,
   onImportVault,
   onImportFolder,
+  pluginCommands,
+  onRunPluginCommand,
   onOpenSettings,
 }: CommandPaletteProps) {
   const router = useRouter();
@@ -272,6 +278,12 @@ export function CommandPalette({
     { id: "export-vault", label: "Export vault as a zip", run: onExportVault },
     { id: "import-vault", label: "Import notes from a zip", run: onImportVault },
     { id: "import-folder", label: "Import a vault folder…", run: onImportFolder },
+    // Plugin-contributed commands, namespaced so a plugin can't shadow a core one
+    ...pluginCommands.map((c) => ({
+      id: `plugin:${c.pluginId}:${c.commandId}`,
+      label: c.label,
+      run: () => onRunPluginCommand(c.pluginId, c.commandId),
+    })),
     { id: "switch-vault", label: "Change vault…", run: () => router.push("/vault") },
     { id: "reload", label: "Reload app without saving", run: () => window.location.reload() },
     {
