@@ -561,3 +561,33 @@ body {
     background: #fff;
   }
 }
+
+/* ── Inline HTML (colour, underline, super/subscript, highlight) ─────────────
+   The five tags lib/editor/inline-html.ts allows, styled identically in the
+   live-preview decoration and the reading view so the two surfaces agree. */
+.nodum-inline-html {
+  /* An inline colour/background is carried on the element's style attribute,
+     re-serialised by safeStyle — never echoed from the author's input. */
+  border-radius: 2px;
+}
+
+.nodum-inline-u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nodum-inline-mark {
+  /* A bare <mark> — what an imported Obsidian vault contains — must still look
+     highlighted. An explicit background from safeStyle overrides this. */
+  background: var(--ob-color-yellow, #e0ac00);
+  color: #1a1a1a;
+  padding: 0 2px;
+}
+
+.nodum-inline-sup,
+.nodum-inline-sub {
+  font-size: 0.75em;
+  line-height: 0;
+}
+.nodum-inline-sup { vertical-align: super; }
+.nodum-inline-sub { vertical-align: sub; }

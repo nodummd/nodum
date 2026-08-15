@@ -14,6 +14,7 @@ import { MermaidDiagram, ShikiCodeBlock } from "./code-block";
 import { AttachmentImage, NoteEmbed } from "./embeds";
 import { isImageTarget } from "@/lib/editor/markdown-extensions";
 import { remarkCallouts } from "@/lib/editor/remark-callouts";
+import { remarkInlineHtml } from "@/lib/editor/remark-inline-html";
 
 import "katex/dist/katex.min.css";
 
@@ -65,7 +66,7 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
   return (
     <div className="nodum-reading">
       <ReactMarkdown
-        remarkPlugins={[remarkFrontmatter, remarkGfm, remarkMath, remarkCallouts]}
+        remarkPlugins={[remarkFrontmatter, remarkGfm, remarkMath, remarkCallouts, remarkInlineHtml]}
         rehypePlugins={[rehypeKatex]}
         // default transform strips unknown protocols — ours carry embed refs
         urlTransform={(url) =>
