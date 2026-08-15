@@ -239,7 +239,15 @@ e2e covers each and fails without the fix.
 
 ## P1-4 — Wikilink clicks open a new tab instead of navigating in place
 
-**Status:** verified, not started.
+**Status:** ✅ DONE 2026-08-16. Per-pane history now holds whole `Tab` entries,
+so Back can put back a tab a link navigated away from; `openTab(tab, {replace})`
+takes over the active tab (never a pinned one, never a tab already open);
+live-preview and reading-view clicks pass `{newTab: meta||ctrl}` so ⌘-click still
+opens a second tab. `renameTab` renames history copies too. Arrows moved from the
+tab strip to the left column of the note header, as requested — note that
+graph/canvas/empty panes therefore have no arrows, only ⌘[ / ⌘] and the palette.
+5 e2e in `link-navigation.spec.ts`; the in-place and rename fixes each verified
+by reverting them.
 
 **Reproduction (live).** Pane has 1 tab. Click the `[[Type Systems]]` wikilink →
 2 tabs. Every link follow adds a tab, forever.
@@ -380,7 +388,14 @@ opening a cell, then flag + styling + tests.
 
 ## P2-6 — Graph view: no control for node label font size
 
-**Status:** verified, not started.
+**Status:** ✅ DONE 2026-08-16. "Text size" slider (0.3–3, default 0.6) in
+Display, folded into the render loop's zoom-adaptive font size exactly as
+`nodeSize` folds into `pointSizeScale`; default node size dropped to 0.5.
+Alongside it (requested live): hovering a file row or an editor link breathes
+that note's node — additive, nothing dims — via `lib/graph/hover-bus.ts`. Also
+fixed the label legibility shadow, which named `--ob-bg` (a Tailwind alias, not
+a CSS variable) and computed to `none`. e2e: `graph.spec.ts` text size,
+`graph-hover.spec.ts` ×2.
 
 **Reproduction (live).** Graph settings exposes 7 sliders; none affects label
 size.
@@ -424,8 +439,8 @@ Only after P0/P1 land. Check migrations, prod compose smoke, secrets, and the
 | 1 | ~~P2-5 table menu + disabled styling~~ (`0fe2434`) | S | ✅ Done |
 | 2 | ~~P0-1 inline HTML~~ (`0988105`) | M | ✅ Done |
 | 3 | P1-3 undo/redo (stages A→C) | L | Core editing safety |
-| 4 | P1-4 link navigation + arrows | L | Daily friction; largest store change |
-| 5 | P2-6 graph label size | S | Self-contained |
+| 4 | ~~P1-4 link navigation + arrows~~ | L | ✅ Done 2026-08-16 |
+| 5 | ~~P2-6 graph label size~~ (+ hover pulse) | S | ✅ Done 2026-08-16 |
 | 6 | P0-2 collab R1/R2/R3 | M | Blocker only if collab ships enabled |
 | 7 | P3-7 release | S | Last |
 
