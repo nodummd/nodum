@@ -197,7 +197,7 @@ export function Workspace({ vault }: { vault: Vault }) {
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
-  const { commands: pluginCommands, runCommand: runPluginCommand } = usePlugins(vault.id);
+  const { commands: pluginCommands, runCommand: runPluginCommand } = usePlugins(vault.id, { run: true });
   const importFolderRef = useRef<HTMLInputElement>(null);
 
   const exportVault = useCallback(() => {
