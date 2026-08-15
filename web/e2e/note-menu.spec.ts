@@ -427,6 +427,51 @@ test.describe("note menu", () => {
     expect(inView).toBe(true);
   });
 
+
+  test("a restored session reveals the note it reopens", async ({ page }) => {
+    await signupFreshUser(page, "reveal-restore");
+    // Tall enough that virtualisation drops the target row when the explorer
+    // sits at the top — the state a reload starts in.
+    await page.evaluate(async () => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const vaults = await (await fetch("/api/v1/vaults", { headers })).json();
+      const vaultId = vaults.data[0].id;
+      for (let i = 0; i < 60; i++) {
+        await fetch(`/api/v1/vaults/${vaultId}/notes`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ title: `Pad ${String(i).padStart(2, "0")}`, content: "x" }),
+        });
+      }
+      await fetch(`/api/v1/vaults/${vaultId}/notes`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ title: "ZZZ restored note", content: "target" }),
+      });
+    });
+    await page.reload();
+    await openNoteFromExplorer(page, "Pad 00");
+
+    await page.keyboard.press("ControlOrMeta+o");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder(/find or create/i).fill("ZZZ restored note");
+    await dialog.getByText("ZZZ restored note", { exact: true }).first().click();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("ZZZ restored note");
+
+    // Reload: the note is restored from the persisted workspace, which the
+    // reveal subscription never sees — it only fires on transitions.
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("ZZZ restored note", {
+      timeout: 15_000,
+    });
+
+    await expect(page.locator("[data-note-id][data-active]")).toHaveText(/ZZZ restored note/, {
+      timeout: 15_000,
+    });
+  });
+
   test("move file to relocates the note", async ({ page }) => {
     await signupFreshUser(page, "notemenu-move");
     await createInFolder(page, "Inbox", "Wandering note", "content\n");

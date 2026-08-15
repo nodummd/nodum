@@ -605,7 +605,30 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
       const noteId = activeNoteIdOf(state);
       if (noteId && noteId !== activeNoteIdOf(prev)) reveal({ kind: "note", id: noteId });
     });
-    return unsub;
+
+    // The subscription only fires on CHANGE, so a session restored from the
+    // persisted store — the note you had open when you last closed the app —
+    // never gets revealed: every route highlights the active file except the
+    // one where you open it. Reveal once on mount, waiting for the tree query
+    // (the reveal is a no-op until it lands). Deferred out of the effect body
+    // so the state update happens in a frame callback, not during the effect.
+    let frames = 0;
+    let cancelled = false;
+    const initial = () => {
+      if (cancelled) return;
+      if (!treeRef.current) {
+        if (frames++ < 120) requestAnimationFrame(initial);
+        return;
+      }
+      const noteId = activeNoteIdOf(useWorkspaceStore.getState());
+      if (noteId) reveal({ kind: "note", id: noteId });
+    };
+    requestAnimationFrame(initial);
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [revealItem]);
 
   /** One button that collapses everything, then expands everything back. */
