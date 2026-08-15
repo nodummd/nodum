@@ -1,6 +1,8 @@
 /** Formatting commands — Obsidian's ⌘B / ⌘I / ⌘K editor hotkeys. */
 
-import type { StateCommand } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
+import type { SyntaxNode } from "@lezer/common";
+import type { EditorState, StateCommand } from "@codemirror/state";
 import { EditorSelection } from "@codemirror/state";
 
 /** Shrink a range so it excludes leading/trailing whitespace.
@@ -421,6 +423,111 @@ export const toggleCheckbox = mapSelectedLines(({ from, text }) => {
   const at = from + m[1].length;
   return { from: at, to: at + 1, insert: m[2] === " " ? "x" : " " };
 });
+
+// ── Active-format detection ────────────────────────────────────────────────
+
+/** What formatting applies where the caret is, for the menu's checkmarks. */
+export interface ActiveFormats {
+  bold: boolean;
+  italic: boolean;
+  strikethrough: boolean;
+  highlight: boolean;
+  code: boolean;
+  underline: boolean;
+  /** 0 when the line is not a heading. */
+  heading: number;
+  bulletList: boolean;
+  numberedList: boolean;
+  taskList: boolean;
+  quote: boolean;
+}
+
+const EMPTY_FORMATS: ActiveFormats = {
+  bold: false,
+  italic: false,
+  strikethrough: false,
+  highlight: false,
+  code: false,
+  underline: false,
+  heading: 0,
+  bulletList: false,
+  numberedList: false,
+  taskList: false,
+  quote: false,
+};
+
+/** True when `pos` sits inside an `<open>…</close>` pair on the same line.
+ *  Inline HTML has no dedicated syntax node, so this is a text scan. */
+function insideTags(line: string, offset: number, open: string, close: string): boolean {
+  const before = line.lastIndexOf(open, offset);
+  if (before === -1) return false;
+  const closed = line.indexOf(close, before);
+  return closed === -1 || closed >= offset;
+}
+
+/**
+ * Read the formatting in effect at the selection.
+ *
+ * Uses the syntax tree rather than counting markers around the range: the
+ * caret usually sits INSIDE `**bold**` rather than around it, and a
+ * marker-matching check would call that "not bold" and put the menu out of
+ * step with what the user can see.
+ */
+export function activeFormats(state: EditorState): ActiveFormats {
+  const { from } = state.selection.main;
+  const result = { ...EMPTY_FORMATS };
+
+  // Resolve on BOTH sides and union. A caret at the end of "## Heading" — where
+  // it lands whenever you click the empty space to the right of the text, since
+  // a .cm-line spans the full editor width — has the heading only on its left.
+  // Looking one way alone reports such a line as plain text.
+  const tree = syntaxTree(state);
+  for (const side of [1, -1] as const) {
+    let node: SyntaxNode | null = tree.resolveInner(from, side);
+    while (node) {
+      switch (node.name) {
+        case "StrongEmphasis":
+          result.bold = true;
+          break;
+        case "Emphasis":
+          result.italic = true;
+          break;
+        case "Strikethrough":
+          result.strikethrough = true;
+          break;
+        case "HighlightInline":
+          result.highlight = true;
+          break;
+        case "InlineCode":
+        case "FencedCode":
+        case "CodeBlock":
+          result.code = true;
+          break;
+        case "Blockquote":
+          result.quote = true;
+          break;
+        case "BulletList":
+          result.bulletList = true;
+          break;
+        case "OrderedList":
+          result.numberedList = true;
+          break;
+      }
+      const heading = /^ATXHeading([1-6])$/.exec(node.name);
+      if (heading) result.heading = Number(heading[1]);
+      node = node.parent;
+    }
+  }
+
+  const line = state.doc.lineAt(from);
+  result.underline = insideTags(line.text, from - line.from, "<u>", "</u>");
+  // The parser models a task as a bullet item whose content opens with [ ]/[x],
+  // so it needs its own line-level check.
+  result.taskList = /^\s*[-*+]\s+\[[ xX]\]\s/.test(line.text);
+  if (result.taskList) result.bulletList = false;
+
+  return result;
+}
 
 /** Obsidian's "Add file property" — ensure a frontmatter block and put the
  *  caret on a fresh key line inside it. */

@@ -28,8 +28,12 @@ async function choose(page: Page, submenu: string, command: string, line = 0) {
   // whole page would match same-named items in the parent menu — "Table"
   // exists both as the Insert command and as the top-level group.
   const sub = page.getByRole("menu").last();
-  // Names include the shortcut hint ("Bold ⌘B"), so anchor on the label only.
-  const item = sub.getByRole("menuitem", { name: new RegExp(`^${escapeRe(command)}`) }).first();
+  // Toggleable commands are menuitemcheckbox, not menuitem — match either, and
+  // anchor on the label only since names carry the shortcut hint ("Bold ⌘B").
+  const item = sub
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: new RegExp(`^${escapeRe(command)}`) })
+    .first();
   await expect(item).toBeVisible();
   await item.click();
 }
@@ -172,6 +176,61 @@ test.describe("editor context menu", () => {
     const text = await sourceText(page);
     expect(text.indexOf("apple")).toBeLessThan(text.indexOf("banana"));
     expect(text.indexOf("banana")).toBeLessThan(text.indexOf("cherry"));
+  });
+
+  test("checkmarks report the formatting under the caret", async ({ page }) => {
+    await setup(
+      page,
+      "ctxmenu-active",
+      ["## A heading", "", "Some **bold words** here.", "", "- a bullet", ""].join("\n"),
+    );
+
+    // Heading line → Heading 2 checked, the rest not.
+    const menu = await openMenu(page, 0);
+    await menu.getByRole("menuitem", { name: "Paragraph", exact: true }).click();
+    let sub = page.getByRole("menu").last();
+    await expect(sub.getByRole("menuitemcheckbox", { name: /^Heading 2/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(sub.getByRole("menuitemcheckbox", { name: /^Heading 1/ })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    // Caret inside **bold words** → Bold checked. The caret lands BETWEEN the
+    // markers, which a marker-matching check would report as unformatted.
+    await editorSurface(page).getByText("bold words").click({ button: "right" });
+    const menu2 = page.getByRole("menu").first();
+    await expect(menu2).toBeVisible();
+    await menu2.getByRole("menuitem", { name: "Format", exact: true }).click();
+    sub = page.getByRole("menu").last();
+    await expect(sub.getByRole("menuitemcheckbox", { name: /^Bold/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(sub.getByRole("menuitemcheckbox", { name: /^Italic/ })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+  });
+
+  test("bullet lines report the bullet list as active", async ({ page }) => {
+    await setup(page, "ctxmenu-active-list", ["- first", "- second", ""].join("\n"));
+    const menu = await openMenu(page, 0);
+    await menu.getByRole("menuitem", { name: "Lists", exact: true }).click();
+    const sub = page.getByRole("menu").last();
+    await expect(sub.getByRole("menuitemcheckbox", { name: "Bullet list" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(sub.getByRole("menuitemcheckbox", { name: "Numbered list" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 
   test("add file property creates frontmatter", async ({ page }) => {
