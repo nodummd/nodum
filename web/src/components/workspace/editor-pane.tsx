@@ -18,7 +18,12 @@ import { createCollabSession, presenceColor, type CollabSession } from "@/lib/ed
 import { getAccessToken } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { vaultApi } from "@/lib/api/endpoints";
+import type { EditorView } from "@codemirror/view";
+
 import { ReadingView } from "@/components/editor/reading-view";
+import { BacklinksInDocument } from "./backlinks-in-document";
+import { NoteBreadcrumb } from "./note-breadcrumb";
+import { NoteMenu } from "./note-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api/client";
 import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
@@ -28,7 +33,15 @@ import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
-export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: string }) {
+export function EditorPane({
+  vaultId,
+  noteId,
+  paneIndex,
+}: {
+  vaultId: string;
+  noteId: string;
+  paneIndex: number;
+}) {
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const { data: note, error } = useQuery({
     queryKey: ["note", vaultId, noteId],
@@ -50,10 +63,10 @@ export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: strin
 
   // key remounts the body when switching notes — local draft state resets
   // naturally without effect-based syncing.
-  return <EditorBody key={noteId} vaultId={vaultId} note={note} />;
+  return <EditorBody key={noteId} vaultId={vaultId} note={note} paneIndex={paneIndex} />;
 }
 
-function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
+function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note; paneIndex: number }) {
   const queryClient = useQueryClient();
   const renameTab = useWorkspaceStore((s) => s.renameTab);
   const openTab = useWorkspaceStore((s) => s.openTab);
@@ -66,6 +79,12 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   const preview = usePagePreview();
 
   const [title, setTitle] = useState(note.title);
+  const titleRef = useRef<HTMLInputElement>(null);
+  // The live CodeMirror view, so the ⋯ menu can run editor commands.
+  const editorViewRef = useRef<EditorView | null>(null);
+  // Obsidian's "Backlinks in document": the same list the right panel shows,
+  // pinned under the note body instead of in the sidebar.
+  const [backlinksInDocument, setBacklinksInDocument] = useState(false);
   // draft lives in state (render-safe) and a ref (event-safe for save callbacks)
   const [draft, setDraft] = useState(note.content);
   const draftRef = useRef(note.content);
@@ -248,7 +267,19 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-end gap-0.5 px-3 pt-1.5">
+      {/* Three columns so the breadcrumb stays optically centred no matter how
+          wide the button cluster gets. */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 pt-1.5">
+        <div />
+        <NoteBreadcrumb
+          vaultId={vaultId}
+          note={note}
+          onRename={(next) => {
+            setTitle(next);
+            rename.mutate(next);
+          }}
+        />
+        <div className="flex items-center justify-end gap-0.5">
         <BookmarkButton vaultId={vaultId} noteId={note.id} />
         <ShareButton vaultId={vaultId} noteId={note.id} />
         <ModeButton
@@ -269,6 +300,19 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           onClick={() => setMode("reading")}
           icon={<BookOpen className="size-3.5" strokeWidth={1.75} />}
         />
+        <NoteMenu
+          vaultId={vaultId}
+          note={note}
+          paneIndex={paneIndex}
+          getEditorView={() => editorViewRef.current}
+          onRenameRequest={() => {
+            titleRef.current?.focus();
+            titleRef.current?.select();
+          }}
+          backlinksInDocument={backlinksInDocument}
+          onToggleBacklinksInDocument={() => setBacklinksInDocument((v) => !v)}
+        />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
@@ -285,6 +329,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           }
         >
           <input
+            ref={titleRef}
             value={title}
             aria-label="Note title"
             onChange={(e) => setTitle(e.target.value)}
@@ -313,6 +358,16 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
               collab={activeCollab ?? undefined}
               showLineNumbers={editorSettings.showLineNumbers}
               spellcheck={editorSettings.spellcheck}
+              onViewReady={(v) => {
+                editorViewRef.current = v;
+              }}
+            />
+          )}
+          {backlinksInDocument && (
+            <BacklinksInDocument
+              vaultId={vaultId}
+              noteId={note.id}
+              onOpen={(id, t) => openTab({ id, kind: "note", title: t })}
             />
           )}
         </div>

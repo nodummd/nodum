@@ -37,6 +37,8 @@ export interface MarkdownEditorProps {
   collab?: CollabSession;
   /** Extra right-click actions that need workspace context (new note, extract). */
   menuActions?: EditorContextMenuActions;
+  /** Receives the live view so the pane's ⋯ menu can run editor commands. */
+  onViewReady?: (view: EditorView | null) => void;
   /** User editor prefs (S11.2) — gutter line numbers + native spellcheck. */
   showLineNumbers?: boolean;
   spellcheck?: boolean;
@@ -50,6 +52,7 @@ export function MarkdownEditor({
   onNavigate,
   collab,
   menuActions,
+  onViewReady,
   showLineNumbers = false,
   spellcheck = false,
 }: MarkdownEditorProps) {
@@ -57,11 +60,13 @@ export function MarkdownEditor({
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onNavigateRef = useRef(onNavigate);
+  const onViewReadyRef = useRef(onViewReady);
 
   useEffect(() => {
     onChangeRef.current = onChange;
     onNavigateRef.current = onNavigate;
-  }, [onChange, onNavigate]);
+    onViewReadyRef.current = onViewReady;
+  }, [onChange, onNavigate, onViewReady]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -125,10 +130,12 @@ export function MarkdownEditor({
       parent: containerRef.current,
     });
     viewRef.current = view;
+    onViewReadyRef.current?.(view);
 
     return () => {
       view.destroy();
       viewRef.current = null;
+      onViewReadyRef.current?.(null);
     };
     // Recreate only when the note identity, mode, or editor prefs change —
     // content updates flow through the editor itself; external resets use the

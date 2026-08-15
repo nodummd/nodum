@@ -461,7 +461,7 @@ export function Workspace({ vault }: { vault: Vault }) {
               <div className="relative min-h-0 flex-1 bg-ob-bg">
                 {paneTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
                 {paneTab?.kind === "note" && (
-                  <EditorPane vaultId={vault.id} noteId={paneTab.id} />
+                  <EditorPane vaultId={vault.id} noteId={paneTab.id} paneIndex={paneIndex} />
                 )}
                 {paneTab?.kind === "graph" && (
                   <GraphView
