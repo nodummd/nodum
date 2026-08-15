@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
+import { currentNoteHover, subscribeNoteHover, type NoteHover } from "@/lib/graph/hover-bus";
 import { cn } from "@/lib/utils";
 
 // Label EVERY node (Obsidian shows them all, fading by zoom). The render loop
@@ -382,6 +383,15 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   // node/label scaling are measured RELATIVE to it, so the default view always
   // reads the same no matter how large the layout's coordinate extent is.
   const refZoomRef = useRef(0);
+  // Breathing highlight for the node the pointer is on somewhere ELSE in the
+  // app (a file-explorer row, a link in the editor). Deliberately additive: it
+  // never dims anything, it only makes one node swell and glow.
+  const pulseIndexRef = useRef<number | null>(null);
+  const pulseRafRef = useRef(0);
+  // Mirror of the sizes/colors last pushed to the engine — the pulse layers on
+  // top of whatever is showing (focus accent, hover dim, search) and restores
+  // exactly that when the pointer leaves.
+  const currentSizesRef = useRef<Float32Array>(new Float32Array(0));
   // Node-drag: which node is grabbed, and the RAF that keeps the rest of the
   // graph gently drifting while it is held.
   const draggingIndexRef = useRef<number | null>(null);
@@ -452,6 +462,54 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const s = searchSetRef.current;
     if (s && s.size) applyHighlight(s, s);
     else applyHighlight(null, null);
+  };
+
+  /** Breathe one node: swell it and pull its colour toward the accent, on a
+   *  slow loop, until stopPulse. Everything else is left exactly as it is —
+   *  this highlight adds, it never dims. */
+  const startPulse = (index: number) => {
+    cancelAnimationFrame(pulseRafRef.current);
+    pulseIndexRef.current = index;
+    const t0 = performance.now();
+    const PERIOD = 1200;
+    const step = (now: number) => {
+      const graph = graphRef.current;
+      if (!graph || pulseIndexRef.current !== index) return;
+      // Read the live arrays every frame: a search dim or the focus accent may
+      // be animating underneath, and the pulse should ride on top of it.
+      const sizes = currentSizesRef.current;
+      const colors = currentColorsRef.current;
+      if (index < sizes.length && index * 4 + 3 < colors.length) {
+        const phase = 0.5 - 0.5 * Math.cos(((now - t0) / PERIOD) * 2 * Math.PI);
+        const nextSizes = sizes.slice();
+        nextSizes[index] = sizes[index] * (1 + 1.2 * phase);
+        const nextColors = colors.slice();
+        const accent = focusColorRef.current;
+        for (let c = 0; c < 3; c++) {
+          const base = colors[index * 4 + c];
+          nextColors[index * 4 + c] = base + (accent[c] - base) * phase;
+        }
+        const alpha = colors[index * 4 + 3];
+        nextColors[index * 4 + 3] = alpha + (1 - alpha) * phase;
+        graph.setPointSizes(nextSizes);
+        graph.setPointColors(nextColors);
+        if (draggingIndexRef.current === null) graph.render(undefined, 0);
+      }
+      pulseRafRef.current = requestAnimationFrame(step);
+    };
+    pulseRafRef.current = requestAnimationFrame(step);
+  };
+
+  /** Put back exactly what was showing before the pulse. */
+  const stopPulse = () => {
+    cancelAnimationFrame(pulseRafRef.current);
+    if (pulseIndexRef.current === null) return;
+    pulseIndexRef.current = null;
+    const graph = graphRef.current;
+    if (!graph) return;
+    graph.setPointSizes(currentSizesRef.current.slice());
+    graph.setPointColors(currentColorsRef.current.slice());
+    if (draggingIndexRef.current === null) graph.render(undefined, 0);
   };
 
   /** Fade + scale newly-added nodes (and their links) in over ~320ms so a
@@ -725,15 +783,33 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
           labelRef.current.overlay.style.fontSize = `${(10.5 * sizeScale * labelSizeRef.current).toFixed(1)}px`;
       }
       const forceSet = forceLabelsRef.current;
+      const pulseIndex = pulseIndexRef.current;
       const els = labelRef.current?.els;
       for (const [i, pos] of tracked) {
         const el = els?.get(i);
         if (!el || !pos) continue;
         const [x, y] = graph.spaceToScreenPosition([pos[0], pos[1]]);
         const offscreen = x < -60 || x > W + 60 || y < -30 || y > H + 30;
+        // The node the pointer is on elsewhere in the app always shows its name,
+        // and gets an accent glow (CSS) — at small node sizes the label is what
+        // actually makes it findable.
+        const pulsing = i === pulseIndex && !offscreen;
+        if (pulsing !== el.hasAttribute("data-hover-pulse")) {
+          el.toggleAttribute("data-hover-pulse", pulsing);
+        }
         // While a highlight is active only its nodes' names show; otherwise fade
         // in/out by zoom. Off-screen labels are always culled.
-        const op = offscreen ? 0 : forceSet ? (forceSet.has(i) ? 1 : 0) : alpha <= 0.03 ? 0 : alpha;
+        const op = offscreen
+          ? 0
+          : pulsing
+            ? 1
+            : forceSet
+              ? forceSet.has(i)
+                ? 1
+                : 0
+              : alpha <= 0.03
+                ? 0
+                : alpha;
         if (op <= 0) {
           if (el.style.opacity !== "0") el.style.opacity = "0";
           continue;
@@ -754,6 +830,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       cancelAnimationFrame(dimRafRef.current);
       cancelAnimationFrame(enterRafRef.current);
       cancelAnimationFrame(driftRafRef.current);
+      cancelAnimationFrame(pulseRafRef.current);
+      pulseIndexRef.current = null;
       overlay.remove();
       labelRef.current = null;
       graph.destroy();
@@ -1016,6 +1094,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     edgesRef.current = filtered.edges;
     colorsRef.current = colors;
     currentColorsRef.current = colors.slice();
+    currentSizesRef.current = sizes.slice();
     baseLinkColorsRef.current = baseLinkColors;
     prevIdsRef.current = filtered.nodes.map((node) => node.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1041,6 +1120,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     }
     colorsRef.current = colors;
     currentColorsRef.current = colors.slice();
+    currentSizesRef.current = sizes.slice();
     graph.setPointColors(colors);
     graph.setPointSizes(sizes);
     graph.render(undefined, 0); // redraw a settled/paused graph so the accent shows at once
@@ -1064,6 +1144,37 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     if (hoveredIndexRef.current === null) applyHighlight(set, set);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSearch, filtered]);
+
+  // Effect 2d — the pointer is on a note somewhere else in the app (an explorer
+  // row, a link in the editor): breathe that node so it can be picked out of the
+  // constellation. Nothing dims — the rest of the graph is left untouched.
+  // Re-runs on data changes so a mid-hover rebuild keeps pulsing the right node.
+  useEffect(() => {
+    const resolve = (hover: NoteHover): number => {
+      const nodes = nodesRef.current;
+      if (hover.id) {
+        const byId = nodes.findIndex((node) => node.id === hover.id);
+        if (byId >= 0) return byId;
+      }
+      const target = hover.target?.trim().toLowerCase().replace(/\.md$/, "");
+      if (!target) return -1;
+      // The backend's own link rule: title first, then path.
+      const byTitle = nodes.findIndex((node) => node.title.toLowerCase() === target);
+      if (byTitle >= 0) return byTitle;
+      return nodes.findIndex((node) => node.path.toLowerCase().replace(/\.md$/, "") === target);
+    };
+    const apply = (hover: NoteHover | null) => {
+      const index = hover ? resolve(hover) : -1;
+      if (index < 0) stopPulse();
+      else if (index !== pulseIndexRef.current) startPulse(index);
+    };
+    apply(currentNoteHover());
+    const unsubscribe = subscribeNoteHover(apply);
+    return () => {
+      unsubscribe();
+      stopPulse();
+    };
+  }, [filtered]);
 
   // Effect 3 — force sliders update the live simulation (no teardown).
   // Only a REAL value change reheats; mounts and identity churn must not

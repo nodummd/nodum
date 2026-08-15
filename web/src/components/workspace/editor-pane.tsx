@@ -28,6 +28,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ApiError } from "@/lib/api/client";
 import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
+import { setNoteHover } from "@/lib/graph/hover-bus";
 import { useEditorSettings } from "@/lib/hooks/use-editor-settings";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -218,6 +219,9 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
   // otherwise up to 700ms of typing would be lost.
   useEffect(() => {
     return () => {
+      // A tab switch can retire the note out from under the pointer, which
+      // fires no mouseleave — the graph would keep breathing a stale node.
+      setNoteHover(null);
       if (saveTimer.current && !collabLiveRef.current) {
         clearTimeout(saveTimer.current);
         void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
@@ -344,7 +348,20 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
+      <div
+        className="min-h-0 flex-1 overflow-y-auto"
+        {...preview.handlers}
+        // Hovering a link points the open graph at the note it leads to (the
+        // node breathes). Wraps the page-preview handler rather than replacing
+        // it — the preview has its own "require ⌘" pref, this never should.
+        onMouseOver={(e) => {
+          preview.handlers.onMouseOver(e);
+          const el = (e.target as HTMLElement).closest?.("[data-wikilink-target]");
+          const target = el?.getAttribute("data-wikilink-target");
+          setNoteHover(target ? { target } : null);
+        }}
+        onMouseLeave={() => setNoteHover(null)}
+      >
         <div
           // Printing (our "Export to PDF…") shows only this subtree — see the
           // @media print block in globals.css.
