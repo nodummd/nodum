@@ -21,7 +21,7 @@ import "katex/dist/katex.min.css";
 interface ReadingViewProps {
   content: string;
   vaultId: string;
-  onNavigate: (target: string) => void;
+  onNavigate: (target: string, opts?: { newTab?: boolean }) => void;
   /** Transclusion nesting depth (embeds render embeds up to depth 2). */
   depth?: number;
 }
@@ -101,7 +101,9 @@ export function ReadingView({ content, vaultId, onNavigate, depth = 0 }: Reading
                   data-wikilink-fragment={fragment ?? undefined}
                   onClick={(e) => {
                     e.preventDefault();
-                    onNavigate(target);
+                    // ⌘/Ctrl-click asks for a second tab; a plain click follows
+                    // the link where you are reading.
+                    onNavigate(target, { newTab: e.metaKey || e.ctrlKey });
                   }}
                 >
                   {children}

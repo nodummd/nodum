@@ -2,7 +2,7 @@
 
 /** Tab bar — Obsidian-style workspace tabs, one bar per editor pane. */
 
-import { ArrowLeft, ArrowRight, GitFork, Pin, Plus, X } from "lucide-react";
+import { GitFork, Pin, Plus, X } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -12,7 +12,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { historyStep, useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
 export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote: () => void }) {
@@ -83,7 +83,6 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
         isActivePane ? "border-ob-border" : "border-ob-border opacity-80",
       )}
     >
-      <NavArrows paneIndex={paneIndex} />
       {caret && dragging && (
         <div
           aria-hidden
@@ -172,49 +171,6 @@ export function TabBar({ paneIndex, onNewNote }: { paneIndex: number; onNewNote:
         className="mb-1 ml-1 flex w-8 shrink-0 items-center justify-center self-center rounded-md py-1 text-ob-faint hover:bg-ob-hover hover:text-ob-text"
       >
         <Plus className="size-4" strokeWidth={1.75} />
-      </button>
-    </div>
-  );
-}
-
-/** Obsidian's per-pane history arrows, at the left of the tab strip. Lives here
- *  rather than in the editor toolbar so it is present for EVERY view (notes,
- *  graph, canvas). Reachability uses the same helper the store navigates with,
- *  so a disabled arrow always means "nowhere to go" (closed tabs are skipped). */
-function NavArrows({ paneIndex }: { paneIndex: number }) {
-  const pane = useWorkspaceStore((s) => s.panes[paneIndex]);
-  const navigateBack = useWorkspaceStore((s) => s.navigateBack);
-  const navigateForward = useWorkspaceStore((s) => s.navigateForward);
-  const canBack = pane ? historyStep(pane, -1) !== null : false;
-  const canForward = pane ? historyStep(pane, 1) !== null : false;
-
-  const cls = (enabled: boolean) =>
-    cn(
-      "flex size-6 shrink-0 items-center justify-center self-center rounded transition-colors",
-      enabled ? "text-ob-muted hover:bg-ob-hover hover:text-ob-text" : "text-ob-faint/40",
-    );
-
-  return (
-    <div className="mr-1 flex shrink-0 items-center gap-0.5 self-center">
-      <button
-        type="button"
-        aria-label="Navigate back (⌘[)"
-        title="Back (⌘[)"
-        disabled={!canBack}
-        onClick={() => navigateBack(paneIndex)}
-        className={cls(canBack)}
-      >
-        <ArrowLeft className="size-3.5" strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        aria-label="Navigate forward (⌘])"
-        title="Forward (⌘])"
-        disabled={!canForward}
-        onClick={() => navigateForward(paneIndex)}
-        className={cls(canForward)}
-      >
-        <ArrowRight className="size-3.5" strokeWidth={1.75} />
       </button>
     </div>
   );

@@ -466,7 +466,7 @@ function buildDecorations(
 }
 
 export interface LivePreviewCallbacks {
-  onNavigate?: (target: string) => void;
+  onNavigate?: (target: string, opts?: { newTab?: boolean }) => void;
   vaultId?: string;
 }
 
@@ -520,12 +520,15 @@ export function livePreview(callbacks: LivePreviewCallbacks = {}) {
             return true;
           }
 
-          // Wikilink navigation: plain click when rendered, mod+click always
+          // Wikilink navigation: plain click when rendered, mod+click always.
+          // A plain click follows the link in the tab you are reading in; ⌘/Ctrl
+          // is what asks for a second tab (browser convention, Obsidian's too).
           const linkEl = target.closest?.("[data-wikilink-target]");
           if (linkEl instanceof HTMLElement) {
             const wikiTarget = linkEl.getAttribute("data-wikilink-target");
-            if (wikiTarget && (event.metaKey || event.ctrlKey || !selectionTouchesDOM(view, linkEl))) {
-              callbacks.onNavigate?.(wikiTarget);
+            const newTab = event.metaKey || event.ctrlKey;
+            if (wikiTarget && (newTab || !selectionTouchesDOM(view, linkEl))) {
+              callbacks.onNavigate?.(wikiTarget, { newTab });
               event.preventDefault();
               return true;
             }

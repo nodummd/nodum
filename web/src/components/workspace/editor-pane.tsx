@@ -22,6 +22,7 @@ import type { EditorView } from "@codemirror/view";
 
 import { ReadingView } from "@/components/editor/reading-view";
 import { BacklinksInDocument } from "./backlinks-in-document";
+import { NavArrows } from "./nav-arrows";
 import { NoteBreadcrumb } from "./note-breadcrumb";
 import { NoteMenu } from "./note-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -265,12 +266,15 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
     });
   }, [queryClient, vaultId, note.id]);
 
-  /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior). */
+  /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior).
+   *  A plain click reads the note in THIS tab; ⌘/Ctrl-click opens another one. */
   const navigate = useCallback(
-    async (target: string) => {
+    async (target: string, opts?: { newTab?: boolean }) => {
+      const open = (tab: { id: string; kind: "note"; title: string }) =>
+        openTab(tab, { adoptDefaultMode: false, replace: !opts?.newTab });
       try {
         const found = await noteApi.getByPath(vaultId, target);
-        openTab({ id: found.id, kind: "note", title: found.title }, { adoptDefaultMode: false });
+        open({ id: found.id, kind: "note", title: found.title });
         return;
       } catch {
         /* not an exact path — resolve by title below */
@@ -278,7 +282,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       const candidates = await searchApi.quickSwitch(vaultId, target, 5);
       const exact = candidates.find((c) => c.title.toLowerCase() === target.toLowerCase());
       if (exact) {
-        openTab({ id: exact.id, kind: "note", title: exact.title }, { adoptDefaultMode: false });
+        open({ id: exact.id, kind: "note", title: exact.title });
         return;
       }
       // A pathless ghost link honors the vault's default new-note location;
@@ -290,7 +294,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
           : resolveNewNoteFolder(queryClient, vaultId, note.path),
       });
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
-      openTab({ id: created.id, kind: "note", title: created.title }, { adoptDefaultMode: false });
+      open({ id: created.id, kind: "note", title: created.title });
     },
     [vaultId, openTab, queryClient, note.path],
   );
@@ -300,7 +304,9 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       {/* Three columns so the breadcrumb stays optically centred no matter how
           wide the button cluster gets. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 pt-1.5">
-        <div />
+        <div className="flex items-center justify-start">
+          <NavArrows paneIndex={paneIndex} />
+        </div>
         <NoteBreadcrumb
           vaultId={vaultId}
           note={note}
@@ -393,7 +399,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
             className="mb-4 w-full bg-transparent text-[1.802em] leading-tight font-bold text-ob-text outline-none focus-visible:outline-none"
           />
           {mode === "reading" ? (
-            <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
+            <ReadingView content={draft} vaultId={vaultId} onNavigate={(t, opts) => void navigate(t, opts)} />
           ) : waitingForCollab ? (
             <p className="pt-2 text-[13px] text-ob-faint">Connecting live session…</p>
           ) : (
@@ -403,7 +409,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
               initialContent={draft}
               mode={mode}
               onChange={onChange}
-              onNavigate={(t) => void navigate(t)}
+              onNavigate={(t, opts) => void navigate(t, opts)}
               collab={activeCollab ?? undefined}
               showLineNumbers={editorSettings.showLineNumbers}
               spellcheck={editorSettings.spellcheck}

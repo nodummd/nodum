@@ -32,7 +32,7 @@ export interface MarkdownEditorProps {
   initialContent: string;
   mode: "live" | "source";
   onChange: (content: string) => void;
-  onNavigate: (target: string) => void;
+  onNavigate: (target: string, opts?: { newTab?: boolean }) => void;
   /** When set, the doc binds to the Yjs session (parent remounts by key). */
   collab?: CollabSession;
   /** Extra right-click actions that need workspace context (new note, extract). */
@@ -116,7 +116,9 @@ export function MarkdownEditor({
     ];
 
     if (mode === "live") {
-      extensions.push(livePreview({ onNavigate: (t) => onNavigateRef.current(t), vaultId }));
+      extensions.push(
+        livePreview({ onNavigate: (t, opts) => onNavigateRef.current(t, opts), vaultId }),
+      );
       extensions.push(blockWidgets());
     }
 
