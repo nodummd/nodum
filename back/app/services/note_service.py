@@ -187,6 +187,57 @@ async def update_content(
     return ServiceResponse.ok(note)
 
 
+async def set_tags(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    note_id: UUID,
+    *,
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+) -> ServiceResponse[Note]:
+    """Add/remove tags via YAML frontmatter, leaving the body untouched.
+
+    Assigning a tag from the file explorer must not edit prose, so tags go in
+    the ``tags`` frontmatter list — which ``frontmatter_tags`` already unions
+    with inline ``#tags`` when the note is synced. Inline tags in the body are
+    intentionally left alone: they belong to the sentence they sit in.
+    """
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    note = await _note_in_vault(db, note_id, vault_id)
+    if note is None:
+        return ServiceResponse.fail("not_found", "Note not found.")
+
+    def _clean(tags: list[str] | None) -> list[str]:
+        out = []
+        for t in tags or []:
+            t = t.strip().lstrip("#").strip("/").lower()
+            if t and t not in out:
+                out.append(t)
+        return out
+
+    additions, removals = _clean(add), set(_clean(remove))
+
+    post = frontmatter.loads(note.content)
+    raw = post.metadata.get("tags")
+    current = [raw] if isinstance(raw, str) else [str(t) for t in raw] if isinstance(raw, list) else []
+    merged = [t for t in (_clean(current) + additions) if t not in removals]
+    # dedupe, preserving order
+    seen: set[str] = set()
+    merged = [t for t in merged if not (t in seen or seen.add(t))]
+
+    if merged:
+        post.metadata["tags"] = merged
+    else:
+        post.metadata.pop("tags", None)
+    # frontmatter.dumps re-emits the body verbatim; with no metadata left it
+    # returns the bare body (no empty --- block).
+    content = frontmatter.dumps(post) if post.metadata else post.content
+
+    return await update_content(db, vault_id, user_id, note_id, content=content)
+
+
 async def rename_note(
     db: AsyncSession,
     vault_id: UUID,
