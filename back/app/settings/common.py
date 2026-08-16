@@ -107,6 +107,16 @@ class CommonSettings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # ── AI (bring your own key) ───────────────────────────────────────────────
+    # Encrypts users' third-party provider keys at rest. Its own setting rather
+    # than SECRET_KEY: rotating this one makes stored credentials unreadable, so
+    # it must not ride on a value operators treat as freely rotatable.
+    # Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    AI_ENCRYPTION_KEY: str = ""
+    # Ceiling on a single AI request, in seconds — a provider hanging must not
+    # hold a worker forever.
+    AI_REQUEST_TIMEOUT: int = 120
+
     # ── S3 / MinIO (attachments) ──────────────────────────────────────────────
     S3_ENDPOINT_URL: str = "http://localhost:9000"
     S3_PUBLIC_URL: str = "http://localhost:9000"

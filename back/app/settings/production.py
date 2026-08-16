@@ -25,4 +25,15 @@ class ProductionSettings(CommonSettings):
                     f"{field} is unset or a placeholder. Generate one: "
                     'python3 -c "import secrets; print(secrets.token_hex(32))"'
                 )
+        # AI is optional, so an empty key is allowed — it simply turns the
+        # feature off. A weak one is not: it would encrypt users' provider keys
+        # with something guessable.
+        if self.AI_ENCRYPTION_KEY and (
+            len(self.AI_ENCRYPTION_KEY) < 32
+            or any(fragment in self.AI_ENCRYPTION_KEY.lower() for fragment in _PLACEHOLDER_FRAGMENTS)
+        ):
+            raise ValueError(
+                "AI_ENCRYPTION_KEY is a placeholder or too short. Generate one: "
+                'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+            )
         return self

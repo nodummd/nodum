@@ -2,6 +2,8 @@
 
 import { api, apiJson } from "./client";
 import type {
+  AIChatReply,
+  AIStatus,
   AttachmentInfo,
   Backlink,
   CanvasData,
@@ -230,4 +232,22 @@ export const attachmentApi = {
     api<{ url: string; expires_in: number }>(`/vaults/${vaultId}/attachments/${attachmentId}/url`),
   remove: (vaultId: string, attachmentId: string) =>
     apiJson<{ message: string }>(`/vaults/${vaultId}/attachments/${attachmentId}`, "DELETE"),
+};
+
+// ── AI (bring your own key) ──────────────────────────────────────────────────
+
+export const aiApi = {
+  status: () => api<AIStatus>("/ai/status"),
+  saveCredential: (body: {
+    provider: string;
+    api_key?: string;
+    model?: string;
+    base_url?: string;
+  }) => apiJson<{ provider: string; model: string; key_hint: string }>("/ai/credentials", "PUT", body),
+  removeCredential: (provider: string) =>
+    apiJson<{ message: string }>(`/ai/credentials/${provider}`, "DELETE"),
+  test: (provider: string) =>
+    apiJson<{ provider: string; model: string; reply: string }>(`/ai/test/${provider}`, "POST"),
+  chat: (body: { messages: { role: string; content: string }[]; context?: string }) =>
+    apiJson<AIChatReply>("/ai/chat", "POST", body),
 };

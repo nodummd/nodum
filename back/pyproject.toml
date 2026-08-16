@@ -18,6 +18,10 @@ dependencies = [
     "pydantic-settings>=2.13.1",
     # Auth
     "python-jose[cryptography]>=3.5.0",
+    # Fernet, for encrypting users' AI provider keys at rest. Present
+    # transitively via python-jose today — declared here because we import it
+    # directly and must not depend on another package's extras.
+    "cryptography>=45.0.0",
     "argon2-cffi>=25.1.0",
     # Redis
     # Capped at <6.5: kombu (celery's transport layer) hard-limits redis to <6.5.

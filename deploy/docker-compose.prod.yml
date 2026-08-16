@@ -32,6 +32,8 @@ services:
       - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?set in deploy/.env}
       - SECRET_KEY=${SECRET_KEY:?set in deploy/.env}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set in deploy/.env}
+      # Optional: unset disables bring-your-own-key AI entirely.
+      - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - OAUTH_REDIRECT_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3100}
@@ -73,6 +75,8 @@ services:
       - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:?set in deploy/.env}
       - SECRET_KEY=${SECRET_KEY:?set in deploy/.env}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set in deploy/.env}
+      # Optional: unset disables bring-your-own-key AI entirely.
+      - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
