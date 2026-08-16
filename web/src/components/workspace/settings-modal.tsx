@@ -8,8 +8,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
+import { AiSettingsTab } from "./ai-settings-tab";
 import { ClipperTab } from "./clipper-tab";
 import { PluginsTab } from "./plugins-tab";
+import { VaultsSection } from "./vaults-section";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,6 +35,7 @@ import {
 import { useVaultSettings } from "@/lib/hooks/use-vault-settings";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -45,6 +48,7 @@ const TABS = [
   "Vault",
   "Canvas",
   "Plugins",
+  "AI",
   "Web Clipper",
   "Publish",
   "Collab",
@@ -62,7 +66,17 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const toast = useToastStore((s) => s.push);
-  const [tab, setTab] = useState<SettingsTab>("General");
+  // Deep link: openSettings("Vault") from anywhere lands on that tab. Derived
+  // rather than synced by an effect — a click on any tab takes over from then
+  // on, and closing the dialog forgets the choice.
+  const requestedTab = useWorkspaceStore((s) => s.settingsTab);
+  const [pickedTab, setPickedTab] = useState<SettingsTab | null>(null);
+  const tab: SettingsTab =
+    pickedTab ??
+    ((TABS as readonly string[]).includes(requestedTab ?? "")
+      ? (requestedTab as SettingsTab)
+      : "General");
+  const setTab = setPickedTab;
   const [hotkeyQuery, setHotkeyQuery] = useState("");
   const editorSettings = useEditorSettings();
   const userPrefs = useUserPrefs();
@@ -232,7 +246,13 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setPickedTab(null); // reopening honours the next deep link
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="gap-0 overflow-clip border-ob-border bg-ob-sidebar p-0 sm:max-w-[1040px]">
         <DialogHeader className="border-b border-ob-border px-5 pt-4 pb-3">
           <DialogTitle>Settings</DialogTitle>
@@ -266,6 +286,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             {tab === "Plugins" && <PluginsTab vaultId={vaultId} />}
+            {tab === "AI" && <AiSettingsTab />}
 
             {tab === "Web Clipper" && <ClipperTab />}
 
@@ -608,7 +629,9 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             )}
 
             {tab === "Vault" && (
-              <section className="space-y-3">
+              <section className="space-y-6">
+                <VaultsSection vaultId={vaultId} />
+                <div className="space-y-3">
                 <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
                   Daily notes
                 </h3>
@@ -653,6 +676,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                 <Button size="sm" onClick={() => saveVault.mutate()} disabled={saveVault.isPending}>
                   Save vault settings
                 </Button>
+                </div>
               </section>
             )}
 

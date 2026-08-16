@@ -3,10 +3,11 @@
 /** Right sidebar — Backlinks / Outgoing / Tags / Outline panes (Obsidian style). */
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, ChevronRight, GitFork, Hash, Link2, List } from "lucide-react";
+import { ArrowRight, ChevronRight, GitFork, Hash, Link2, List, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { AiChatPane } from "./ai-chat-pane";
 import { PagePreview, usePagePreview } from "@/components/editor/page-preview";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { linkApi, noteApi, searchApi } from "@/lib/api/endpoints";
@@ -66,6 +67,7 @@ export function SidebarRight({
     { kind: "tags", label: "Tags", icon: <Hash className="size-4" strokeWidth={1.75} /> },
     { kind: "outline", label: "Outline", icon: <List className="size-4" strokeWidth={1.75} /> },
     { kind: "local-graph", label: "Local graph", icon: <GitFork className="size-4 rotate-90" strokeWidth={1.75} /> },
+    { kind: "ai", label: "AI chat", icon: <Sparkles className="size-4" strokeWidth={1.75} /> },
   ];
 
   return (
@@ -97,12 +99,23 @@ export function SidebarRight({
         ))}
       </div>
 
-      <div className={pane === "local-graph" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto p-2"}>
+      <div
+        className={
+          pane === "local-graph"
+            ? "min-h-0 flex-1"
+            : pane === "ai"
+              ? "flex min-h-0 flex-1 flex-col p-2"
+              : "min-h-0 flex-1 overflow-y-auto p-2"
+        }
+      >
         {pane === "backlinks" && <BacklinksPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
         {pane === "outgoing" && <OutgoingPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
         {pane === "tags" && <TagsPane vaultId={vaultId} />}
         {pane === "outline" && <OutlinePane vaultId={vaultId} noteId={noteId} />}
         {pane === "local-graph" && <LocalGraphPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
+        {pane === "ai" && (
+          <AiChatPane key={vaultId} vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />
+        )}
       </div>
 
       <div

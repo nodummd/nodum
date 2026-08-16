@@ -51,6 +51,12 @@ async function rawRequest(path: string, init: RequestInit): Promise<Response> {
 }
 
 /** Single-flight refresh: many concurrent 401s share one refresh call. */
+/** Refresh the access token, sharing the in-flight request. Exposed for the
+ *  collab socket, which must re-present a live token on every reconnect. */
+export function refreshAccessToken(): Promise<boolean> {
+  return tryRefresh();
+}
+
 async function tryRefresh(): Promise<boolean> {
   refreshPromise ??= (async () => {
     try {
@@ -106,8 +112,13 @@ export async function api<T>(
   }
 
   if (!res.ok) throw await parseError(res);
-  const body = (await res.json()) as Envelope<T>;
-  return body.data;
+  // 204 (and any empty body) has nothing to parse — calling res.json() on it
+  // throws "Unexpected end of JSON input", which surfaced as a mystery error
+  // toast on every DELETE that returns No Content.
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return (JSON.parse(text) as Envelope<T>).data;
 }
 
 export function apiJson<T>(

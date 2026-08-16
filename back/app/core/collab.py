@@ -23,6 +23,7 @@ import uuid
 from typing import Any
 from uuid import UUID
 
+from anyio import Event
 from pycrdt import Doc, Text
 from pycrdt.websocket import WebsocketServer, YRoom
 
@@ -143,33 +144,98 @@ class CollabServer(WebsocketServer):
 
     async def _publish(self, name: str, update: bytes) -> None:
         try:
-            from app.core.redis import redis_control
+            from app.core.redis import redis_binary
 
-            await redis_control.publish(f"collab:{name}", WORKER_ID + update)
+            await redis_binary.publish(f"collab:{name}", WORKER_ID + update)
         except Exception as e:
             logger.warning("collab_publish_failed", room=name, error=str(e))
 
     async def _subscribe(self, name: str, room: YRoom) -> None:
+        # redis_binary, NOT redis_control: Yjs updates are raw CRDT bytes and a
+        # decode_responses=True client raises on the first non-UTF-8 byte,
+        # taking the whole subscription down with it.
         try:
-            from app.core.redis import redis_control
+            from app.core.redis import redis_binary
 
-            pubsub = redis_control.pubsub(ignore_subscribe_messages=True)
-            await pubsub.subscribe(f"collab:{name}")
-            async for message in pubsub.listen():
-                data = message.get("data")
-                if isinstance(data, str):
-                    data = data.encode("latin1")
-                if not isinstance(data, bytes) or data[:32] == WORKER_ID:
-                    continue
-                self._applying_remote.add(name)
-                try:
-                    room.ydoc.apply_update(data[32:])
-                finally:
-                    self._applying_remote.discard(name)
+            reset_channel = f"collab-reset:{name}".encode()
+            pubsub = redis_binary.pubsub(ignore_subscribe_messages=True)
+            # The pubsub holds a pooled connection for as long as it lives, and
+            # delete_room only CANCELS this task. redis-py's PubSub.__del__ does
+            # not return the connection, so without this finally the pool
+            # (max_connections=20) is exhausted after ~20 note opens — every
+            # later subscribe AND publish then raises "Too many connections",
+            # both are swallowed as warnings, and the worker keeps serving rooms
+            # with fanout silently dead and deaf to collab-reset. That is the
+            # "REST save reverts the note" bug coming back, permanently, until
+            # the process restarts.
+            try:
+                await pubsub.subscribe(f"collab:{name}", f"collab-reset:{name}")
+                async for message in pubsub.listen():
+                    data = message.get("data")
+                    if not isinstance(data, bytes) or data[:32] == WORKER_ID:
+                        continue
+                    if message.get("channel") == reset_channel:
+                        # A REST save landed on another worker — adopt its text
+                        # or this room would rebroadcast (and re-persist) the
+                        # old body.
+                        self._reset_local(name, room, data[32:].decode("utf-8"))
+                        continue
+                    self._applying_remote.add(name)
+                    try:
+                        room.ydoc.apply_update(data[32:])
+                    except Exception as e:  # one bad update must not kill fanout
+                        logger.warning("collab_apply_failed", room=name, error=str(e))
+                    finally:
+                        self._applying_remote.discard(name)
+            finally:
+                # Runs on CancelledError too, which is the normal exit path.
+                await pubsub.aclose()
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.warning("collab_subscribe_failed", room=name, error=str(e))
+
+    # ── REST ↔ room reconciliation ───────────────────────────────────────────
+
+    def _reset_local(self, name: str, room: YRoom, content: str) -> None:
+        """Force this worker's room text to ``content``.
+
+        Replaces rather than merges: the DB row is authoritative at this point,
+        and a CRDT merge of "the old body" with "the new body" produces neither.
+        """
+        ytext = room.ydoc.get("content", type=Text)
+        if str(ytext) == content:
+            return
+        with room.ydoc.transaction():
+            ytext.clear()
+            if content:
+                ytext += content
+        # The write is a legitimate local edit — it must reach this room's own
+        # websocket clients — but it is already in the DB, so don't re-persist.
+        state = self.states.get(name)
+        if state is not None:
+            state.dirty = False
+        logger.info("collab_room_reset", room=name)
+
+    async def sync_room(self, vault_id: UUID, note_id: UUID, content: str) -> None:
+        """Publish a REST save into any live room for this note.
+
+        Without this a room seeded before the save keeps serving (and eventually
+        persisting) the pre-save body: the client sees its note revert.
+        """
+        name = room_name(vault_id, note_id)
+        room = self.rooms.get(name)
+        if room is not None:
+            self._reset_local(name, room, content)
+        # The local reset already fans out as an ordinary ydoc update, but the
+        # worker that handled the REST call may not be the one holding the
+        # room — so announce it on the reset channel too.
+        try:
+            from app.core.redis import redis_binary
+
+            await redis_binary.publish(f"collab-reset:{name}", WORKER_ID + content.encode("utf-8"))
+        except Exception as e:
+            logger.warning("collab_reset_publish_failed", room=name, error=str(e))
 
     # ── Persistence ──────────────────────────────────────────────────────────
 
@@ -182,7 +248,7 @@ class CollabServer(WebsocketServer):
 
             async with async_session_factory() as db:
                 result = await note_service.update_content(
-                    db, state.vault_id, state.owner_id, state.note_id, content=content
+                    db, state.vault_id, state.owner_id, state.note_id, content=content, sync_collab=False
                 )
             if not result.success:
                 logger.warning("collab_persist_rejected", room=name, error=result.message)
@@ -204,7 +270,13 @@ class CollabServer(WebsocketServer):
     # ── App lifecycle ────────────────────────────────────────────────────────
 
     async def startup(self) -> None:
-        # start() runs the server's task group until stopped — background it
+        # WebsocketServer.stop() latches its stopped/started events and never
+        # clears them, so a second startup() would return a server whose task
+        # group is already unwinding — every room then fails to start with
+        # "task group is not active". Reset them so the lifespan is repeatable
+        # (uvicorn --reload, and any test that starts the server twice).
+        self._stopped = Event()
+        self._started = None
         self._server_task = asyncio.create_task(self.start())
         await self.started.wait()
         self._persist_task = asyncio.create_task(self._persist_loop())

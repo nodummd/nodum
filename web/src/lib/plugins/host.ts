@@ -71,6 +71,13 @@ export class PluginHost {
   /** Identify the sending plugin by frame identity — an opaque-origin frame
    *  posts with origin "null", so origin cannot be used to tell them apart. */
   private senderOf(e: MessageEvent): SandboxHandle | null {
+    // A sandboxed frame always posts with origin "null" (opaque origin). If a
+    // plugin navigates its own frame to a real origin — which it can do, and
+    // which would defeat connect-src 'none' — the origin becomes that site's,
+    // while contentWindow identity survives the navigation. Pinning to "null"
+    // is what closes that hole: the escaped frame can still post, but we stop
+    // answering it, so it gains nothing.
+    if (e.origin !== "null") return null;
     for (const s of this.sandboxes.values()) {
       if (s.frame.contentWindow === e.source) return s;
     }

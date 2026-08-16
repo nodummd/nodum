@@ -1,5 +1,6 @@
 """Vault import/export integration tests."""
 
+import base64
 import io
 import uuid
 import zipfile
@@ -25,12 +26,20 @@ async def workspace(client: AsyncClient) -> dict:
     return {"headers": headers, "vault_id": vault_id, "base": f"/api/v1/vaults/{vault_id}"}
 
 
-def _make_zip(files: dict[str, str]) -> bytes:
+def _make_zip(files: dict[str, str | bytes]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         for name, content in files.items():
             zf.writestr(name, content)
     return buf.getvalue()
+
+
+# A real 1x1 PNG. Attachment upload verifies that the leading bytes agree with
+# the extension, so a placeholder string is rejected as a spoofed image — the
+# fixture has to be a genuine file for this path to be exercised at all.
+_PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 
 async def test_import_obsidian_style_zip(client: AsyncClient, workspace: dict) -> None:
@@ -39,7 +48,7 @@ async def test_import_obsidian_style_zip(client: AsyncClient, workspace: dict) -
             "Ideas/Big idea.md": "Linked to [[Small idea]] and #imported tag.",
             "Ideas/Nested/Small idea.md": "The seed.",
             "Standalone.md": "Root note referencing [[Ideas/Big idea]].",
-            "assets/image.png": "not-markdown",
+            "assets/image.png": _PNG_1PX,
             "__MACOSX/junk.md": "junk",
             "Welcome to Nodum.md": "Collides with the seeded welcome note.",
         }

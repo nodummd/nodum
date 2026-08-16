@@ -26,12 +26,16 @@ const EMBEDDABLE = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", 
 
 const extOf = (name: string) => (name.includes(".") ? name.split(".").pop()!.toLowerCase() : "");
 
-/** Replace a range, then leave the caret after the inserted text. */
-function replaceRange(view: EditorView, from: number, to: number, text: string) {
+/** Insert text, returning a CodeMirror position that tracks later edits.
+ *  Absolute offsets go stale the moment anything else changes the document —
+ *  a second upload finishing first, or the user typing — so the placeholder is
+ *  addressed through the document's own change mapping instead. */
+function insertTracked(view: EditorView, at: number, text: string) {
   view.dispatch({
-    changes: { from, to, insert: text },
-    selection: { anchor: from + text.length },
+    changes: { from: at, insert: text },
+    selection: { anchor: at + text.length },
   });
+  return { from: at, to: at + text.length, doc: view.state.doc };
 }
 
 /** Upload one file and swap its placeholder for the finished embed. */
@@ -52,15 +56,29 @@ async function uploadOne(view: EditorView, vaultId: string, file: File, at: numb
   }
 
   const placeholder = `![[Uploading ${file.name}…]]`;
-  replaceRange(view, at, at, placeholder);
+  insertTracked(view, at, placeholder);
+
+  /** Find the placeholder wherever it has drifted to. Searching for the exact
+   *  marker is robust to any concurrent edit and cannot clobber other text. */
+  const locate = () => {
+    const idx = view.state.doc.toString().indexOf(placeholder);
+    return idx < 0 ? null : { from: idx, to: idx + placeholder.length };
+  };
+
   try {
     const uploaded = await attachmentApi.upload(vaultId, file);
     const embed = EMBEDDABLE.has(ext) ? `![[${uploaded.filename}]]` : `[[${uploaded.filename}]]`;
-    replaceRange(view, at, at + placeholder.length, embed);
-    return at + embed.length;
+    const range = locate();
+    if (!range) return at; // user deleted the placeholder mid-upload — respect that
+    view.dispatch({
+      changes: { ...range, insert: embed },
+      selection: { anchor: range.from + embed.length },
+    });
+    return range.from + embed.length;
   } catch (err) {
+    const range = locate();
     // Take the placeholder back out so a failure leaves the document as it was.
-    replaceRange(view, at, at + placeholder.length, "");
+    if (range) view.dispatch({ changes: { ...range, insert: "" } });
     toastError(err, `Could not upload “${file.name}”.`);
     return at;
   }
@@ -85,6 +103,27 @@ export function attachmentUpload(vaultId: string) {
       return true;
     },
     drop(event, view) {
+      // A note dragged from the explorer links rather than uploads.
+      const noteJson = event.dataTransfer?.getData("application/x-nodum-note");
+      if (noteJson) {
+        event.preventDefault();
+        try {
+          const note = JSON.parse(noteJson) as { title: string };
+          const at =
+            view.posAtCoords({ x: event.clientX, y: event.clientY }) ??
+            view.state.selection.main.from;
+          const link = `[[${note.title}]]`;
+          view.dispatch({
+            changes: { from: at, insert: link },
+            selection: { anchor: at + link.length },
+          });
+          view.focus();
+        } catch {
+          /* malformed payload — nothing sensible to insert */
+        }
+        return true;
+      }
+
       const files = [...(event.dataTransfer?.files ?? [])];
       if (files.length === 0) return false;
       event.preventDefault();
@@ -94,8 +133,12 @@ export function attachmentUpload(vaultId: string) {
       return true;
     },
     dragover(event) {
-      // Without this the browser navigates away to the dropped file.
-      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+      // Without this the browser navigates away to the dropped file, and a
+      // dragged note would never produce a drop event at all.
+      const types = event.dataTransfer?.types ?? [];
+      if (types.includes("Files") || types.includes("application/x-nodum-note")) {
+        event.preventDefault();
+      }
       return false;
     },
   });

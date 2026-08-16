@@ -9,6 +9,7 @@ import { BookmarksPane } from "./bookmarks-pane";
 import { FileExplorer } from "./file-explorer";
 import { CanvasesSection } from "./canvases-section";
 import { SearchPane } from "./search-pane";
+import { VaultSwitcher } from "./vault-switcher";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
@@ -80,9 +81,7 @@ export function SidebarLeft({
           onClick={() => setPane("bookmarks")}
           icon={<Bookmark className="size-4" strokeWidth={1.75} />}
         />
-        <span className="ml-auto truncate pr-1 text-[11px] font-medium tracking-wide text-ob-faint uppercase">
-          {vaultName}
-        </span>
+        <VaultSwitcher vaultId={vaultId} vaultName={vaultName} />
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">

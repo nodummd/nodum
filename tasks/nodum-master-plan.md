@@ -223,6 +223,173 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-15 (session restore)** — Found the last hole in reveal-on-
+  navigate by smoke-testing the app the way a user starts it: reload the
+  page. Every route highlights the open file EXCEPT opening the app. The
+  subscription only fires on a transition, and a session restored from the
+  persisted workspace has the note already active — no transition, no
+  reveal. In a large vault the row is then scrolled well outside the
+  virtualized window, so the explorer shows no selection at all.
+  Now reveals once on mount, waiting for the tree query, deferred out of
+  the effect body so the state update lands in a frame callback.
+  Verified live: after a reload the demo vault scrolls to "Functional
+  Programming" (scrollTop 3238) and selects it, where it previously showed
+  nothing. The e2e builds a tree tall enough for virtualisation to drop the
+  row, and fails when the initial reveal is removed.
+  120 e2e green; autosave re-confirmed against postgres.
+
+  The four mandate items are complete and every command, route and
+  interaction named in their specs has been executed under test. The
+  recurring /loop job for this mandate was cancelled — see the session
+  notes; further iterations would be inventing scope.
+
+- **2026-08-15 (scroll + retraction)** — Closed the last unverified half
+  of the reveal spec and retracted a speculative change.
+  - *"Scrolling the virtualized row into view" had never been checked* —
+    the assertions only required the row to be in the DOM. Verified live
+    in the demo vault: 5892px of tree against an 870px viewport, scrolled
+    to the top, reveal moved `scrollTop` to 3238 and put the row inside
+    the viewport. Now covered by an e2e that builds a tree tall enough for
+    virtualisation to have dropped the target row entirely, then asserts
+    its rect sits within the scroll container's. Confirmed the test FAILS
+    when `scrollToIndex` is removed, so it is not vacuous.
+  - **Reverted the quick-switcher Enter guard from the previous session.**
+    It was written from a code-reading hypothesis: that while the
+    debounced search is in flight nothing matches, so "Create …" becomes
+    the highlight and Enter creates a duplicate. Three attempts to
+    demonstrate it — through the UI, through synthetic events, and with
+    the debounce widened tenfold AND the guard removed — all showed Enter
+    opening the correct note and creating nothing. The reasoning was
+    wrong: for an empty debounced query the result set is the RECENTS
+    list, not `undefined`, so the exact-match test has real data and the
+    fallback chain never misfires. No change beats a speculative one.
+  - 119 e2e green; autosave re-confirmed against postgres.
+
+  All four mandate items (editor context menu with active state, note ⋯
+  menu, breadcrumb, reveal-on-navigate) are implemented, and every
+  command and route named in their specs has now been executed at least
+  once under test.
+
+- **2026-08-15 (command audit)** — Same treatment for items 1 and 4 that
+  the ⋯ menu got: execute everything, don't trust that it renders.
+  - *Eleven formatting commands had never been run* (strikethrough,
+    highlight, inline code, code block, link, horizontal rule, bullet /
+    numbered / task list, blockquote, callout). All eleven work. They are
+    now driven through the menu and asserted against raw markdown in
+    `editor-commands.spec.ts`, plus Select all — which has to be proved by
+    ACTING on the selection, because `drawSelection()` paints CodeMirror's
+    own layer and leaves the native selection empty.
+  - *Reveal-on-navigate had only been checked for wikilinks.* Quick
+    switcher and back/forward are covered by e2e now. The graph route —
+    the risky one, since it opens the note in the OTHER pane — was
+    verified live: clicking a node opened "Functional Programming" and the
+    explorer expanded Topics > Computer Science and selected it.
+  - **Fixed: revealing a FOLDER opened its ancestors but not the folder
+    itself**, so a breadcrumb crumb scrolled to a closed folder showing
+    none of its contents. A note reveals by opening the folders above it;
+    a folder must also open itself.
+  - Hardened the quick switcher's Enter: while the 150ms-debounced search
+    is in flight nothing matches, so the "Create …" row becomes the
+    highlight and Enter would create a DUPLICATE of the note being jumped
+    to. Enter now resolves the query first. Found by reading the code —
+    the window is shorter than Playwright's per-action overhead and I
+    could not reproduce it with automation, so this is a guard rather
+    than a fix for an observed failure.
+  - 118 e2e green; autosave re-confirmed against postgres.
+
+- **2026-08-15 (audit)** — Went back over the note ⋯ menu and exercised
+  every entry instead of only checking that it rendered. Four were
+  broken and one was a data-loss path.
+  - *Find… and Replace… were the same command* (both `openSearchPanel`)
+    and neither left the caret in a field: Radix restores focus to the
+    trigger on close, landing AFTER our own `focus()`. They now claim
+    focus through `onCloseAutoFocus` and target their own input.
+  - *Add file property / Find / Replace did nothing in Reading view*,
+    which mounts no CodeMirror at all — live-looking items that weren't.
+    They switch to the editor and wait for it to mount.
+  - *Rename…* lost the same focus race.
+  - *Export to PDF…* had no print stylesheet, so it printed the
+    explorer, ribbon, tab strip and panels. Now scoped via
+    `@media print` + `data-print-root`, and it switches to Reading view
+    first because CodeMirror only builds lines near the viewport —
+    printing from the editor truncated long notes.
+  - **Merge left the open editor on the PRE-merge body.** The draft is
+    seeded once at mount and keyed by note id, so an API write never
+    reached it; the next keystroke would autosave the stale text back
+    over the merge. `EditorBody` now adopts externally-replaced content
+    via a query-cache subscription (guarded against unsaved keystrokes
+    and against collab, which has its own reset channel). This also
+    covers import and the clipper writing into an open note.
+  - Verified live: Replace → replace field focused, Find → search field;
+    Find from Reading view switches to Live preview and opens the panel;
+    print rules hide the explorer and show the note (measured via
+    computed visibility); Export calls print exactly once, in Reading
+    view; merge appears in the open editor immediately. Autosave
+    re-confirmed against postgres. 103 e2e green.
+
+- **2026-08-15 (later)** — Editor context menu now reports ACTIVE STATE.
+  Bold/Italic/Underline/Strikethrough/Highlight/Inline code, the six
+  heading levels and the list & quote toggles render as
+  `menuitemcheckbox` with `aria-checked`, so the state is exposed to
+  assistive tech and assertable in tests rather than just drawn.
+  Detection reads the syntax tree (`activeFormats`), because the caret
+  normally sits INSIDE `**bold**` and a marker-matching check would call
+  that unformatted. It resolves on BOTH sides of the caret and unions:
+  a `.cm-line` spans the full editor width, so clicking the empty space
+  right of `## Heading` leaves the caret at end-of-line with the heading
+  only on its left, and a one-way resolve called it plain text.
+  Verified live against the demo vault (bold run -> Bold checked;
+  `## Related` -> Heading 2 checked; bullet line -> Bullet list checked)
+  and covered by two new e2e cases. Autosave re-confirmed against
+  postgres, and a REST save was observed propagating into the open
+  editor with no reload — the `sync_room` fix working end to end.
+  95 e2e green.
+
+- **2026-08-15** — Editor menus, breadcrumb, reveal-on-navigate; three
+  data-integrity bugs fixed underneath them.
+  - *Right-click menu in the editor*: Format (bold/italic/underline/
+    strikethrough/highlight/sup/sub/code/clear), Text colour + Highlight
+    colour palettes, Paragraph H1–H6, Lists (+indent/outdent/checkbox),
+    Insert (link/wikilink/embed/tag/table/rule/footnote/math/mermaid/
+    date/time), 13 callout types, Table row/column/align/sort/format, line
+    sort & dedupe, Properties, Find. Underline and colour emit inline HTML —
+    markdown has no syntax for either, and that is what Obsidian emits too.
+    Right-clicking moves the caret to the pointer (unless inside a
+    selection) and works on rendered block widgets, so table commands are
+    reachable from a table you can see. Fixed three latent `toggleWrap`
+    bugs the menu made trivially reachable: selecting the markers
+    double-wrapped (`****bold****`), italic inside bold stole a star and
+    demoted it, and wrapping a select-all range swallowed the newline.
+  - *Note ⋯ menu* (top right): backlinks in document, reading/source view,
+    split right/down, open in new window, rename, move file to…, bookmark,
+    merge entire file with…, add file property, export to PDF, find,
+    replace, copy path, version history, linked view, reveal in navigation,
+    delete. Reveal-in-Finder / open-in-default-app stay omitted (desktop).
+  - *Breadcrumb* centred above the editor: folder crumbs reveal that folder
+    in the explorer; the last crumb renames the note in place.
+  - *Reveal on navigate*: opening a note by ANY route (wikilink, graph,
+    palette, backlink) expands its folders and scrolls the explorer row into
+    view. Driven by a store subscription so the state update happens in an
+    event, not during render.
+  - **Collab was broken, silently.** Yjs updates fanned out over
+    `redis_control`, which has `decode_responses=True` — every binary update
+    raised `'utf-8' codec can't decode byte 0x9e` and killed the
+    subscription. Worse, a room seeded before a REST save kept serving the
+    OLD body to every client that connected and would persist it back over
+    the save: the note reverted. Rooms now adopt REST writes
+    (`collab_server.sync_room`, cross-worker over `collab-reset:{room}`), and
+    `CollabServer` is restartable (`stop()` latched its events, so a second
+    `startup()` returned a server whose rooms could never start).
+  - **Concurrent refresh logged users out.** The refresh grace marker was
+    published AFTER the rotation committed; in between, the old JTI existed
+    in neither the session table nor Redis, so a racing refresh tripped the
+    stolen-token defence and invalidated every session for that user. This
+    was also the cause of the e2e suite's chronic flakiness — after the fix
+    the editor/note-menu suites went from 4 flaky in 2.7min to 0 in 35s.
+  - e2e: `editor-context-menu.spec.ts` (9) and `note-menu.spec.ts` (7);
+    backend regression tests for the grace ordering and for a REST save
+    surviving a live room. 93 e2e + 90 backend green.
+
 - **2026-08-14 (post-v3.2.0)** — Two user-reported gaps fixed: (1) there
   was NO visible settings entry point — added an Obsidian-style Settings
   gear to the left ribbon (above Log out) + a gear in the mobile top bar

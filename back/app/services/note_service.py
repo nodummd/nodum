@@ -146,6 +146,7 @@ async def update_content(
     *,
     content: str,
     base_updated_at: datetime | None = None,
+    sync_collab: bool = True,
 ) -> ServiceResponse[Note]:
     """Save note content.
 
@@ -184,6 +185,17 @@ async def update_content(
     await db.commit()
     await db.refresh(note)
     await cache_delete(vault_graph_key(vault_id))
+    # A live collab room was seeded from the pre-save body. Unless it adopts
+    # this text it will keep serving the stale version to every client that
+    # connects, and eventually persist it back over this write.
+    #
+    # sync_collab=False when the room itself is the writer: it may have taken
+    # further keystrokes since it sampled `content`, and resetting it to the
+    # sample would throw those away.
+    if sync_collab:
+        from app.core.collab import collab_server
+
+        await collab_server.sync_room(vault_id, note_id, note.content)
     return ServiceResponse.ok(note)
 
 
@@ -219,7 +231,18 @@ async def set_tags(
 
     additions, removals = _clean(add), set(_clean(remove))
 
-    post = frontmatter.loads(note.content)
+    # A note can contain anything a user typed: malformed YAML, or a leading
+    # "---" block that is a list/scalar rather than a mapping. frontmatter.loads
+    # raises on the former and returns non-dict metadata on the latter — and
+    # dumping that back would silently eat the top of the note. Fall back to
+    # treating the whole file as body when we cannot parse it safely.
+    try:
+        post = frontmatter.loads(note.content)
+        if not isinstance(post.metadata, dict):
+            raise ValueError("frontmatter is not a mapping")
+    except Exception:
+        post = frontmatter.Post(note.content, **{})
+
     raw = post.metadata.get("tags")
     current = [raw] if isinstance(raw, str) else [str(t) for t in raw] if isinstance(raw, list) else []
     merged = [t for t in (_clean(current) + additions) if t not in removals]

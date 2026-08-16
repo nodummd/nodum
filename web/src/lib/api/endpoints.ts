@@ -2,6 +2,10 @@
 
 import { api, apiJson } from "./client";
 import type {
+  AIChatReply,
+  AIConversationDetail,
+  AIConversationMeta,
+  AIStatus,
   AttachmentInfo,
   Backlink,
   CanvasData,
@@ -230,4 +234,40 @@ export const attachmentApi = {
     api<{ url: string; expires_in: number }>(`/vaults/${vaultId}/attachments/${attachmentId}/url`),
   remove: (vaultId: string, attachmentId: string) =>
     apiJson<{ message: string }>(`/vaults/${vaultId}/attachments/${attachmentId}`, "DELETE"),
+};
+
+// ── AI (bring your own key) ──────────────────────────────────────────────────
+
+export const aiApi = {
+  status: () => api<AIStatus>("/ai/status"),
+  saveCredential: (body: {
+    provider: string;
+    api_key?: string;
+    model?: string;
+    base_url?: string;
+  }) => apiJson<{ provider: string; model: string; key_hint: string }>("/ai/credentials", "PUT", body),
+  removeCredential: (provider: string) =>
+    apiJson<{ message: string }>(`/ai/credentials/${provider}`, "DELETE"),
+  test: (provider: string) =>
+    apiJson<{ provider: string; model: string; reply: string }>(`/ai/test/${provider}`, "POST"),
+  chat: (body: { messages: { role: string; content: string }[]; context?: string }) =>
+    apiJson<AIChatReply>("/ai/chat", "POST", body),
+  /** Chat that can search, read, create and extend notes in this vault.
+   *  Only the new message is sent — the server holds the transcript. */
+  vaultChat: (
+    vaultId: string,
+    body: { message: string; conversation_id?: string; context?: string },
+  ) => apiJson<AIChatReply>(`/ai/vaults/${vaultId}/chat`, "POST", body),
+  conversations: (vaultId: string) =>
+    api<AIConversationMeta[]>(`/ai/vaults/${vaultId}/conversations`),
+  conversation: (vaultId: string, id: string) =>
+    api<AIConversationDetail>(`/ai/vaults/${vaultId}/conversations/${id}`),
+  renameConversation: (vaultId: string, id: string, title: string) =>
+    apiJson<{ id: string; title: string }>(
+      `/ai/vaults/${vaultId}/conversations/${id}`,
+      "PATCH",
+      { title },
+    ),
+  deleteConversation: (vaultId: string, id: string) =>
+    apiJson<{ message: string }>(`/ai/vaults/${vaultId}/conversations/${id}`, "DELETE"),
 };

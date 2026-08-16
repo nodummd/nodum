@@ -18,17 +18,32 @@ import { createCollabSession, presenceColor, type CollabSession } from "@/lib/ed
 import { getAccessToken } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { vaultApi } from "@/lib/api/endpoints";
+import type { EditorView } from "@codemirror/view";
+
 import { ReadingView } from "@/components/editor/reading-view";
+import { BacklinksInDocument } from "./backlinks-in-document";
+import { NavArrows } from "./nav-arrows";
+import { NoteBreadcrumb } from "./note-breadcrumb";
+import { NoteMenu } from "./note-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api/client";
 import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
+import { currentActiveNote, setActiveNote, setNoteHover } from "@/lib/graph/hover-bus";
 import { useEditorSettings } from "@/lib/hooks/use-editor-settings";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 
-export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: string }) {
+export function EditorPane({
+  vaultId,
+  noteId,
+  paneIndex,
+}: {
+  vaultId: string;
+  noteId: string;
+  paneIndex: number;
+}) {
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const { data: note, error } = useQuery({
     queryKey: ["note", vaultId, noteId],
@@ -50,10 +65,10 @@ export function EditorPane({ vaultId, noteId }: { vaultId: string; noteId: strin
 
   // key remounts the body when switching notes — local draft state resets
   // naturally without effect-based syncing.
-  return <EditorBody key={noteId} vaultId={vaultId} note={note} />;
+  return <EditorBody key={noteId} vaultId={vaultId} note={note} paneIndex={paneIndex} />;
 }
 
-function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
+function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note; paneIndex: number }) {
   const queryClient = useQueryClient();
   const renameTab = useWorkspaceStore((s) => s.renameTab);
   const openTab = useWorkspaceStore((s) => s.openTab);
@@ -66,6 +81,12 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   const preview = usePagePreview();
 
   const [title, setTitle] = useState(note.title);
+  const titleRef = useRef<HTMLInputElement>(null);
+  // The live CodeMirror view, so the ⋯ menu can run editor commands.
+  const editorViewRef = useRef<EditorView | null>(null);
+  // Obsidian's "Backlinks in document": the same list the right panel shows,
+  // pinned under the note body instead of in the sidebar.
+  const [backlinksInDocument, setBacklinksInDocument] = useState(false);
   // draft lives in state (render-safe) and a ref (event-safe for save callbacks)
   const [draft, setDraft] = useState(note.content);
   const draftRef = useRef(note.content);
@@ -86,6 +107,11 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // ref mirror for event callbacks (onChange/unmount flush); render reads
   // the state below — never the ref
   const collabRef = useRef<CollabSession | null>(null);
+  // TRUE only once the socket has actually synced. collabRef holds a session
+  // object from the moment it is constructed, so using it to decide "the server
+  // is persisting for us" silently drops every keystroke when the socket never
+  // connects. This ref is what the save paths must consult.
+  const collabLiveRef = useRef(false);
   const [syncedSession, setSyncedSession] = useState<CollabSession | null>(null);
   // bumped when the socket drops post-sync → rebuild with a fresh doc
   const [collabEpoch, setCollabEpoch] = useState(0);
@@ -105,19 +131,48 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     );
     collabRef.current = session;
     const onSync = (synced: boolean) => {
-      if (synced) setSyncedSession(session);
+      if (!synced) {
+        collabLiveRef.current = false;
+        return;
+      }
+      // A room that syncs EMPTY for a note that has content means the server
+      // failed to seed it. Binding the editor to that document would show a
+      // blank note and, worse, let collab persist the blank over the real one.
+      // Refuse the session and stay on the local editor instead.
+      const seeded = session.ytext.toString().length > 0;
+      if (!seeded && note.content.trim().length > 0) {
+        collabLiveRef.current = false;
+        return;
+      }
+      collabLiveRef.current = true;
+      setSyncedSession(session);
     };
     session.provider.on("sync", onSync);
     return () => {
       session.provider.off("sync", onSync);
       session.destroy();
       collabRef.current = null;
+      collabLiveRef.current = false;
     };
     // user identity is stable within a mounted editor session
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collabEnabled, vaultId, note.id, collabEpoch]);
   // gate on the flag so a just-disabled vault never reuses a destroyed session
   const activeCollab = collabEnabled ? syncedSession : null;
+
+  // If the collab socket never syncs (server down, rejected handshake, flaky
+  // network) we must NOT leave the user staring at "Connecting…" with no way to
+  // type. Give it a few seconds, then fall back to the ordinary local editor —
+  // a note that saves over REST beats a note you cannot edit at all.
+  // Only ever latches true (EditorBody is keyed by note id, so it resets when
+  // you switch notes). Once collab does sync, activeCollab wins regardless.
+  const [collabTimedOut, setCollabTimedOut] = useState(false);
+  useEffect(() => {
+    if (!collabEnabled || activeCollab) return;
+    const timer = setTimeout(() => setCollabTimedOut(true), 4000);
+    return () => clearTimeout(timer);
+  }, [collabEnabled, activeCollab, collabEpoch]);
+  const waitingForCollab = collabEnabled && !activeCollab && !collabTimedOut;
 
   const save = useMutation({
     mutationFn: (content: string) =>
@@ -152,8 +207,9 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     (content: string) => {
       draftRef.current = content;
       setDraft(content);
-      // During a live session the collab server persists — REST autosave off
-      if (collabRef.current) return;
+      // Only a LIVE collab session persists on our behalf; a session that never
+      // connected must still autosave over REST or the work is lost.
+      if (collabLiveRef.current) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => save.mutate(content), 700);
     },
@@ -164,7 +220,15 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
   // otherwise up to 700ms of typing would be lost.
   useEffect(() => {
     return () => {
-      if (saveTimer.current && !collabRef.current) {
+      // A tab switch can retire the note out from under the pointer, which
+      // fires no mouseleave — the graph would keep breathing a stale node.
+      setNoteHover(null);
+      // Same for focus: a closed editor is never "the note you are working in",
+      // and removing a focused element fires no blur — ⌘W with the caret in the
+      // text would otherwise leave the node breathing forever. Only clear our
+      // own claim; the other pane may have taken over already.
+      if (currentActiveNote() === note.id) setActiveNote(null);
+      if (saveTimer.current && !collabLiveRef.current) {
         clearTimeout(saveTimer.current);
         void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
       }
@@ -181,12 +245,41 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
     },
   });
 
-  /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior). */
+  // ── Adopt content replaced from outside the editor ───────────────────────
+  //
+  // Merge, import and the clipper all write a note's body through the API. The
+  // draft below is seeded once at mount and keyed by note id, so none of that
+  // reaches an already-open editor: it keeps showing the pre-write body, and
+  // the next keystroke autosaves that stale text back over the write.
+  //
+  // A cache subscription rather than an effect on `note`: this reacts to an
+  // event, so the state update never happens during render.
+  useEffect(() => {
+    const key = `["note","${vaultId}","${note.id}"]`;
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || JSON.stringify(event.query.queryKey) !== key) return;
+      const next = (event.query.state.data as Note | undefined)?.content;
+      if (next === undefined || next === draftRef.current) return;
+      // Never clobber unsaved keystrokes, and stay out of collab's way — a live
+      // room already receives external writes through its own reset channel.
+      if (saveTimer.current !== null || collabLiveRef.current) return;
+      draftRef.current = next;
+      setDraft(next);
+      baseUpdatedAt.current = (event.query.state.data as Note).updated_at;
+      // Remount CodeMirror: its document is independent of `draft` after mount.
+      setEditorEpoch((n) => n + 1);
+    });
+  }, [queryClient, vaultId, note.id]);
+
+  /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior).
+   *  A plain click reads the note in THIS tab; ⌘/Ctrl-click opens another one. */
   const navigate = useCallback(
-    async (target: string) => {
+    async (target: string, opts?: { newTab?: boolean }) => {
+      const open = (tab: { id: string; kind: "note"; title: string }) =>
+        openTab(tab, { adoptDefaultMode: false, replace: !opts?.newTab });
       try {
         const found = await noteApi.getByPath(vaultId, target);
-        openTab({ id: found.id, kind: "note", title: found.title }, { adoptDefaultMode: false });
+        open({ id: found.id, kind: "note", title: found.title });
         return;
       } catch {
         /* not an exact path — resolve by title below */
@@ -194,7 +287,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
       const candidates = await searchApi.quickSwitch(vaultId, target, 5);
       const exact = candidates.find((c) => c.title.toLowerCase() === target.toLowerCase());
       if (exact) {
-        openTab({ id: exact.id, kind: "note", title: exact.title }, { adoptDefaultMode: false });
+        open({ id: exact.id, kind: "note", title: exact.title });
         return;
       }
       // A pathless ghost link honors the vault's default new-note location;
@@ -206,14 +299,37 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           : resolveNewNoteFolder(queryClient, vaultId, note.path),
       });
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
-      openTab({ id: created.id, kind: "note", title: created.title }, { adoptDefaultMode: false });
+      open({ id: created.id, kind: "note", title: created.title });
     },
     [vaultId, openTab, queryClient, note.path],
   );
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-end gap-0.5 px-3 pt-1.5">
+    <div
+      className="flex h-full flex-col"
+      // "The note you are working in" for the graph's breathing highlight — it
+      // means the caret is HERE, so it starts when focus enters this pane and
+      // ends the moment focus leaves it (or the tab closes, below).
+      onFocus={() => setActiveNote(note.id)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setActiveNote(null);
+      }}
+    >
+      {/* Three columns so the breadcrumb stays optically centred no matter how
+          wide the button cluster gets. */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 pt-1.5">
+        <div className="flex items-center justify-start">
+          <NavArrows paneIndex={paneIndex} />
+        </div>
+        <NoteBreadcrumb
+          vaultId={vaultId}
+          note={note}
+          onRename={(next) => {
+            setTitle(next);
+            rename.mutate(next);
+          }}
+        />
+        <div className="flex items-center justify-end gap-0.5">
         <BookmarkButton vaultId={vaultId} noteId={note.id} />
         <ShareButton vaultId={vaultId} noteId={note.id} />
         <ModeButton
@@ -234,10 +350,42 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           onClick={() => setMode("reading")}
           icon={<BookOpen className="size-3.5" strokeWidth={1.75} />}
         />
+        <NoteMenu
+          vaultId={vaultId}
+          note={note}
+          paneIndex={paneIndex}
+          getEditorView={() => editorViewRef.current}
+          onRenameRequest={() => {
+            // After the menu's close-focus pass, or it lands on the trigger.
+            requestAnimationFrame(() => {
+              titleRef.current?.focus();
+              titleRef.current?.select();
+            });
+          }}
+          backlinksInDocument={backlinksInDocument}
+          onToggleBacklinksInDocument={() => setBacklinksInDocument((v) => !v)}
+        />
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" {...preview.handlers}>
+      <div
+        className="min-h-0 flex-1 overflow-y-auto"
+        {...preview.handlers}
+        // Hovering a link points the open graph at the note it leads to (the
+        // node breathes). Wraps the page-preview handler rather than replacing
+        // it — the preview has its own "require ⌘" pref, this never should.
+        onMouseOver={(e) => {
+          preview.handlers.onMouseOver(e);
+          const el = (e.target as HTMLElement).closest?.("[data-wikilink-target]");
+          const target = el?.getAttribute("data-wikilink-target");
+          setNoteHover(target ? { target } : null);
+        }}
+        onMouseLeave={() => setNoteHover(null)}
+      >
         <div
+          // Printing (our "Export to PDF…") shows only this subtree — see the
+          // @media print block in globals.css.
+          data-print-root
           className={cn(
             "mx-auto min-h-full px-4 pt-4 pb-24 md:px-8",
             editorSettings.readableLineLength ? "max-w-[44rem]" : "max-w-none",
@@ -250,6 +398,7 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
           }
         >
           <input
+            ref={titleRef}
             value={title}
             aria-label="Note title"
             onChange={(e) => setTitle(e.target.value)}
@@ -264,8 +413,8 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
             className="mb-4 w-full bg-transparent text-[1.802em] leading-tight font-bold text-ob-text outline-none focus-visible:outline-none"
           />
           {mode === "reading" ? (
-            <ReadingView content={draft} vaultId={vaultId} onNavigate={(t) => void navigate(t)} />
-          ) : collabEnabled && !activeCollab ? (
+            <ReadingView content={draft} vaultId={vaultId} onNavigate={(t, opts) => void navigate(t, opts)} />
+          ) : waitingForCollab ? (
             <p className="pt-2 text-[13px] text-ob-faint">Connecting live session…</p>
           ) : (
             <MarkdownEditor
@@ -274,10 +423,20 @@ function EditorBody({ vaultId, note }: { vaultId: string; note: Note }) {
               initialContent={draft}
               mode={mode}
               onChange={onChange}
-              onNavigate={(t) => void navigate(t)}
+              onNavigate={(t, opts) => void navigate(t, opts)}
               collab={activeCollab ?? undefined}
               showLineNumbers={editorSettings.showLineNumbers}
               spellcheck={editorSettings.spellcheck}
+              onViewReady={(v) => {
+                editorViewRef.current = v;
+              }}
+            />
+          )}
+          {backlinksInDocument && (
+            <BacklinksInDocument
+              vaultId={vaultId}
+              noteId={note.id}
+              onOpen={(id, t) => openTab({ id, kind: "note", title: t })}
             />
           )}
         </div>

@@ -17,10 +17,47 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view
 
 import { resolveAttachmentUrl } from "./attachment-urls";
 import { CALLOUT_MARKER_RE, calloutDefaultTitle, calloutIconElement, calloutType } from "./callouts";
+import { findInlineHtmlSpans, INLINE_HTML_CLASS } from "./inline-html";
 import { isImageTarget, parseWikiLinkText } from "./markdown-extensions";
 import { renderMathHTML } from "./math";
 
 /** Does any selection range touch [from, to]? (touch = reveal raw syntax) */
+/** Inline HTML the formatting menu emits — see lib/editor/inline-html.ts. The
+ *  markdown parser leaves these as plain text, so they are found by scanning the
+ *  visible text rather than by walking the syntax tree. */
+function inlineHtmlDecorations(
+  state: EditorState,
+  from: number,
+  to: number,
+  /** Hidden tag ranges are pushed here as well, to be registered atomic. */
+  tagRanges: Range<Decoration>[],
+): Range<Decoration>[] {
+  const out: Range<Decoration>[] = [];
+  const text = state.sliceDoc(from, to);
+  for (const span of findInlineHtmlSpans(text)) {
+    const openFrom = from + span.openFrom;
+    const openTo = from + span.openTo;
+    const closeFrom = from + span.closeFrom;
+    const closeTo = from + span.closeTo;
+    // NOT revealed on selection touch, unlike the markdown markers around it.
+    // `**` is two characters; `<span style="color:#e93147">` is twenty-nine, and
+    // revealing it reflows the line into a wall of code the moment you click in
+    // to edit. Source mode is where the markup belongs.
+    if (closeFrom <= openTo) continue; // empty span: nothing to style
+    const attributes: Record<string, string> = { class: `${INLINE_HTML_CLASS} nodum-inline-${span.tag}` };
+    if (span.style) attributes.style = span.style;
+    out.push(hideMark.range(openFrom, openTo));
+    out.push(Decoration.mark({ attributes }).range(openTo, closeFrom));
+    out.push(hideMark.range(closeFrom, closeTo));
+    // Atomic: the caret steps over a hidden tag rather than into it, and a
+    // single Backspace cannot shave one character off `</u>` and leave `</u`
+    // sitting visibly in the sentence.
+    tagRanges.push(hideMark.range(openFrom, openTo));
+    tagRanges.push(hideMark.range(closeFrom, closeTo));
+  }
+  return out;
+}
+
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
   return state.selection.ranges.some((r) => r.from <= to && r.to >= from);
 }
@@ -147,12 +184,17 @@ class CalloutHeaderWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView, vaultId: string | null): DecorationSet {
+function buildDecorations(
+  view: EditorView,
+  vaultId: string | null,
+  tagRanges: Range<Decoration>[] = [],
+): DecorationSet {
   const { state } = view;
   const decorations: Range<Decoration>[] = [];
   const tree = syntaxTree(state);
 
   for (const { from, to } of view.visibleRanges) {
+    decorations.push(...inlineHtmlDecorations(state, from, to, tagRanges));
     tree.iterate({
       from,
       to,
@@ -271,6 +313,14 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
               // show only the alias: hide "target#heading|"
               const pipe = state.doc.sliceString(open, close).indexOf("|");
               if (pipe >= 0) decorations.push(hideMark.range(open, open + pipe + 1));
+            } else {
+              // A path-style target reads as the note, not the route to it:
+              // `[[Topics/Computer Science/Caching]]` shows "Caching". The
+              // folders stay in the SOURCE, where they disambiguate two notes
+              // of the same name — and putting the caret in the link reveals
+              // them again, so it can still be retargeted.
+              const slash = target.lastIndexOf("/");
+              if (slash >= 0) decorations.push(hideMark.range(open, open + slash + 1));
             }
           }
           return;
@@ -416,25 +466,31 @@ function buildDecorations(view: EditorView, vaultId: string | null): DecorationS
 }
 
 export interface LivePreviewCallbacks {
-  onNavigate?: (target: string) => void;
+  onNavigate?: (target: string, opts?: { newTab?: boolean }) => void;
   vaultId?: string;
 }
 
 export function livePreview(callbacks: LivePreviewCallbacks = {}) {
   const vaultId = callbacks.vaultId ?? null;
-  return ViewPlugin.fromClass(
+  const plugin = ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      /** Hidden inline-HTML tags, registered atomic below. */
+      atomicTags: DecorationSet;
 
       constructor(view: EditorView) {
-        this.decorations = buildDecorations(view, vaultId);
+        const tags: Range<Decoration>[] = [];
+        this.decorations = buildDecorations(view, vaultId, tags);
+        this.atomicTags = Decoration.set(tags, true);
       }
 
       update(update: ViewUpdate) {
         // IME + pointer-drag guards (research: the classic failure modes)
         if (update.transactions.some((tr) => tr.isUserEvent("input.type.compose"))) return;
         if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          this.decorations = buildDecorations(update.view, vaultId);
+          const tags: Range<Decoration>[] = [];
+          this.decorations = buildDecorations(update.view, vaultId, tags);
+          this.atomicTags = Decoration.set(tags, true);
         }
       }
     },
@@ -464,12 +520,15 @@ export function livePreview(callbacks: LivePreviewCallbacks = {}) {
             return true;
           }
 
-          // Wikilink navigation: plain click when rendered, mod+click always
+          // Wikilink navigation: plain click when rendered, mod+click always.
+          // A plain click follows the link in the tab you are reading in; ⌘/Ctrl
+          // is what asks for a second tab (browser convention, Obsidian's too).
           const linkEl = target.closest?.("[data-wikilink-target]");
           if (linkEl instanceof HTMLElement) {
             const wikiTarget = linkEl.getAttribute("data-wikilink-target");
-            if (wikiTarget && (event.metaKey || event.ctrlKey || !selectionTouchesDOM(view, linkEl))) {
-              callbacks.onNavigate?.(wikiTarget);
+            const newTab = event.metaKey || event.ctrlKey;
+            if (wikiTarget && (newTab || !selectionTouchesDOM(view, linkEl))) {
+              callbacks.onNavigate?.(wikiTarget, { newTab });
               event.preventDefault();
               return true;
             }
@@ -479,6 +538,12 @@ export function livePreview(callbacks: LivePreviewCallbacks = {}) {
       },
     },
   );
+
+  return [
+    plugin,
+    // Cursor motion and deletion treat each hidden tag as a single unit.
+    EditorView.atomicRanges.of((view) => view.plugin(plugin)?.atomicTags ?? Decoration.none),
+  ];
 }
 
 function selectionTouchesDOM(view: EditorView, el: HTMLElement): boolean {

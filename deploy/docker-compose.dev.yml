@@ -35,6 +35,9 @@ services:
       - BACKEND_CORS_ORIGINS=http://localhost:3000
       - SECRET_KEY=${SECRET_KEY:-dev-only-secret}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-only-jwt-secret}
+      # Encrypts users' AI provider keys. Dev default so the feature works out
+      # of the box; production refuses a placeholder (see settings/production.py).
+      - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:-dev-only-ai-encryption-key-change-me}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:

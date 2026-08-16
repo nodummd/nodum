@@ -45,6 +45,7 @@ import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-e
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { usePlugins } from "@/lib/plugins/use-plugins";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -139,6 +140,11 @@ export function Workspace({ vault }: { vault: Vault }) {
   useEffect(() => {
     useWorkspaceStore.setState({ ribbonVisible: showRibbon });
   }, [showRibbon]);
+
+  // Switching vault opens a NEW browser tab, so the tab title has to say which
+  // vault — two open vaults are otherwise indistinguishable in the tab strip.
+  useDocumentTitle(`${vault.name} — Nodum`);
+
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
@@ -153,6 +159,36 @@ export function Workspace({ vault }: { vault: Vault }) {
     },
     [openTab, setGraphFocus],
   );
+
+  // Keep the graph's "note you are working in" on whatever note is actually
+  // showing — switching tabs and Back/Forward change it just as much as opening
+  // one does. Never cleared: moving into the graph pane itself leaves
+  // activeNoteId null, and the note you came from is still the one you are on.
+  useEffect(() => {
+    if (activeNoteId) setGraphFocus(activeNoteId);
+  }, [activeNoteId, setGraphFocus]);
+
+  // "Open in new window" navigates to /vault/{id}?note={noteId}; without this
+  // the new window opened the vault and ignored the note entirely.
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current) return;
+    const wanted = new URLSearchParams(window.location.search).get("note");
+    if (!wanted) return;
+    openedFromUrl.current = true;
+    void (async () => {
+      try {
+        const note = await noteApi.get(vault.id, wanted);
+        openTab({ id: note.id, kind: "note", title: note.title });
+        setGraphFocus(note.id);
+      } catch {
+        // A stale or foreign id should not break the workspace — just ignore it.
+      } finally {
+        // Drop the param so a reload doesn't force the note back open.
+        window.history.replaceState(null, "", `/vault/${vault.id}`);
+      }
+    })();
+  }, [vault.id, openTab, setGraphFocus]);
 
   const openGraph = useCallback(() => {
     openTab({ id: "graph", kind: "graph", title: "Graph view" });
@@ -195,7 +231,10 @@ export function Workspace({ vault }: { vault: Vault }) {
 
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // In the store, not local state: the vault switcher and (later) the AI panel
+  // open settings straight to a named tab from far outside this component.
+  const settingsOpen = useWorkspaceStore((s) => s.settingsOpen);
+  const setSettingsOpen = useWorkspaceStore((s) => s.setSettingsOpen);
   const importInputRef = useRef<HTMLInputElement>(null);
   const { commands: pluginCommands, runCommand: runPluginCommand } = usePlugins(vault.id, { run: true });
   const importFolderRef = useRef<HTMLInputElement>(null);
@@ -354,7 +393,7 @@ export function Workspace({ vault }: { vault: Vault }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setSwitcherOpen, switcherOpen, newNote, openGraph, closeActiveTab]);
+  }, [setSwitcherOpen, switcherOpen, newNote, openGraph, closeActiveTab, setSettingsOpen]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-ob-sidebar text-ob-text md:flex-row">
@@ -439,7 +478,7 @@ export function Workspace({ vault }: { vault: Vault }) {
               <div className="relative min-h-0 flex-1 bg-ob-bg">
                 {paneTab === null && <EmptyState onNewNote={() => newNote.mutate()} />}
                 {paneTab?.kind === "note" && (
-                  <EditorPane vaultId={vault.id} noteId={paneTab.id} />
+                  <EditorPane vaultId={vault.id} noteId={paneTab.id} paneIndex={paneIndex} />
                 )}
                 {paneTab?.kind === "graph" && (
                   <GraphView

@@ -95,6 +95,86 @@ async def test_collab_seeds_edits_and_persists(client: AsyncClient, workspace: d
     assert resp.json()["data"]["content"] == "Hello collab. Edited live."
 
 
+async def test_rest_save_is_not_resurrected_by_a_live_room(
+    client: AsyncClient, workspace: dict, running_collab
+) -> None:
+    """A REST save must win over the body a live room was seeded with.
+
+    The room loads the note once, at creation. Anything that writes through the
+    REST API afterwards — another tab, the clipper, an import — leaves the room
+    holding the OLD text, which it then serves to every client that connects and
+    eventually persists back over the save. The note silently reverts.
+    """
+    url = (
+        f"http://test/api/v1/vaults/{workspace['vault_id']}/notes/"
+        f"{workspace['note_id']}/collab?token={workspace['token']}"
+    )
+    doc = Doc()
+    ytext = doc.get("content", type=Text)
+
+    async with _ws_client() as ws_client, aconnect_ws(url, ws_client) as ws:
+        await _sync(ws, doc, "Hello collab.")
+
+        # A REST save lands while the room is open and holding the old body.
+        saved = await client.put(
+            f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}/content",
+            json={"content": "Rewritten over REST."},
+            headers=workspace["headers"],
+        )
+        assert saved.status_code == 200, saved.text
+        await asyncio.sleep(0.3)
+
+        # The room adopted it, and pushed it down to the connected client.
+        room = collab_server.rooms[f"{workspace['vault_id']}/{workspace['note_id']}"]
+        assert str(room.ydoc.get("content", type=Text)) == "Rewritten over REST."
+        await _sync(ws, doc, "Rewritten over REST.")
+        assert str(ytext) == "Rewritten over REST."
+
+    # And closing the room does not write the stale body back.
+    await asyncio.sleep(0.3)
+    resp = await client.get(
+        f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}",
+        headers=workspace["headers"],
+    )
+    assert resp.json()["data"]["content"] == "Rewritten over REST."
+
+
+async def test_room_churn_does_not_leak_redis_connections(workspace: dict, running_collab) -> None:
+    """Opening and closing many rooms must not exhaust the Redis pool.
+
+    Each room holds a pubsub, and delete_room only CANCELS its task. redis-py's
+    PubSub.__del__ does not return the pooled connection, so without an explicit
+    aclose the pool (max_connections=20) is spent after ~20 note opens. Every
+    later subscribe AND publish then fails, both are swallowed as warnings, and
+    the worker serves rooms with fanout dead and deaf to collab-reset — which is
+    the "REST save reverts the note" bug returning permanently.
+
+    Twenty-five cycles is just twenty-five note switches.
+    """
+    from uuid import UUID
+
+    from app.core.collab import collab_server, room_name
+    from app.core.redis import redis_binary
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    pool = redis_binary.connection_pool
+    baseline = len(pool._in_use_connections)
+
+    for _ in range(25):
+        await collab_server.get_room(name)
+        # Let _subscribe actually reach pubsub.subscribe() and take a pooled
+        # connection. Without this the loop cancels the task before it ever
+        # subscribes, nothing is borrowed, and the test proves nothing.
+        await asyncio.sleep(0.02)
+        await collab_server.delete_room(name=name)
+
+    assert len(pool._in_use_connections) - baseline <= 1, (
+        "pubsub connections are not being returned to the pool"
+    )
+    # And the plane is still usable, which is what the leak actually broke.
+    await redis_binary.publish(f"collab:{name}", b"\x00" * 33)
+
+
 async def test_collab_rejects_invalid_token(workspace: dict, running_collab) -> None:
     url = f"http://test/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}/collab?token=not-a-token"
     async with _ws_client() as ws_client:

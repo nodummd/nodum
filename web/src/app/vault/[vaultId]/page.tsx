@@ -40,5 +40,8 @@ export default function WorkspacePage() {
     );
   }
 
-  return <Workspace vault={vault} />;
+  // Keyed by vault: changing vault inside one tab is a whole new workspace, and
+  // the per-vault imperative state (CodeMirror drafts, collab sockets, the
+  // plugin host) has to be torn down rather than re-pointed.
+  return <Workspace key={vault.id} vault={vault} />;
 }

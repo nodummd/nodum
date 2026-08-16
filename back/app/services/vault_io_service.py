@@ -22,6 +22,7 @@ from app.constants.limits import MAX_ATTACHMENT_SIZE_BYTES, MAX_IMPORT_ZIP_SIZE_
 from app.core.logging import get_logger
 from app.models.vaults import Note
 from app.services import note_service
+from app.services.attachment_service import ALLOWED_ATTACHMENT_TYPES
 from app.services.daily_note_service import _ensure_folder
 from app.services.link_service import resolve_links_for_new_note, sync_note_links
 from app.services.service_response import ServiceResponse
@@ -33,7 +34,9 @@ logger = get_logger("vault_io")
 
 # Kept in step with attachment_service.ALLOWED_ATTACHMENT_TYPES — listing a type
 # here that the attachment allowlist refuses (e.g. .svg) would silently drop it.
-_ATTACHMENT_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".pdf", ".mp3", ".mp4", ".webm", ".wav", ".m4a", ".mov", ".ogg"}
+# Derived from the upload allowlist so the two cannot drift — a type listed
+# here but refused there is silently dropped mid-import, and vice versa.
+_ATTACHMENT_EXTS = {f".{ext}" for ext in ALLOWED_ATTACHMENT_TYPES} - {"." + e for e in ("md", "txt")}
 
 # Plain-text formats imported AS NOTES rather than attachments, so their content
 # is searchable, linkable and editable like any other note.
@@ -230,7 +233,10 @@ async def import_zip(
 
     stored_names: dict[str, str] = {}
     for base, entry in attachment_entries:
-        with contextlib.suppress(Exception):
+        # Best-effort per file: one unreadable image must not abort the import.
+        # But it is LOGGED — a silent skip reports "0 attachments" with no way
+        # to tell a vault that had none from one whose uploads all failed.
+        try:
             result = await attachment_service.upload(
                 db,
                 vault_id,
@@ -239,11 +245,16 @@ async def import_zip(
                 content=zf.read(entry),
                 mime_type=mimetypes.guess_type(base)[0] or "application/octet-stream",
             )
-            if result.success and result.data is not None:
-                imported_attachments += 1
-                # Uploads may be renamed on collision — remember the stored name
-                # so the PDF note embeds the file that actually exists.
-                stored_names[base] = result.data.filename
+        except Exception as e:
+            logger.warning("import_attachment_failed", file=base, error=repr(e))
+            continue
+        if result.success and result.data is not None:
+            imported_attachments += 1
+            # Uploads may be renamed on collision — remember the stored name
+            # so the PDF note embeds the file that actually exists.
+            stored_names[base] = result.data.filename
+        else:
+            logger.warning("import_attachment_rejected", file=base, error=result.message)
 
     # PDFs → notes holding their extracted text plus an embed of the original.
     # Done after upload so the embed points at the stored filename.

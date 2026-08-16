@@ -17,11 +17,26 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
 import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
+import {
+  currentActiveNote,
+  currentNoteHover,
+  subscribeActiveNote,
+  subscribeNoteHover,
+  type NoteHover,
+} from "@/lib/graph/hover-bus";
 import { cn } from "@/lib/utils";
 
 // Label EVERY node (Obsidian shows them all, fading by zoom). The render loop
 // culls off-screen labels; the cap only protects very large vaults.
 const LABEL_CAP = 1200;
+
+// How far the un-highlighted graph recedes while a highlight is up (hover,
+// node-drag, search). Not to nothing: you should still be able to read where
+// the neighbourhood you are looking at sits in the rest of the vault, so names
+// and connections stay faintly legible instead of being switched off.
+const DIM_LABEL_OPACITY = 0.26;
+const DIM_LINK_ALPHA = 0.28;
+const DIM_NODE_ALPHA = 0.14;
 
 // Layouts survive graph close/reopen within the session (Obsidian keeps its
 // layout too — we go further and keep it across tab switches).
@@ -48,6 +63,8 @@ interface PersistedGraph {
   linkForce?: number;
   arrows?: boolean;
   nodeSize?: number;
+  /** Multiplier on the node-label font size (1 = the built-in 10.5px base). */
+  labelSize?: number;
   linkThickness?: number;
   /** Reheat/​swim the whole graph when clicking empty space (off = stays still). */
   moveOnClick?: boolean;
@@ -64,7 +81,8 @@ const GRAPH_DEFAULTS: Required<PersistedGraph> = {
   linkDistance: 65,
   linkForce: 1,
   arrows: false,
-  nodeSize: 1,
+  nodeSize: 0.5,
+  labelSize: 0.6,
   linkThickness: 1,
   moveOnClick: false,
 };
@@ -131,6 +149,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const [linkForceDraft, setLinkForceDraft] = useState<number | null>(null);
   const [arrowsDraft, setArrowsDraft] = useState<boolean | null>(null);
   const [nodeSizeDraft, setNodeSizeDraft] = useState<number | null>(null);
+  const [labelSizeDraft, setLabelSizeDraft] = useState<number | null>(null);
   const [thicknessDraft, setThicknessDraft] = useState<number | null>(null);
   const [moveOnClickDraft, setMoveOnClickDraft] = useState<boolean | null>(null);
   // graph search is session-only (matches Obsidian's transient filter box);
@@ -148,6 +167,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const linkForce = linkForceDraft ?? persisted.linkForce ?? GRAPH_DEFAULTS.linkForce;
   const arrows = arrowsDraft ?? persisted.arrows ?? GRAPH_DEFAULTS.arrows;
   const nodeSize = nodeSizeDraft ?? persisted.nodeSize ?? GRAPH_DEFAULTS.nodeSize;
+  const labelSize = labelSizeDraft ?? persisted.labelSize ?? GRAPH_DEFAULTS.labelSize;
   const linkThickness = thicknessDraft ?? persisted.linkThickness ?? GRAPH_DEFAULTS.linkThickness;
   const moveOnClick = moveOnClickDraft ?? persisted.moveOnClick ?? GRAPH_DEFAULTS.moveOnClick;
   const groups = useMemo(
@@ -167,6 +187,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     setLinkForceDraft(GRAPH_DEFAULTS.linkForce);
     setArrowsDraft(GRAPH_DEFAULTS.arrows);
     setNodeSizeDraft(GRAPH_DEFAULTS.nodeSize);
+    setLabelSizeDraft(GRAPH_DEFAULTS.labelSize);
     setThicknessDraft(GRAPH_DEFAULTS.linkThickness);
     setMoveOnClickDraft(GRAPH_DEFAULTS.moveOnClick);
     // Resetting the *view* must not delete curated colour groups — they're
@@ -234,6 +255,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     linkForceDraft !== null ||
     arrowsDraft !== null ||
     nodeSizeDraft !== null ||
+    labelSizeDraft !== null ||
     thicknessDraft !== null ||
     moveOnClickDraft !== null ||
     groupsDraft !== null;
@@ -247,6 +269,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     linkForce,
     arrows,
     nodeSize,
+    labelSize,
     linkThickness,
     moveOnClick,
   } satisfies PersistedGraph);
@@ -276,6 +299,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       if (linkForceDraft !== null) patch.linkForce = linkForce;
       if (arrowsDraft !== null) patch.arrows = arrows;
       if (nodeSizeDraft !== null) patch.nodeSize = nodeSize;
+      if (labelSizeDraft !== null) patch.labelSize = labelSize;
       if (thicknessDraft !== null) patch.linkThickness = linkThickness;
       if (moveOnClickDraft !== null) patch.moveOnClick = moveOnClick;
       if (groupsDraft !== null) patch.groups = groups;
@@ -364,13 +388,30 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const forceLabelsRef = useRef<Set<number> | null>(null);
   // Zoom-adaptive sizing: last applied node-size scale so we only push a new
   // pointSizeScale when it moved enough to matter.
-  const nodeSizeRef = useRef(1);
+  const nodeSizeRef = useRef(GRAPH_DEFAULTS.nodeSize);
+  // User multiplier on the label font size, read by the render loop.
+  const labelSizeRef = useRef(GRAPH_DEFAULTS.labelSize);
   const lastSizeScaleRef = useRef(1);
   const moveOnClickRef = useRef(false);
   // Zoom level right after a fit — the reference "100%" view. Label opacity and
   // node/label scaling are measured RELATIVE to it, so the default view always
   // reads the same no matter how large the layout's coordinate extent is.
   const refZoomRef = useRef(0);
+  // Breathing highlight: the note being worked in, plus the note the pointer is
+  // on somewhere ELSE in the app (a file-explorer row, a link in the editor).
+  // Deliberately additive: it never dims anything, it only makes those nodes
+  // swell and glow.
+  const pulseSetRef = useRef<Set<number>>(new Set());
+  const pulseRafRef = useRef(0);
+  const pulseStartRef = useRef(0);
+  // Latest hover / focused editor, kept in refs so the pulse can be recomputed
+  // when the data changes without waiting for the pointer or focus to move.
+  const hoverRef = useRef<NoteHover | null>(null);
+  const activeNoteRef = useRef<string | null>(null);
+  // Mirror of the sizes/colors last pushed to the engine — the pulse layers on
+  // top of whatever is showing (focus accent, hover dim, search) and restores
+  // exactly that when the pointer leaves.
+  const currentSizesRef = useRef<Float32Array>(new Float32Array(0));
   // Node-drag: which node is grabbed, and the RAF that keeps the rest of the
   // graph gently drifting while it is held.
   const draggingIndexRef = useRef<number | null>(null);
@@ -405,8 +446,11 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
 
   /** Shared highlight: keep `brightNodes` at full opacity and dim the rest,
    *  paint the links touching `linkAnchors` in the accent colour and dim the
-   *  others, and (via forceLabelsRef) force the bright nodes' labels on. Passing
-   *  null clears the highlight (back to the base colours / zoom-driven labels).
+   *  others, and (via forceLabelsRef) force the bright nodes' labels on and the
+   *  rest down to DIM_LABEL_OPACITY. Passing null clears the highlight (back to
+   *  the base colours / zoom-driven labels).
+   *  Dimming is deliberately partial: the graph you are not pointing at should
+   *  recede, not disappear — its names and connections stay legible.
    *  Drives hover, node-drag, and the search filter alike. */
   const applyHighlight = (brightNodes: Set<number> | null, linkAnchors: Set<number> | null) => {
     const graph = graphRef.current;
@@ -422,14 +466,14 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     forceLabelsRef.current = brightNodes;
     const target = base.slice();
     for (let i = 0; i < nodesRef.current.length; i++) {
-      if (!brightNodes.has(i)) target[i * 4 + 3] = base[i * 4 + 3] * 0.1;
+      if (!brightNodes.has(i)) target[i * 4 + 3] = base[i * 4 + 3] * DIM_NODE_ALPHA;
     }
     animateColors(target);
     const anchors = linkAnchors ?? brightNodes;
     const links = baseLinkColorsRef.current.slice();
     edgesRef.current.forEach(([s, t], i) => {
       if (anchors.has(s) || anchors.has(t)) links.set(accentLinkRef.current, i * 4);
-      else links[i * 4 + 3] *= 0.05;
+      else links[i * 4 + 3] *= DIM_LINK_ALPHA;
     });
     graph.setLinkColors(links);
     if (draggingIndexRef.current === null) graph.render(undefined, 0);
@@ -441,6 +485,71 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const s = searchSetRef.current;
     if (s && s.size) applyHighlight(s, s);
     else applyHighlight(null, null);
+  };
+
+  /** Breathe a set of nodes: swell them and pull their colour toward the accent,
+   *  on a slow shared loop. Everything else is left exactly as it is — this
+   *  highlight adds, it never dims. The set is "the note you are working in"
+   *  plus "the note the pointer is on elsewhere in the app"; one phase drives
+   *  both so they breathe together rather than beating against each other. */
+  const pulse = (next: Set<number>) => {
+    const previous = pulseSetRef.current;
+    if (next.size === previous.size && [...next].every((i) => previous.has(i))) return;
+    cancelAnimationFrame(pulseRafRef.current);
+    pulseSetRef.current = next;
+    if (next.size === 0) {
+      restorePulsed();
+      return;
+    }
+    // Keep the phase running across set changes — restarting it would make the
+    // still-pulsing node jump. 0 means "stamp the clock on the next frame".
+    if (previous.size === 0) pulseStartRef.current = 0;
+    const PERIOD = 1200;
+    const step = (now: number) => {
+      const graph = graphRef.current;
+      const active = pulseSetRef.current;
+      if (!graph || active.size === 0) return;
+      if (pulseStartRef.current === 0) pulseStartRef.current = now;
+      const t0 = pulseStartRef.current;
+      // Read the live arrays every frame: a search dim or the focus accent may
+      // be animating underneath, and the pulse should ride on top of it.
+      const sizes = currentSizesRef.current;
+      const colors = currentColorsRef.current;
+      const phase = 0.5 - 0.5 * Math.cos(((now - t0) / PERIOD) * 2 * Math.PI);
+      const nextSizes = sizes.slice();
+      const nextColors = colors.slice();
+      const accent = focusColorRef.current;
+      for (const index of active) {
+        if (index >= sizes.length || index * 4 + 3 >= colors.length) continue;
+        // Swell from the node's own degree-derived size, never from the live
+        // one: the focused note is already scaled 1.7× as "selected", and
+        // compounding the two turned it into a blob. Floored at the live size
+        // so it never shrinks below that selected read.
+        const baseSize =
+          index < groupSizesRef.current.length ? groupSizesRef.current[index] : sizes[index];
+        nextSizes[index] = Math.max(sizes[index], baseSize * (1 + 1.2 * phase));
+        for (let c = 0; c < 3; c++) {
+          const base = colors[index * 4 + c];
+          nextColors[index * 4 + c] = base + (accent[c] - base) * phase;
+        }
+        const alpha = colors[index * 4 + 3];
+        nextColors[index * 4 + 3] = alpha + (1 - alpha) * phase;
+      }
+      graph.setPointSizes(nextSizes);
+      graph.setPointColors(nextColors);
+      if (draggingIndexRef.current === null) graph.render(undefined, 0);
+      pulseRafRef.current = requestAnimationFrame(step);
+    };
+    pulseRafRef.current = requestAnimationFrame(step);
+  };
+
+  /** Put back exactly what was showing before the pulse. */
+  const restorePulsed = () => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    graph.setPointSizes(currentSizesRef.current.slice());
+    graph.setPointColors(currentColorsRef.current.slice());
+    if (draggingIndexRef.current === null) graph.render(undefined, 0);
   };
 
   /** Fade + scale newly-added nodes (and their links) in over ~320ms so a
@@ -469,6 +578,12 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
         colors[i * 4 + 3] = targetColors[i * 4 + 3] * eased;
       }
       for (const i of addedLinks) linkColors[i * 4 + 3] = targetLinkColors[i * 4 + 3] * eased;
+      // Publish the in-progress frame the way animateColors does: a pulse RAF
+      // registered after this one reads these mirrors, and would otherwise push
+      // the finished sizes back over the fade — the new node would pop in at
+      // full size while its links were still arriving.
+      currentSizesRef.current = sizes.slice();
+      currentColorsRef.current = colors.slice();
       graph.setPointSizes(sizes);
       graph.setPointColors(colors);
       graph.setLinkColors(linkColors);
@@ -710,18 +825,42 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       if (Math.abs(sizeScale - lastSizeScaleRef.current) > 0.03) {
         lastSizeScaleRef.current = sizeScale;
         graph.setConfigPartial({ pointSizeScale: nodeSizeRef.current * sizeScale });
-        if (labelRef.current) labelRef.current.overlay.style.fontSize = `${(10.5 * sizeScale).toFixed(1)}px`;
+        if (labelRef.current)
+          labelRef.current.overlay.style.fontSize = `${(10.5 * sizeScale * labelSizeRef.current).toFixed(1)}px`;
       }
       const forceSet = forceLabelsRef.current;
+      const pulseSet = pulseSetRef.current;
       const els = labelRef.current?.els;
       for (const [i, pos] of tracked) {
         const el = els?.get(i);
         if (!el || !pos) continue;
         const [x, y] = graph.spaceToScreenPosition([pos[0], pos[1]]);
         const offscreen = x < -60 || x > W + 60 || y < -30 || y > H + 30;
-        // While a highlight is active only its nodes' names show; otherwise fade
-        // in/out by zoom. Off-screen labels are always culled.
-        const op = offscreen ? 0 : forceSet ? (forceSet.has(i) ? 1 : 0) : alpha <= 0.03 ? 0 : alpha;
+        // The note you are working in, and the one the pointer is on elsewhere
+        // in the app, always show their name and get an accent glow (CSS) — at
+        // small node sizes the label is what actually makes them findable.
+        const pulsing = pulseSet.has(i) && !offscreen;
+        if (pulsing !== el.hasAttribute("data-pulse")) {
+          el.toggleAttribute("data-pulse", pulsing);
+        }
+        // While a highlight is up, its nodes' names show and the rest recede to
+        // a faint but readable opacity (never off — you should still be able to
+        // read where this neighbourhood sits). Otherwise fade in/out by zoom.
+        // Off-screen labels are always culled.
+        const op = offscreen
+          ? 0
+          : pulsing
+            ? 1
+            : forceSet
+              ? forceSet.has(i)
+                ? 1
+                : // Dim, but never brighter than the zoom fade would allow —
+                  // zoomed out far enough that names are gone, a highlight must
+                  // not switch 1200 of them back on over each other.
+                  Math.min(alpha, DIM_LABEL_OPACITY)
+              : alpha <= 0.03
+                ? 0
+                : alpha;
         if (op <= 0) {
           if (el.style.opacity !== "0") el.style.opacity = "0";
           continue;
@@ -742,6 +881,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       cancelAnimationFrame(dimRafRef.current);
       cancelAnimationFrame(enterRafRef.current);
       cancelAnimationFrame(driftRafRef.current);
+      cancelAnimationFrame(pulseRafRef.current);
+      pulseSetRef.current = new Set();
       overlay.remove();
       labelRef.current = null;
       graph.destroy();
@@ -1004,6 +1145,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     edgesRef.current = filtered.edges;
     colorsRef.current = colors;
     currentColorsRef.current = colors.slice();
+    currentSizesRef.current = sizes.slice();
     baseLinkColorsRef.current = baseLinkColors;
     prevIdsRef.current = filtered.nodes.map((node) => node.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1029,10 +1171,20 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     }
     colorsRef.current = colors;
     currentColorsRef.current = colors.slice();
+    currentSizesRef.current = sizes.slice();
     graph.setPointColors(colors);
     graph.setPointSizes(sizes);
     graph.render(undefined, 0); // redraw a settled/paused graph so the accent shows at once
     prevFocusRef.current = idx >= 0 ? focusNoteId : null;
+    // That repaint rebuilt from the UNDIMMED base. If a highlight is still up
+    // (a graph search, most visibly), put it back — otherwise the nodes go
+    // bright while their labels and links stay dimmed, and nothing heals it
+    // until you hover a node and hover back out. Hover and drag heal
+    // themselves, so leave their narrower anchor sets alone.
+    if (forceLabelsRef.current && hoveredIndexRef.current === null && draggingIndexRef.current === null) {
+      restoreResting();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusNoteId, filtered]);
 
   // Effect 2c — search dims non-matches and highlights the matches (never hides
@@ -1052,6 +1204,65 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     if (hoveredIndexRef.current === null) applyHighlight(set, set);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSearch, filtered]);
+
+  // Effect 2d — breathe the note the caret is in, and the note the pointer is
+  // on somewhere else in the app (an explorer row, a link in the editor), so
+  // either can be picked out of the constellation. Nothing dims — the rest of
+  // the graph is left untouched.
+  //
+  // "The note you are working in" is deliberately focus-driven, not tab-driven:
+  // it means you are typing in it right now. Click away — into the graph, the
+  // sidebar, the other pane — or close it, and it stops breathing.
+  //
+  // Re-runs on data changes so a rebuild mid-hover keeps pulsing the right node.
+  useEffect(() => {
+    const resolve = (hover: NoteHover): number => {
+      const nodes = nodesRef.current;
+      if (hover.id) {
+        const byId = nodes.findIndex((node) => node.id === hover.id);
+        if (byId >= 0) return byId;
+      }
+      const target = hover.target?.trim().toLowerCase().replace(/\.md$/, "");
+      if (!target) return -1;
+      // The backend's own link rule: title first, then path.
+      const byTitle = nodes.findIndex((node) => node.title.toLowerCase() === target);
+      if (byTitle >= 0) return byTitle;
+      return nodes.findIndex((node) => node.path.toLowerCase().replace(/\.md$/, "") === target);
+    };
+    const refresh = () => {
+      const next = new Set<number>();
+      const hover = hoverRef.current;
+      if (hover) {
+        const index = resolve(hover);
+        if (index >= 0) next.add(index);
+      }
+      const active = activeNoteRef.current;
+      if (active) {
+        const index = nodesRef.current.findIndex((node) => node.id === active);
+        if (index >= 0) next.add(index);
+      }
+      pulse(next);
+    };
+    hoverRef.current = currentNoteHover();
+    activeNoteRef.current = currentActiveNote();
+    refresh();
+    const unsubscribeHover = subscribeNoteHover((hover) => {
+      hoverRef.current = hover;
+      refresh();
+    });
+    const unsubscribeActive = subscribeActiveNote((noteId) => {
+      activeNoteRef.current = noteId;
+      refresh();
+    });
+    return () => {
+      unsubscribeHover();
+      unsubscribeActive();
+      pulse(new Set());
+    };
+    // `pulse` closes only over refs — re-subscribing on every render would
+    // restart the animation on each frame the parent re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered]);
 
   // Effect 3 — force sliders update the live simulation (no teardown).
   // Only a REAL value change reheats; mounts and identity churn must not
@@ -1080,9 +1291,11 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
-    // The render loop owns pointSizeScale (nodeSize × zoom scale); mirror the
-    // user's node-size here and force a re-apply next frame.
+    // The render loop owns pointSizeScale (nodeSize × zoom scale) and the label
+    // font size (labelSize × zoom scale); mirror both here and force a re-apply
+    // next frame — the loop otherwise only reacts to zoom changes.
     nodeSizeRef.current = nodeSize;
+    labelSizeRef.current = labelSize;
     lastSizeScaleRef.current = -1;
     const key = JSON.stringify({ arrows, linkThickness });
     if (prevDisplayRef.current === key) return;
@@ -1092,7 +1305,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       linkDefaultArrows: arrows,
       linkWidthScale: linkThickness,
     });
-  }, [arrows, nodeSize, linkThickness]);
+  }, [arrows, nodeSize, labelSize, linkThickness]);
 
   useEffect(() => {
     moveOnClickRef.current = moveOnClick;
@@ -1230,13 +1443,14 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
           />
         </label>
         <ForceSlider label="Node size" min={0.1} max={5} step={0.1} value={nodeSize} onChange={setNodeSizeDraft} />
+        <ForceSlider label="Text size" min={0.3} max={3} step={0.1} value={labelSize} onChange={setLabelSizeDraft} />
         <ForceSlider label="Link thickness" min={0.1} max={5} step={0.1} value={linkThickness} onChange={setThicknessDraft} />
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Forces</p>
         <ForceSlider label="Center force" min={0} max={1} step={0.05} value={centerForce} onChange={setCenterDraft} />
         <ForceSlider label="Repel force" min={0.1} max={8} step={0.1} value={repelForce} onChange={setRepelDraft} />
         <ForceSlider label="Link force" min={0} max={2} step={0.1} value={linkForce} onChange={setLinkForceDraft} />
-        <ForceSlider label="Link distance" min={4} max={40} step={1} value={linkDistance} onChange={setDistDraft} />
+        <ForceSlider label="Link distance" min={10} max={140} step={2} value={linkDistance} onChange={setDistDraft} />
 
         <p className="pt-2 pb-1.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Groups</p>
         {groups.map((g, i) => (

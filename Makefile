@@ -45,3 +45,9 @@ web-lint:        ## Lint web
 
 e2e:             ## Run Playwright e2e suite (needs test stack up)
 	cd web && npx playwright test
+
+
+# ── Utilities ─────────────────────────────────────────────────────
+.PHONY: claude
+claude: ## Run Claude Code with permission prompts skipped
+	@claude --dangerously-skip-permissions

@@ -230,12 +230,26 @@ body {
   /* font-size inherits the overlay's value, which the render loop scales by zoom */
   letter-spacing: 0.01em;
   color: var(--ob-text-muted);
-  /* A stronger shadow keeps small labels legible over nodes/links in dense areas. */
+  /* A stronger shadow keeps small labels legible over nodes/links in dense areas.
+     (--ob-bg is the Tailwind alias, not a CSS variable: naming it here made the
+     whole declaration invalid, so labels had no shadow at all.) */
   text-shadow:
-    0 0 4px var(--ob-bg),
+    0 0 4px var(--ob-background-primary),
     0 1px 3px rgba(0, 0, 0, 0.9);
   white-space: nowrap;
   will-change: transform, opacity;
+}
+
+/* A breathing node: the note being worked in, or the one under the pointer
+   elsewhere in the app (explorer row, editor link). Weight + an accent glow,
+   not colour: group-coloured labels carry an inline colour, and this must read
+   the same on every one of them. */
+.nodum-graph-label[data-pulse] {
+  font-weight: 700;
+  text-shadow:
+    0 0 7px var(--ob-interactive-accent),
+    0 0 3px var(--ob-background-primary),
+    0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 /* ============================================================
@@ -525,3 +539,115 @@ body {
 .nodum-canvas-card-body .nodum-reading h2 { font-size: 1.15em; }
 [data-canvas-card] { user-select: none; }
 [data-canvas-card] textarea { user-select: text; }
+
+/* ── Print / "Export to PDF…" ────────────────────────────────────────────────
+   The browser's print pipeline is our PDF export, so a print must produce the
+   NOTE — not the explorer, tab strip, ribbon and side panels that happen to be
+   on screen. Everything is hidden and the note's container is opted back in.
+   (visibility rather than display: descendants can re-show themselves, which
+   display: none does not allow.) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  [data-print-root],
+  [data-print-root] * {
+    visibility: visible;
+  }
+
+  [data-print-root] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    /* Ancestors are scroll containers clipped to the viewport; without this the
+       print stops at the fold instead of paginating the whole note. */
+    overflow: visible;
+    height: auto;
+  }
+
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+}
+
+/* ── Inline HTML (colour, underline, super/subscript, highlight) ─────────────
+   The five tags lib/editor/inline-html.ts allows, styled identically in the
+   live-preview decoration and the reading view so the two surfaces agree. */
+.nodum-inline-html {
+  /* An inline colour/background is carried on the element's style attribute,
+     re-serialised by safeStyle — never echoed from the author's input. */
+  border-radius: 2px;
+}
+
+.nodum-inline-u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nodum-inline-mark {
+  /* A bare <mark> — what an imported Obsidian vault contains — must still look
+     highlighted. An explicit background from safeStyle overrides this. */
+  background: var(--ob-color-yellow, #e0ac00);
+  color: #1a1a1a;
+  padding: 0 2px;
+}
+
+.nodum-inline-sup,
+.nodum-inline-sub {
+  font-size: 0.75em;
+  line-height: 0;
+}
+.nodum-inline-sup { vertical-align: super; }
+.nodum-inline-sub { vertical-align: sub; }
+
+/* ── Editable tables in live preview ─────────────────────────────────────── */
+.nodum-table-editable {
+  position: relative;
+}
+
+.nodum-table-editable [data-table-cell] {
+  outline: none;
+  min-width: 3rem;
+}
+
+.nodum-table-editable [data-table-cell]:focus {
+  background: var(--ob-color-base-25, rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 0 0 1px var(--ob-color-accent, #7852ee);
+}
+
+/* Controls stay out of the way until the table is in use. opacity rather than
+   display, so Playwright still treats them as clickable targets. */
+.nodum-table-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nodum-table-editable:hover .nodum-table-toolbar,
+.nodum-table-editable:focus-within .nodum-table-toolbar {
+  opacity: 1;
+}
+
+.nodum-table-toolbar button {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--ob-color-border, #333);
+  background: var(--ob-color-base-25, #202020);
+  color: var(--ob-color-muted, #9a9a9a);
+  cursor: pointer;
+}
+
+.nodum-table-toolbar button:hover {
+  color: var(--ob-color-text, #dadada);
+  border-color: var(--ob-color-accent, #7852ee);
+}

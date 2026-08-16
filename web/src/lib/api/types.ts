@@ -191,3 +191,68 @@ export interface CanvasMeta {
 export interface CanvasFull extends CanvasMeta {
   data: CanvasData;
 }
+
+// ── AI (bring your own key) ──────────────────────────────────────────────────
+
+export interface AIProviderInfo {
+  id: string;
+  label: string;
+  default_model: string;
+  models: string[];
+  key_url: string;
+}
+
+/** Never carries an API key — only a hint like `sk-ant…7f2a`. */
+export interface AICredentialInfo {
+  provider: string;
+  model: string;
+  key_hint: string;
+  base_url: string;
+}
+
+export interface AIStatus {
+  /** False when the server has no encryption key, so keys cannot be stored. */
+  available: boolean;
+  configured: boolean;
+  active_provider: string | null;
+  active_model: string;
+  credentials: AICredentialInfo[];
+  providers: AIProviderInfo[];
+}
+
+/** A change the assistant made to the vault during a turn. */
+export interface AIAction {
+  kind: "created" | "updated";
+  title: string;
+  note_id: string;
+}
+
+export interface AIChatReply {
+  reply: string;
+  provider: string;
+  model: string;
+  actions?: AIAction[];
+  /** The thread this turn was appended to — a new one when none was sent. */
+  conversation_id: string;
+  title: string;
+}
+
+export interface AIConversationMeta {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+  actions: AIAction[];
+}
+
+export interface AIConversationDetail {
+  id: string;
+  title: string;
+  updated_at: string;
+  messages: AIConversationMessage[];
+}

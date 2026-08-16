@@ -8,8 +8,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowUpDown, ChevronDown, ChevronRight, FilePlus2, FolderPlus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FilePlus2,
+  LocateFixed,
+  FolderPlus,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ContextMenu,
@@ -28,18 +37,14 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { confirmDelete } from "./confirm-dialog";
 import { bookmarkApi, folderApi, noteApi, searchApi, vaultApi } from "@/lib/api/endpoints";
+import { setNoteHover } from "@/lib/graph/hover-bus";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem, Vault } from "@/lib/api/types";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { type ExplorerSort, useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { PickerDialog } from "./picker-dialog";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 26;
@@ -149,6 +154,38 @@ function flattenTree(
   return rows;
 }
 
+/** Folder ids from the vault root down to the folder holding `noteId`.
+ *  Empty when the note sits at the root or is not found. */
+/** The active note of a pane layout — the explorer's selection follows it. */
+function activeNoteIdOf(state: { panes: { tabs: { id: string; kind: string }[]; activeTabId: string | null }[]; activePane: number }): string | null {
+  const pane = state.panes[state.activePane];
+  const tab = pane?.tabs.find((t) => t.id === pane.activeTabId);
+  return tab && tab.kind === "note" ? tab.id : null;
+}
+
+/** Folder ids from the root down to (but excluding) the target folder. */
+function ancestorsOfFolder(items: TreeItem[], folderId: string, trail: string[] = []): string[] | null {
+  for (const item of items) {
+    if (item.type !== "folder") continue;
+    if (item.id === folderId) return trail;
+    const found = ancestorsOfFolder(item.children, folderId, [...trail, item.id]);
+    if (found) return found;
+  }
+  return null;
+}
+
+function ancestorsOfNote(items: TreeItem[], noteId: string, trail: string[] = []): string[] | null {
+  for (const item of items) {
+    if (item.type === "note") {
+      if (item.id === noteId) return trail;
+      continue;
+    }
+    const found = ancestorsOfNote(item.children, noteId, [...trail, item.id]);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** Brief confirmation notice (the store's push defaults to the error style). */
 function toast(message: string) {
   useToastStore.getState().push(message, "info");
@@ -245,55 +282,11 @@ function TagSubmenu({
 
 /** Searchable picker used by "Move file to…" (folders) and "Merge entire file
  *  with…" (notes). Keeps both flows to one keyboard-friendly dialog. */
-function PickerDialog({
-  title,
-  items,
-  emptyLabel,
-  onPick,
-  onClose,
-}: {
-  title: string;
-  items: { id: string | null; label: string }[];
-  emptyLabel: string;
-  onPick: (id: string | null) => void;
-  onClose: () => void;
-}) {
-  const [q, setQ] = useState("");
-  const filtered = items.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-[14px]">{title}</DialogTitle>
-        </DialogHeader>
-        <input
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Type to filter…"
-          className="h-8 w-full rounded border border-ob-border bg-ob-bg px-2 text-[13px] text-ob-text outline-none placeholder:text-ob-faint focus:border-ob-accent"
-        />
-        <div className="max-h-72 overflow-y-auto">
-          {filtered.length === 0 && (
-            <p className="px-2 py-3 text-[13px] text-ob-faint">{emptyLabel}</p>
-          )}
-          {filtered.map((i) => (
-            <button
-              key={i.id ?? "__root__"}
-              type="button"
-              onClick={() => onPick(i.id)}
-              className="block w-full truncate rounded px-2 py-1.5 text-left text-[13px] text-ob-muted hover:bg-ob-hover hover:text-ob-text"
-            >
-              {i.label}
-            </button>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProps) {
+  // Rows are virtualized: one scrolled out from under the pointer never fires
+  // its mouseleave, so drop the hover when the list itself goes away.
+  useEffect(() => () => setNoteHover(null), []);
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { data: tree } = useQuery({
@@ -301,6 +294,9 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     queryFn: () => vaultApi.tree(vaultId),
   });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The folder new notes/folders are created in. Clicking any row sets it, so
+  // the toolbar buttons act "where you are" rather than always at the root.
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; kind: "note" | "folder"; value: string } | null>(
     null,
   );
@@ -365,8 +361,13 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   const duplicateNote = useMutation({
     mutationFn: async (noteId: string) => {
       const src = await noteApi.get(vaultId, noteId);
+      // Find the next free suffix rather than always "<title> 1", which failed
+      // with already_exists the second time you duplicated the same note.
+      const taken = new Set(allItems.notes.map((n) => n.path.split("/").pop()));
+      let title = `${src.title} 1`;
+      for (let n = 1; taken.has(title); n++) title = `${src.title} ${n}`;
       return noteApi.create(vaultId, {
-        title: `${src.title} 1`,
+        title,
         folder_id: src.folder_id ?? null,
         content: src.content,
       });
@@ -484,6 +485,160 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     onError: (err) => toastError(err, "Could not delete folder."),
   });
 
+  /** Every folder id in the vault, so collapse-all reaches nested folders too
+   *  (the flattened rows only contain folders that are currently visible). */
+  const allFolderIds = useMemo(() => {
+    const ids: string[] = [];
+    const walk = (items: TreeItem[]) => {
+      for (const item of items) {
+        if (item.type === "folder") {
+          ids.push(item.id);
+          walk(item.children);
+        }
+      }
+    };
+    if (tree) walk(tree.items);
+    return ids;
+  }, [tree]);
+
+  const allCollapsed = allFolderIds.length > 0 && allFolderIds.every((id) => collapsed.has(id));
+
+  /** Every folder and note with its full path, independent of what is expanded.
+   *  The pickers must offer the WHOLE vault — building them from the visible
+   *  rows silently hid every target inside a collapsed folder. */
+  const allItems = useMemo(() => {
+    const folders: { id: string; path: string }[] = [];
+    const notes: { id: string; path: string }[] = [];
+    const walk = (items: TreeItem[], prefix: string) => {
+      for (const item of items) {
+        if (item.type === "folder") {
+          const path = prefix ? `${prefix}/${item.name}` : item.name;
+          folders.push({ id: item.id, path });
+          walk(item.children, path);
+        } else {
+          notes.push({ id: item.id, path: prefix ? `${prefix}/${item.title}` : item.title });
+        }
+      }
+    };
+    if (tree) walk(tree.items, "");
+    return { folders, notes };
+  }, [tree]);
+
+  /** Ancestor chain of the note currently open, for reveal + default location. */
+  const activeAncestors = useMemo(
+    () => (tree && activeNoteId ? (ancestorsOfNote(tree.items, activeNoteId) ?? []) : []),
+    [tree, activeNoteId],
+  );
+
+  // Explicit click wins; otherwise inherit the open note's folder (Obsidian's
+  // "same folder as current file"); otherwise the vault root.
+  const createParentId = selectedFolderId ?? activeAncestors.at(-1) ?? null;
+
+  /** Create a note/folder in the current location, revealing it first so the
+   *  name input is actually on screen. */
+  const startCreate = (kind: "note" | "folder") => {
+    if (createParentId) {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        for (const id of [...activeAncestors, createParentId]) next.delete(id);
+        return next;
+      });
+    }
+    setCreating({ kind, parentId: createParentId, value: "" });
+  };
+
+  /** Obsidian's "reveal active file": expand only the path to the open note. */
+  const revealActive = () => {
+    if (!activeNoteId) return;
+    const keep = new Set(activeAncestors);
+    setCollapsed(new Set(allFolderIds.filter((id) => !keep.has(id))));
+  };
+
+  // ── Reveal on navigate ───────────────────────────────────────────────────
+  //
+  // Opening a note by ANY route (wikilink, graph, palette, backlink) selects
+  // it in the explorer: expand its folders, then scroll the row into view.
+  //
+  // Driven by a store subscription rather than an effect on activeNoteId: this
+  // is a reaction to an event, so the state update happens in a callback and
+  // never during render. It also lets the "Reveal file in navigation" command
+  // re-target the SAME note, which a value-diffing effect would ignore.
+  const revealRef = useRef<{ noteId: string | null }>({ noteId: null });
+  revealRef.current.noteId = activeNoteId;
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
+
+  /** Expand the chain to an item, then scroll it into view once laid out. */
+  const revealItem = useCallback((id: string, ancestors: string[]) => {
+    setCollapsed((prev) => {
+      if (ancestors.every((a) => !prev.has(a))) return prev; // already open
+      const next = new Set(prev);
+      for (const a of ancestors) next.delete(a);
+      return next;
+    });
+    // Two frames: one for the state flush, one for the virtualizer to measure
+    // the rows the newly-expanded folders added.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const index = rowsRef.current.findIndex((r) => "id" in r && r.id === id);
+        if (index >= 0) virtualizerRef.current.scrollToIndex(index, { align: "auto" });
+      }),
+    );
+  }, []);
+
+  useEffect(() => {
+    const reveal = (target: { kind: "note" | "folder"; id: string } | null) => {
+      const current = treeRef.current;
+      if (!target || !current) return;
+      // A note is revealed by opening the folders ABOVE it. A folder is
+      // revealed by opening those AND itself — otherwise "reveal Cabinet"
+      // scrolls to a still-closed folder and shows none of its contents.
+      const chain =
+        target.kind === "note"
+          ? (ancestorsOfNote(current.items, target.id) ?? [])
+          : [...(ancestorsOfFolder(current.items, target.id) ?? []), target.id];
+      revealItem(target.id, chain);
+    };
+    // Explicit requests ("Reveal file in navigation", a breadcrumb crumb).
+    const unsub = useWorkspaceStore.subscribe((state, prev) => {
+      if (state.revealTarget !== prev.revealTarget) reveal(state.revealTarget);
+      const noteId = activeNoteIdOf(state);
+      if (noteId && noteId !== activeNoteIdOf(prev)) reveal({ kind: "note", id: noteId });
+    });
+
+    // The subscription only fires on CHANGE, so a session restored from the
+    // persisted store — the note you had open when you last closed the app —
+    // never gets revealed: every route highlights the active file except the
+    // one where you open it. Reveal once on mount, waiting for the tree query
+    // (the reveal is a no-op until it lands). Deferred out of the effect body
+    // so the state update happens in a frame callback, not during the effect.
+    let frames = 0;
+    let cancelled = false;
+    const initial = () => {
+      if (cancelled) return;
+      if (!treeRef.current) {
+        if (frames++ < 120) requestAnimationFrame(initial);
+        return;
+      }
+      const noteId = activeNoteIdOf(useWorkspaceStore.getState());
+      if (noteId) reveal({ kind: "note", id: noteId });
+    };
+    requestAnimationFrame(initial);
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [revealItem]);
+
+  /** One button that collapses everything, then expands everything back. */
+  const toggleAll = () =>
+    setCollapsed(allCollapsed ? new Set() : new Set(allFolderIds));
+
   const toggleFolder = (id: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -522,12 +677,12 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" role="tree" aria-label="File explorer">
       <div className="flex items-center gap-0.5 px-2 py-1.5">
         <button
           type="button"
           aria-label="New note"
-          onClick={() => setCreating({ kind: "note", parentId: null, value: "" })}
+          onClick={() => startCreate("note")}
           className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text"
         >
           <FilePlus2 className="size-4" strokeWidth={1.75} />
@@ -535,7 +690,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
         <button
           type="button"
           aria-label="New folder"
-          onClick={() => setCreating({ kind: "folder", parentId: null, value: "" })}
+          onClick={() => startCreate("folder")}
           className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text"
         >
           <FolderPlus className="size-4" strokeWidth={1.75} />
@@ -563,6 +718,31 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <button
+          type="button"
+          aria-label="Reveal active note"
+          title="Show the open note, collapse everything else"
+          onClick={revealActive}
+          disabled={!activeNoteId}
+          className="ml-auto flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <LocateFixed className="size-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+          title={allCollapsed ? "Expand all" : "Collapse all"}
+          onClick={toggleAll}
+          disabled={allFolderIds.length === 0}
+          className="flex size-6 items-center justify-center rounded text-ob-faint hover:bg-ob-hover hover:text-ob-text disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          {allCollapsed ? (
+            <ChevronsUpDown className="size-4" strokeWidth={1.75} />
+          ) : (
+            <ChevronsDownUp className="size-4" strokeWidth={1.75} />
+          )}
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-2 pb-4">
@@ -588,7 +768,10 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => toggleFolder(row.id)}
+                        onClick={() => {
+                          setSelectedFolderId(row.id);
+                          toggleFolder(row.id);
+                        }}
                         onKeyDown={(e) => e.key === "Enter" && toggleFolder(row.id)}
                         className="flex h-[26px] cursor-default items-center gap-1 rounded px-2 text-[13px] text-ob-muted hover:bg-ob-hover hover:text-ob-text"
                         style={{ paddingLeft: 8 + row.depth * 14 }}
@@ -663,7 +846,34 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                       <div
                         role="button"
                         tabIndex={0}
-                        onClick={() => onOpenNote(row.id, row.title)}
+                        // Addressable selection state: "which note is selected"
+                        // is otherwise only expressed as a background colour.
+                        data-note-id={row.id}
+                        data-active={activeNoteId === row.id ? "" : undefined}
+                        // Points the open graph at this note (it breathes the
+                        // matching node) — see lib/graph/hover-bus.
+                        onMouseEnter={() => setNoteHover({ id: row.id })}
+                        onMouseLeave={() => setNoteHover(null)}
+                        draggable
+                        onDragStart={(e) => {
+                          // Dropping a note into an editor should link it, so
+                          // carry the wikilink as the plain-text payload and a
+                          // private type the editor can recognise unambiguously.
+                          e.dataTransfer.setData("text/plain", `[[${row.title}]]`);
+                          e.dataTransfer.setData(
+                            "application/x-nodum-note",
+                            JSON.stringify({ id: row.id, title: row.title, path: row.path }),
+                          );
+                          e.dataTransfer.effectAllowed = "copyLink";
+                        }}
+                        onClick={() => {
+                          // new items should land beside the file you just picked
+                          const parent = row.path.includes("/")
+                            ? (tree ? ancestorsOfNote(tree.items, row.id)?.at(-1) ?? null : null)
+                            : null;
+                          setSelectedFolderId(parent);
+                          onOpenNote(row.id, row.title);
+                        }}
                         onKeyDown={(e) => e.key === "Enter" && onOpenNote(row.id, row.title)}
                         className={cn(
                           "flex h-[26px] cursor-default items-center rounded px-2 text-[13px]",
@@ -784,9 +994,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
           emptyLabel="No folders match."
           items={[
             { id: null, label: "(vault root)" },
-            ...rows
-              .filter((r): r is Extract<FlatRow, { kind: "folder" }> => r.kind === "folder")
-              .map((r) => ({ id: r.id, label: r.path })),
+            ...allItems.folders.map((f) => ({ id: f.id, label: f.path })),
           ]}
           onPick={(folderId) => moveNote.mutate({ noteId: moving.noteId, folderId })}
           onClose={() => setMoving(null)}
@@ -796,12 +1004,9 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
         <PickerDialog
           title={`Merge “${merging.title}” into…`}
           emptyLabel="No other notes match."
-          items={rows
-            .filter(
-              (r): r is Extract<FlatRow, { kind: "note" }> =>
-                r.kind === "note" && r.id !== merging.noteId,
-            )
-            .map((r) => ({ id: r.id, label: r.path }))}
+          items={allItems.notes
+            .filter((n) => n.id !== merging.noteId)
+            .map((n) => ({ id: n.id, label: n.path }))}
           onPick={(targetId) =>
             targetId && mergeNote.mutate({ sourceId: merging.noteId, targetId })
           }

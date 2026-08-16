@@ -7,6 +7,8 @@
 
 import { yCollab } from "y-codemirror.next";
 import { WebsocketProvider } from "y-websocket";
+
+import { getAccessToken, refreshAccessToken } from "@/lib/api/client";
 import * as Y from "yjs";
 
 /** Deterministic presence color per user (Obsidian-ish palette). */
@@ -50,6 +52,15 @@ export function createCollabSession(
   const provider = new WebsocketProvider(base, `${noteId}/collab`, ydoc, {
     params: { token },
   });
+  // y-websocket's `url` getter reads `params` on every reconnect, so making it
+  // an accessor means each attempt presents whatever token the API client
+  // currently holds — never the one that happened to be live when this pane
+  // mounted. Without this, a pane that outlives one access-token lifetime
+  // reconnects forever with a JWT the server has already refused.
+  Object.defineProperty(provider, "params", {
+    get: () => ({ token: getAccessToken() ?? token }),
+    configurable: true,
+  });
   provider.awareness.setLocalStateField("user", {
     name: user.name,
     color: user.color,
@@ -57,10 +68,41 @@ export function createCollabSession(
   });
   let syncedOnce = false;
   provider.on("sync", (synced: boolean) => {
-    if (synced) syncedOnce = true;
+    if (synced) {
+      syncedOnce = true;
+      rejections = 0;
+    }
   });
   provider.on("status", ({ status }: { status: string }) => {
     if (status === "disconnected" && syncedOnce && onStale) onStale();
+  });
+
+  // "connection-close" is the only event emitted for a REJECTED handshake:
+  // "status" fires solely from inside `if (provider.wsconnected)`, which never
+  // becomes true when the upgrade itself is refused.
+  let rejections = 0;
+  // provider.disconnect() SYNCHRONOUSLY emits "connection-close" again, so
+  // calling it from inside this handler re-enters it and blows the stack
+  // ("Maximum call stack size exceeded"). This latch makes giving up a
+  // one-way door: once set, the handler is inert.
+  let givenUp = false;
+  provider.on("connection-close", () => {
+    if (givenUp) return;
+    rejections += 1;
+    // Give up rather than hammer the server with a token it keeps refusing.
+    if (rejections > 5) {
+      givenUp = true;
+      // Deliberately NOT onStale(): that asks the caller to rebuild the
+      // session, which resets this counter and reopens the same doomed loop
+      // forever (a tab whose refresh token is gone can never authenticate
+      // again). Staying disconnected lets the caller's timeout fall back to
+      // the local REST editor, which is what the user actually needs.
+      // Defer out of the event's own call stack before touching the provider.
+      setTimeout(() => provider.disconnect(), 0);
+      return;
+    }
+    // Refresh so the accessor above has a live token to hand the next attempt.
+    void refreshAccessToken();
   });
   return {
     ydoc,
