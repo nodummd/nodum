@@ -40,6 +40,7 @@ import {
 import { confirmDelete } from "./confirm-dialog";
 import { bookmarkApi, folderApi, noteApi, searchApi, vaultApi } from "@/lib/api/endpoints";
 import { setNoteHover } from "@/lib/graph/hover-bus";
+import { itemColorsOf, type ItemColorMap } from "@/lib/graph/item-colors";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import type { TreeItem, Vault } from "@/lib/api/types";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
@@ -73,8 +74,9 @@ const ITEM_COLORS = [
 ];
 
 /** Colours are stored per vault as a flat {itemId: hex} map (no migration
- *  needed) — folders pass theirs down to descendants that set none. */
-type ColorMap = Record<string, string>;
+ *  needed) — folders pass theirs down to descendants that set none, here and
+ *  on the graph canvas (see `lib/graph/item-colors`). */
+type ColorMap = ItemColorMap;
 
 const SORT_LABELS: Record<ExplorerSort, string> = {
   "title-asc": "File name (A to Z)",
@@ -316,7 +318,7 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
   const itemColors = useMemo<ColorMap>(() => {
     const v = vaults?.find((x) => x.id === vaultId);
-    return ((v?.settings as { itemColors?: ColorMap } | undefined)?.itemColors ?? {}) as ColorMap;
+    return itemColorsOf(v?.settings);
   }, [vaults, vaultId]);
   const saveColors = useMutation({
     mutationFn: (next: ColorMap) => vaultApi.update(vaultId, { settings: { itemColors: next } }),
@@ -387,6 +389,9 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
     onSuccess: () => {
       setMoving(null);
       void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
+      // The graph carries each node's folder — a move changes which folder
+      // colour the node inherits, so refetch it too.
+      void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
       toast("Moved");
     },
     onError: (e) => toastError(e, "Could not move note."),

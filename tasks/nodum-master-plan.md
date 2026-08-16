@@ -223,6 +223,25 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-16 (explorer colours reach the graph)** — Colouring a folder in
+  the explorer only ever repainted the tree; the graph kept every node grey,
+  because the canvas coloured from `settings.graph.groups` alone and never
+  looked at `settings.itemColors`. Both now share one rule in
+  `lib/graph/item-colors.ts`: colour on the note > matching graph group >
+  colour inherited from the folder chain, so a folder paints everything under
+  it while a note-level pick overrides it. Nodes are matched to folders by
+  path (`GraphNode.folder` and `folders.path` are the same string server-side),
+  so no id plumbing was needed; the tree query supplies the paths and the
+  vaults query the colours, both already-warm cache entries. The compact
+  side-panel graph now reads the vault too (it shared the cache in practice
+  anyway) so local graphs colour identically. Hex→rgba parses are memoised —
+  toRgba spins up a canvas per call and it now runs per node. Moving a note
+  invalidates the graph query, since a move changes which folder colour it
+  inherits. Verified on the canvas, not just in the DOM: folder red painted
+  both notes, then colouring one blue moved only that node, layout untouched.
+  New e2e in graph.spec.ts covers both directions; graph/hover/incremental/
+  appearance suites and `make verify` green.
+
 - **2026-08-15 (session restore)** — Found the last hole in reveal-on-
   navigate by smoke-testing the app the way a user starts it: reload the
   page. Every route highlights the open file EXCEPT opening the app. The

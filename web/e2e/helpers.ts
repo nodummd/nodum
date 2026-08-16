@@ -57,6 +57,45 @@ export async function createNoteViaApi(page: Page, title: string, content: strin
   );
 }
 
+/** Create a folder and a note inside it through the API (see above). */
+export async function createNoteInFolderViaApi(
+  page: Page,
+  folder: string,
+  title: string,
+  content = "",
+): Promise<void> {
+  await page.evaluate(
+    async ({ folder, title, content }) => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const vaults = await (await fetch("/api/v1/vaults", { headers })).json();
+      const vaultId = vaults.data[0].id;
+      const created = await (
+        await fetch(`/api/v1/vaults/${vaultId}/folders`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: folder }),
+        })
+      ).json();
+      // Called twice with the same folder name → reuse the existing one.
+      let folderId = created.data?.id;
+      if (!folderId) {
+        const tree = await (await fetch(`/api/v1/vaults/${vaultId}/tree`, { headers })).json();
+        folderId = tree.data.items.find(
+          (i: { type: string; name?: string }) => i.type === "folder" && i.name === folder,
+        )?.id;
+      }
+      await fetch(`/api/v1/vaults/${vaultId}/notes`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ title, folder_id: folderId, content }),
+      });
+    },
+    { folder, title, content },
+  );
+}
+
 /** The CodeMirror editing surface of the active note. */
 export function editorSurface(page: Page) {
   return page.locator(".cm-content").first();

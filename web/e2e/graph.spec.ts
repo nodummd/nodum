@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { signupFreshUser } from "./helpers";
+import { createNoteInFolderViaApi, signupFreshUser } from "./helpers";
 
 test.describe("knowledge graph", () => {
   test("graph view renders nodes with labels and counts", async ({ page }) => {
@@ -64,6 +64,39 @@ test.describe("graph groups", () => {
     await expect(
       page.locator(".nodum-graph-label", { hasText: "Welcome to Nodum" }),
     ).toHaveCSS("color", "rgb(235, 59, 90)", { timeout: 10_000 });
+  });
+});
+
+test.describe("graph colours follow the explorer", () => {
+  test("a folder colour paints its nodes; a colour on the note overrides it", async ({ page }) => {
+    await signupFreshUser(page, "graph-item-colors");
+    await createNoteInFolderViaApi(page, "Palette", "Painted note");
+    await page.reload();
+
+    const explorer = page.getByRole("tree", { name: "File explorer" });
+    const folderRow = explorer.getByRole("button", { name: "Palette", exact: true });
+    await expect(folderRow).toBeVisible({ timeout: 15_000 });
+
+    // Right-click the folder → Colour → Red
+    await folderRow.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Colour" }).click();
+    await page.getByRole("menuitem", { name: "Red" }).click();
+
+    // The note inside it inherits the folder's colour on the graph canvas
+    await page.keyboard.press("ControlOrMeta+g");
+    await expect(page.locator("main canvas").first()).toBeVisible({ timeout: 15_000 });
+    const label = page.locator(".nodum-graph-label", { hasText: "Painted note" });
+    await expect(label).toHaveCSS("color", "rgb(235, 59, 90)", { timeout: 15_000 });
+
+    // Colouring the note itself overrides the folder's, live
+    await explorer.getByRole("button", { name: "Painted note", exact: true }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Colour" }).click();
+    await page.getByRole("menuitem", { name: "Blue" }).click();
+    await expect(page.locator(".nodum-graph-label", { hasText: "Painted note" })).toHaveCSS(
+      "color",
+      "rgb(45, 152, 218)",
+      { timeout: 15_000 },
+    );
   });
 });
 

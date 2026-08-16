@@ -16,7 +16,13 @@ import { Orbit, Pause, Play, RotateCcw, Search, Settings2, X } from "lucide-reac
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { linkApi, vaultApi } from "@/lib/api/endpoints";
 import type { GraphNode, Vault } from "@/lib/api/types";
-import { GROUP_PALETTE, matchGroupHex, matchGroupIndex, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
+import { GROUP_PALETTE, matchesQuery, type GraphGroup } from "@/lib/graph/groups";
+import {
+  folderColorsByPath,
+  itemColorsOf,
+  nodeColorHex,
+  type ItemColorMap,
+} from "@/lib/graph/item-colors";
 import {
   currentActiveNote,
   currentNoteHover,
@@ -131,15 +137,39 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   // Settings persist per vault under settings.graph. Local edits are drafts
   // layered over the persisted value (draft ?? persisted ?? default) so async
   // load needs no state syncing; the compact side-panel never persists.
+  // Always fetched (the explorer shares this cache entry): the vault carries
+  // both the graph settings and the explorer's item colours, and the compact
+  // side-panel graph must honour those colours too.
   const { data: vaults } = useQuery({
     queryKey: ["vaults"],
     queryFn: vaultApi.list,
-    enabled: !compact,
   });
   const persisted = useMemo<PersistedGraph>(() => {
     const vault = vaults?.find((v) => v.id === vaultId);
     return (vault?.settings as { graph?: PersistedGraph } | undefined)?.graph ?? {};
   }, [vaults, vaultId]);
+
+  // Explorer colours: right-clicking a folder colours every node under it,
+  // and a colour set on a note overrides its folder's. The tree supplies the
+  // folder paths those colours hang on (same cache entry as the explorer).
+  const { data: tree } = useQuery({
+    queryKey: ["tree", vaultId],
+    queryFn: () => vaultApi.tree(vaultId),
+  });
+  const itemColors = useMemo<ItemColorMap>(() => {
+    const vault = vaults?.find((v) => v.id === vaultId);
+    return itemColorsOf(vault?.settings);
+  }, [vaults, vaultId]);
+  const folderColors = useMemo(
+    () => folderColorsByPath(tree?.items ?? [], itemColors),
+    [tree, itemColors],
+  );
+  // Rebuild key: a recoloured folder/note (or a folder rename that moves the
+  // paths colours hang on) must repaint the canvas.
+  const explorerPaletteKey = useMemo(
+    () => JSON.stringify({ items: itemColors, folders: [...folderColors] }),
+    [itemColors, folderColors],
+  );
 
   const [ghostsDraft, setGhostsDraft] = useState<boolean | null>(null);
   const [orphansDraft, setOrphansDraft] = useState<boolean | null>(null);
@@ -911,6 +941,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       deg: filtered.nodes.map((node) => node.degree),
       edges: filtered.edges,
       groups: appliedGroups,
+      palette: explorerPaletteKey,
     });
     if (signature === appliedSigRef.current) return;
     // eslint-disable-next-line react-hooks/immutability -- ref write inside an effect
@@ -926,7 +957,20 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const focusColor = toRgba(accent, 1);
     const linkColor = toRgba(cssColor("--ob-text-faint", "#666666"), 0.85);
     accentLinkRef.current = toRgba(accent, 0.95); // highlighted connection paths
-    const groupRgba = appliedGroups.map((g) => toRgba(g.color, 1));
+    // Groups and explorer colours draw from a handful of hexes across
+    // thousands of nodes — parse each one once (toRgba spins up a canvas).
+    const rgbaCache = new Map<string, [number, number, number, number]>();
+    const rgba = (hex: string): [number, number, number, number] => {
+      let parsed = rgbaCache.get(hex);
+      if (!parsed) {
+        parsed = toRgba(hex, 1);
+        rgbaCache.set(hex, parsed);
+      }
+      return parsed;
+    };
+    /** Group / explorer colour of a node, or null for the default paint. */
+    const hexOf = (node: GraphNode) =>
+      node.unresolved ? null : nodeColorHex(node, appliedGroups, itemColors, folderColors);
 
     const n = filtered.nodes.length;
     const positions = new Float32Array(n * 2);
@@ -976,13 +1020,13 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       positions[i * 2] = pos[0];
       positions[i * 2 + 1] = pos[1];
       const isCenter = centerNoteId && node.id === centerNoteId;
-      const gi = node.unresolved ? -1 : matchGroupIndex(node, appliedGroups);
+      const hex = hexOf(node);
       const c = isCenter
         ? focusColor
         : node.unresolved
           ? ghostColor
-          : gi >= 0
-            ? groupRgba[gi]
+          : hex
+            ? rgba(hex)
             : nodeColor;
       colors.set(c, i * 4);
       // Obsidian's mapping: sqrt growth of degree, clamped. Slightly smaller
@@ -1129,10 +1173,8 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
         el.textContent = filtered.nodes[i].title;
         el.className = "nodum-graph-label";
         el.style.opacity = "0";
-        if (!filtered.nodes[i].unresolved) {
-          const hex = matchGroupHex(filtered.nodes[i], appliedGroups);
-          if (hex) el.style.color = hex;
-        }
+        const hex = hexOf(filtered.nodes[i]);
+        if (hex) el.style.color = hex;
         label.overlay.appendChild(el);
         label.els.set(i, el);
       }
@@ -1149,7 +1191,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     baseLinkColorsRef.current = baseLinkColors;
     prevIdsRef.current = filtered.nodes.map((node) => node.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, appliedGroups, centerNoteId]);
+  }, [filtered, appliedGroups, centerNoteId, explorerPaletteKey]);
 
   // Effect 2b — sticky "selected note" accent. Recolours just the focused node
   // on top of the base colours (no layout rebuild → no label flicker/jiggle).
