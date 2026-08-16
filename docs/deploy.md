@@ -54,11 +54,51 @@ Three values decide whether the deployment works at all:
 |---|---|---|
 | `NODUM_SITE_ADDRESS` | `nodum.example.com` | A bare hostname makes Caddy obtain and renew TLS itself. `:80` serves plain HTTP with no ACME — only correct behind another terminator |
 | `FRONTEND_BASE_URL` | `https://nodum.example.com` | This is the origin the browser is sent back to after Google sign-in, and the CORS origin. Point it at the API and login lands on a 404 |
-| `S3_PUBLIC_URL` | `https://nodum.example.com/s3` | Your own origin with `/s3`, **not** a MinIO host. Attachments are presigned URLs that Caddy proxies there. Wrong value = broken images, with no error at boot |
+| `S3_PUBLIC_URL` | see below | Where the browser fetches attachments. Wrong value = broken images, with no error at boot |
 
 The API refuses to start on placeholder or known-default credentials
 (`back/app/settings/production.py`). That is a backstop, not a substitute for
 reading the file.
+
+### Object storage
+
+Attachments go to S3. Pick one:
+
+**Bundled MinIO** (default, self-contained). Runs in the stack, Caddy serves it
+at `/s3`, and you own its backups:
+
+```ini
+S3_PUBLIC_URL=https://nodum.example.com/s3      # your origin + /s3
+MINIO_ROOT_USER=nodum
+MINIO_ROOT_PASSWORD=…
+```
+
+**A managed store** — Hetzner Object Storage, AWS S3, Cloudflare R2, Backblaze.
+Setting `S3_ENDPOINT_URL` makes `compose.sh` drop MinIO, its volume and its
+memory budget from the stack, and hands durability to the provider:
+
+```ini
+S3_ENDPOINT_URL=https://fsn1.your-objectstorage.com
+S3_PUBLIC_URL=https://fsn1.your-objectstorage.com   # must EQUAL the endpoint
+S3_BUCKET_NAME=nodum
+S3_REGION=fsn1
+S3_ACCESS_KEY=…
+S3_SECRET_KEY=…
+```
+
+Three things worth knowing about the managed path:
+
+- `S3_PUBLIC_URL` **must equal** `S3_ENDPOINT_URL`. The presigned URL is already
+  public, so nothing rewrites it; a different value silently produces URLs that
+  404. The `/s3` Caddy route just goes unused.
+- `S3_REGION` is not cosmetic. SigV4 signs the region, so a wrong value fails
+  every request with `SignatureDoesNotMatch`. Hetzner uses the location code
+  (`fsn1`, `nbg1`, `hel1`), AWS `eu-central-1`, R2 `auto`.
+- **No bucket CORS needed.** Attachments only ever land in an `<img>`/`<iframe>`
+  `src`, never in a `fetch()`, so the browser never performs a preflight.
+
+Verify which mode you are in before deploying — `compose config --services`
+lists `minio` only for the bundled path.
 
 ## 3. Start
 

@@ -78,7 +78,30 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
+
+      # The action hard-fails with "Dependency review is not supported on this
+      # repository" when the dependency graph is off — a repo setting, not
+      # anything about the code. Probing the same endpoint it uses lets the job
+      # skip cleanly instead of sitting permanently red, and it starts working
+      # by itself the moment the graph is enabled, with no workflow change.
+      - name: Is the dependency graph available?
+        id: depgraph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/dependency-graph/compare/${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}")
+          if [ "$code" = "200" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Dependency graph unavailable (HTTP $code). Enable it under Settings → Code security → Dependency graph; this job will start running on its own."
+          fi
+
       - uses: actions/dependency-review-action@v5.0.0
+        if: steps.depgraph.outputs.available == 'true'
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure

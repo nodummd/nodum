@@ -78,6 +78,24 @@ run() {
     "${ENGINE[@]}" --env-file "$env_file" "${files[@]}" --project-name "$project" "${ARGS[@]}"
 }
 
+# A non-empty S3_ENDPOINT_URL means attachments live in a managed store, so the
+# bundled MinIO is dead weight. Read from the file rather than the environment:
+# the file is the single source of truth for what this deployment is, and a
+# stray exported variable in someone's shell must not silently change which
+# services get started.
+uses_external_s3() {
+    grep -qE '^[[:space:]]*S3_ENDPOINT_URL[[:space:]]*=[[:space:]]*[^[:space:]#]' "$env_file"
+}
+
+# Assemble the file list for a deployment environment, adding the external-S3
+# override only when it applies. Fills the FILES array rather than echoing, so
+# nothing depends on word splitting.
+FILES=()
+collect_deploy_files() {
+    FILES=(docker-compose.yml docker-compose.deploy.yml "$1")
+    if uses_external_s3; then FILES+=(docker-compose.external-s3.yml); fi
+}
+
 ARGS=("$@")
 
 case "$ENV" in
@@ -94,12 +112,14 @@ case "$ENV" in
     staging)
         resolve_env_file staging
         export NODUM_ENVIRONMENT=staging NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-staging}"
-        run nodum-staging docker-compose.yml docker-compose.deploy.yml docker-compose.staging.yml
+        collect_deploy_files docker-compose.staging.yml
+        run nodum-staging "${FILES[@]}"
         ;;
     prod)
         resolve_env_file prod
         export NODUM_ENVIRONMENT=production NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-prod}"
-        run nodum-prod docker-compose.yml docker-compose.deploy.yml docker-compose.prod.yml
+        collect_deploy_files docker-compose.prod.yml
+        run nodum-prod "${FILES[@]}"
         ;;
     *)
         echo "Usage: $0 {dev|test|staging|prod} [compose args...]" >&2
