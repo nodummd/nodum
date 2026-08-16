@@ -32,16 +32,36 @@ jobs:
       - uses: actions/checkout@v7
 
       # A typo in a compose file is otherwise found by an operator mid-deploy.
-      # Every environment resolves against .env.example, which also proves the
-      # example still carries every variable the files interpolate.
+      # Every environment renders from its own example, which also proves each
+      # example still carries every variable its compose files interpolate —
+      # the `${VAR:?}` entries fail the render the moment one goes missing.
       - name: Render every environment
         working-directory: deploy
         run: |
           cp .env.example .env
-          for env in dev test prod; do
+          # staging/prod examples ship their secrets blank on purpose, and
+          # `${VAR:?}` treats empty as unset. Fill them the way an operator
+          # would, so this validates a *completed* example rather than a
+          # half-configured one.
+          for env in staging prod; do
+            sed -e "s|^SECRET_KEY=$|SECRET_KEY=$(openssl rand -hex 32)|" \
+                -e "s|^JWT_SECRET_KEY=$|JWT_SECRET_KEY=$(openssl rand -hex 32)|" \
+                -e "s|^POSTGRES_PASSWORD=$|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" \
+                -e "s|^MINIO_ROOT_PASSWORD=$|MINIO_ROOT_PASSWORD=$(openssl rand -hex 16)|" \
+                ".env.$env.example" > ".env.$env"
+          done
+          for env in dev test staging prod; do
             echo "── $env ──"
             ./compose.sh "$env" config --quiet
           done
+
+      # The proxy config is the one file compose cannot check for us, and a
+      # broken Caddyfile takes the whole site down rather than one service.
+      - name: Validate the Caddyfile
+        working-directory: deploy
+        run: |
+          docker run --rm -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
 
   build-scan:
     name: Build & scan ${{ matrix.name }}

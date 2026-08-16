@@ -1,0 +1,394 @@
+# ============================================================
+# Nodum — Deployment layer (shared by production and staging)
+# ============================================================
+# Everything that makes a deployment a deployment lives here, so staging is a
+# genuine mirror of production rather than a lookalike that drifts. The thin
+# docker-compose.{prod,staging}.yml files on top carry only what must differ:
+# container names and the published edge port.
+#
+# Layered as: docker-compose.yml + docker-compose.deploy.yml + <env>.yml
+# Driven by compose.sh, which exports NODUM_ENVIRONMENT so the environment can
+# never be set by whichever .env file happens to be lying around.
+#
+# Shape:
+#   caddy  ── edge network ──> web, minio
+#     │
+#     └─ the only container publishing a host port
+#   web, api, worker, beat, migrate, postgres, redis, redis-control, minio
+#          ── app_network ──> each other
+#
+# Postgres and Redis are not on the edge network, so a compromised proxy has
+# no route to them.
+# ============================================================
+
+x-logging: &logging
+  # Without this the json-file driver grows without bound and fills the disk —
+  # the most boring way to take a server down.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  logging: *logging
+
+# Every backend container needs the same connection details. Kept as one
+# anchor so a change cannot be applied to the API and forgotten on the worker —
+# which is exactly how a worker ends up talking to the wrong Redis.
+x-backend-env: &backend-env
+  ENVIRONMENT: ${NODUM_ENVIRONMENT:?compose.sh exports this}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  POSTGRES_SERVER: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:?set in your env file}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in your env file}
+  POSTGRES_DB: ${POSTGRES_DB:?set in your env file}
+  REDIS_URL: redis://redis:6379/0
+  # A separate instance, not another database on the cache: rate-limit
+  # counters, token revocation markers and refresh-grace keys must never be
+  # evicted, and the cache Redis runs allkeys-lru.
+  REDIS_CONTROL_URL: redis://redis-control:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_PUBLIC_URL: ${S3_PUBLIC_URL:?set in your env file}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:?set in your env file}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set in your env file}
+  SECRET_KEY: ${SECRET_KEY:?set in your env file}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set in your env file}
+  # Empty disables bring-your-own-key AI entirely.
+  AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-}
+  AI_ALLOW_PRIVATE_BASE_URLS: ${AI_ALLOW_PRIVATE_BASE_URLS:-false}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+  # The one-shot migrate service owns schema changes; see back/scripts/pre-start.sh.
+  RUN_MIGRATIONS: "false"
+
+services:
+  # ── Infrastructure hardening ─────────────────────────────
+  # The base file publishes these to 127.0.0.1 so a developer can reach them
+  # with psql. On a deployment host that is pointless extra surface: every
+  # consumer is a container on app_network. !override empties the list the
+  # base file set, rather than appending to it.
+  postgres:
+    <<: *hardening
+    ports: !override []
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEM_LIMIT:-2g}
+
+  redis:
+    <<: *hardening
+    ports: !override []
+    command:
+      - redis-server
+      - "--maxmemory"
+      - ${REDIS_MAXMEMORY:-512mb}
+      - "--maxmemory-policy"
+      - allkeys-lru
+      - "--save"
+      - "60 1"
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEM_LIMIT:-768m}
+
+  # ── Control-plane Redis ──────────────────────────────────
+  # noeviction, deliberately. If a rate-limit counter or a token-revocation
+  # marker can be evicted under memory pressure, then "log out everywhere" and
+  # the auth brute-force limit both quietly stop meaning anything — and it
+  # happens exactly when the cache is busiest.
+  redis-control:
+    image: redis:7.4.2-alpine
+    <<: *hardening
+    command:
+      - redis-server
+      - "--maxmemory"
+      - ${REDIS_CONTROL_MAXMEMORY:-128mb}
+      - "--maxmemory-policy"
+      - noeviction
+      - "--save"
+      - "60 1"
+    volumes:
+      - redis_control_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_CONTROL_MEM_LIMIT:-256m}
+
+  minio:
+    <<: *hardening
+    ports: !override []
+    # On the edge network too: the browser fetches attachments straight from
+    # MinIO over presigned URLs, which Caddy proxies at /s3.
+    networks:
+      - app_network
+      - edge
+    deploy:
+      resources:
+        limits:
+          memory: ${MINIO_MEM_LIMIT:-1g}
+
+  # ── Schema migrations (one-shot) ─────────────────────────
+  # Runs to completion before anything that touches the database starts.
+  # Alembic takes no lock, so letting the API and the worker both migrate on
+  # boot is a genuine race — and it blocks ever running more than one API.
+  # The image entrypoint waits for Postgres, migrates, then execs this command
+  # and exits 0, which is what service_completed_successfully waits on.
+  migrate:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: production
+    image: nodum-api:${NODUM_IMAGE_TAG:-latest}
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "true"
+    command: ["true"]
+    restart: "no"
+    # The image carries an HTTP healthcheck for the API. This container exits
+    # as soon as migrations finish and never serves anything, so leaving it
+    # inherited just parks a permanently-unhealthy row in `compose ps`.
+    healthcheck:
+      disable: true
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  # ── API ──────────────────────────────────────────────────
+  api:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: production
+    image: nodum-api:${NODUM_IMAGE_TAG:-latest}
+    <<: *hardening
+    environment:
+      <<: *backend-env
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # The browser is redirected here after Google sign-in and the callback
+      # is reached through the proxy, so this is the PUBLIC SITE origin — not
+      # the API's. It used to be wired to NEXT_PUBLIC_API_BASE_URL, which sent
+      # users to the API origin after a successful login.
+      OAUTH_REDIRECT_BASE_URL: ${FRONTEND_BASE_URL:?set in your env file}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:?set in your env file}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:?set in your env file}
+      # BACKEND_BASE_URL is deliberately not passed: the setting exists but
+      # nothing in the application reads it, and requiring it only ever blocked
+      # a deploy over a value that had no effect.
+      # Caddy is the one trusted hop in front of the API, and it sets
+      # X-Forwarded-For. Without these the limiter sees only Caddy's address
+      # and every visitor shares a single bucket.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+    command:
+      - uv
+      - run
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - ${API_WORKERS:-4}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-control:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app_network
+      # On the edge network because Caddy proxies /api/* straight here.
+      # Without it the proxy cannot resolve `api` and every API call is a 502
+      # that never reaches the application log — `compose config` renders
+      # perfectly, so only actually booting the stack finds this.
+      - edge
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPU_LIMIT:-2}"
+          memory: ${API_MEM_LIMIT:-1g}
+
+  # ── Celery worker ────────────────────────────────────────
+  celery-worker:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: production
+    image: nodum-api:${NODUM_IMAGE_TAG:-latest}
+    <<: *hardening
+    environment: *backend-env
+    # Keeps the image entrypoint, so the worker waits for Postgres like
+    # everything else instead of crash-looping until the database is up.
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.core.celery:celery_app
+      - worker
+      - --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      - --concurrency=${CELERY_CONCURRENCY:-4}
+    healthcheck:
+      test: ["CMD-SHELL", "uv run celery -A app.core.celery:celery_app inspect ping -t 10 | grep -q pong"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          cpus: "${WORKER_CPU_LIMIT:-2}"
+          memory: ${WORKER_MEM_LIMIT:-1g}
+
+  # ── Celery beat ──────────────────────────────────────────
+  # Its own container, not `worker -B`. Beat embedded in the worker means every
+  # scheduled job fires once per worker the moment you scale past one.
+  celery-beat:
+    build:
+      context: ../back
+      dockerfile: build/Dockerfile.api
+      target: production
+    image: nodum-api:${NODUM_IMAGE_TAG:-latest}
+    <<: *hardening
+    environment: *backend-env
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - app.core.celery:celery_app
+      - beat
+      - --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      # /tmp so the schedule file lands somewhere writable by the non-root user.
+      - --schedule=/tmp/celerybeat-schedule
+    # Beat serves no HTTP, so the API healthcheck baked into the shared image
+    # can never pass and would mark this permanently unhealthy. There is no
+    # meaningful liveness probe for beat either — the only schedule is nightly,
+    # so the schedule file's mtime says nothing on a minute-to-minute basis.
+    # A crash exits the container and `restart: unless-stopped` handles it.
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          cpus: "${BEAT_CPU_LIMIT:-0.5}"
+          memory: ${BEAT_MEM_LIMIT:-384m}
+
+  # ── Web ──────────────────────────────────────────────────
+  web:
+    build:
+      context: ../web
+      dockerfile: docker/Dockerfile
+      target: production
+      args:
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        API_PROXY_URL: http://api:8000
+    image: nodum-web:${NODUM_IMAGE_TAG:-latest}
+    <<: *hardening
+    environment:
+      NODE_ENV: production
+      API_PROXY_URL: http://api:8000
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app_network
+      - edge
+    deploy:
+      resources:
+        limits:
+          cpus: "${WEB_CPU_LIMIT:-1}"
+          memory: ${WEB_MEM_LIMIT:-512m}
+
+  # ── Edge proxy ───────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    <<: *hardening
+    environment:
+      NODUM_SITE_ADDRESS: ${NODUM_SITE_ADDRESS:-:80}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    cap_drop:
+      - ALL
+    # Binding 80/443 as a non-root process needs exactly this and nothing else.
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - edge
+    deploy:
+      resources:
+        limits:
+          cpus: "${CADDY_CPU_LIMIT:-1}"
+          memory: ${CADDY_MEM_LIMIT:-256m}
+
+networks:
+  edge:
+    driver: bridge
+
+volumes:
+  redis_control_data:
+  caddy_data:
+  caddy_config:

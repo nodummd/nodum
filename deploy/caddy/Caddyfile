@@ -1,0 +1,77 @@
+# ============================================================
+# Nodum — edge proxy (production and staging)
+# ============================================================
+# The only container in the deploy stacks that publishes a host port. It
+# terminates TLS, gives the API a real client address to rate-limit on, and
+# routes the three things the browser talks to.
+#
+# NODUM_SITE_ADDRESS drives TLS entirely:
+#   unset            -> ":80", plain HTTP, no ACME (local verification, or a
+#                       staging box that already sits behind a load balancer)
+#   nodum.md         -> Caddy provisions and renews a certificate itself
+#   :443             -> HTTPS with your own cert (see tls directive in docs)
+# ============================================================
+
+{
+	# Nothing here binds the admin API; it is not needed at runtime and is one
+	# less thing listening inside the container.
+	admin off
+	# Caddy's own access log is JSON; the container log driver rotates it.
+	log {
+		format json
+	}
+}
+
+{$NODUM_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	header {
+		# Only meaningful over TLS; harmless on the plain-HTTP local runs.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# ── API ──────────────────────────────────────────────────
+	# Straight to the API rather than through the Next.js rewrite: one hop
+	# fewer, and it keeps TRUSTED_PROXY_HOPS=1 honest. Same origin either way,
+	# so the httpOnly refresh cookie stays first-party.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# ── Attachments ──────────────────────────────────────────
+	# Attachments are served straight from MinIO through presigned SigV4 URLs,
+	# so this route is load-bearing rather than a convenience.
+	#
+	# The signature covers BOTH the path and the Host header, and the API signs
+	# against S3_ENDPOINT_URL (http://minio:9000). So:
+	#   - handle_path strips the /s3 prefix, restoring the signed path
+	#     (/nodum/<key>), and
+	#   - header_up restores the signed Host.
+	# Drop either and every attachment fails with SignatureDoesNotMatch — 403,
+	# not 404, which makes it look like a permissions bug rather than routing.
+	# Set S3_PUBLIC_URL to "<your origin>/s3" to match.
+	handle_path /s3/* {
+		reverse_proxy minio:9000 {
+			header_up Host minio:9000
+		}
+	}
+
+	# ── Everything else is the Next.js app ───────────────────
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# The API's /health reports database and Redis reachability, so it is not
+# exposed here. To publish one for uptime monitoring, add:
+#
+#   handle /healthz {
+#       rewrite * /health
+#       reverse_proxy api:8000
+#   }
+#
+# and accept that it tells the internet when your database is down.

@@ -1,0 +1,28 @@
+# GitGuardian configuration.
+#
+# The repository's own secret gate is the gitleaks job in
+# .github/workflows/secret-scan.yml, configured by .gitleaks.toml — that one is
+# authoritative and runs on every push and PR. This file only quiets the
+# GitGuardian App, which is installed on the repository separately.
+#
+# The `*.example` files are templates. They ship deliberately fake dev defaults
+# (POSTGRES_PASSWORD=nodum, MINIO_ROOT_PASSWORD=minioadmin) and blank
+# placeholders for everything a deployment must generate. Nothing in them is a
+# credential, but they are shaped exactly like one.
+#
+# Note: the GitGuardian App may be configured entirely from its dashboard, in
+# which case findings have to be dismissed there rather than here.
+version: 2
+
+secret:
+  ignored-paths:
+    - "deploy/.env.example"
+    - "deploy/.env.staging.example"
+    - "deploy/.env.prod.example"
+  # Test fixtures are already shaped to avoid vendor prefixes; this covers the
+  # rest of the suite without blanketing application code.
+  ignored-matches:
+    - name: "dev-default Postgres password in compose defaults"
+      match: "nodum"
+    - name: "dev-default MinIO password in compose defaults"
+      match: "minioadmin"
