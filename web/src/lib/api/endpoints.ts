@@ -250,4 +250,9 @@ export const aiApi = {
     apiJson<{ provider: string; model: string; reply: string }>(`/ai/test/${provider}`, "POST"),
   chat: (body: { messages: { role: string; content: string }[]; context?: string }) =>
     apiJson<AIChatReply>("/ai/chat", "POST", body),
+  /** Chat that can search, read, create and extend notes in this vault. */
+  vaultChat: (
+    vaultId: string,
+    body: { messages: { role: string; content: string }[]; context?: string },
+  ) => apiJson<AIChatReply>(`/ai/vaults/${vaultId}/chat`, "POST", body),
 };

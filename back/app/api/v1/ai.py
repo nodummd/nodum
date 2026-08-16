@@ -6,6 +6,7 @@ the settings screen, and all it is allowed to know.
 """
 
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -35,6 +36,11 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(max_length=40)
     # Vault context the panel wants the model to have (note title/body excerpt).
     context: str = Field(default="", max_length=20_000)
+
+
+class VaultChatRequest(ChatRequest):
+    """Chat that can act on a vault — same body, plus the vault in the path."""
+
 
 
 @router.get("/status")
@@ -70,6 +76,24 @@ async def delete_credential(provider: str, user_id: CurrentUserId, db: SessionDe
 async def test_credential(provider: str, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Ask the provider for one word, so a bad key fails where it was pasted."""
     return {"data": (await ai_service.test_credential(db, user_id, provider)).unwrap()}
+
+
+@router.post("/vaults/{vault_id}/chat")
+async def chat_in_vault(
+    vault_id: UUID, body: VaultChatRequest, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    """A chat turn the assistant can answer by searching, reading, creating and
+    extending notes in this vault. Every write is reported back in `actions`."""
+    data = (
+        await ai_service.chat_with_vault(
+            db,
+            user_id,
+            vault_id,
+            messages=[{"role": m.role, "content": m.content} for m in body.messages],
+            context=body.context,
+        )
+    ).unwrap()
+    return {"data": data}
 
 
 @router.post("/chat")

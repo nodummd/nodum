@@ -78,6 +78,7 @@ export const HOTKEYS: HotkeyEntry[] = [
   { section: "Panels", keys: "", action: "Outgoing links: Show outgoing links" },
   { section: "Panels", keys: "", action: "Outline: Show outline" },
   { section: "Panels", keys: "", action: "Tags view: Show tags" },
+  { section: "Panels", keys: "", action: "AI: Open chat" },
 
   // ── Vault ─────────────────────────────────────────────────────────────────
   { section: "Vault", keys: "⌘,", action: "Open settings" },

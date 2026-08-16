@@ -11,6 +11,7 @@ key, never echo a provider's raw error body verbatim to the client (it can
 contain the key), and always bound the request in time.
 """
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -97,6 +98,55 @@ def _safe_error(provider: str, response: httpx.Response) -> ProviderError:
     return ProviderError(f"The provider rejected the request ({response.status_code}).")
 
 
+@dataclass
+class ToolCall:
+    """A provider-neutral request to run one of our vault tools."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass
+class Turn:
+    """One provider response: some text, and/or some tool calls."""
+
+    text: str
+    tool_calls: list[ToolCall]
+    # The assistant message exactly as the provider wants it echoed back in the
+    # next request — shapes differ enough that reconstructing it is error-prone.
+    raw_message: Any = None
+
+
+def _tools_for(provider: str, tools: list[dict[str, Any]]) -> Any:
+    """Translate our neutral tool declarations into the provider's shape."""
+    if provider == "anthropic":
+        return [
+            {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
+            for t in tools
+        ]
+    if provider == "gemini":
+        return [
+            {
+                "functionDeclarations": [
+                    {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
+                    for t in tools
+                ]
+            }
+        ]
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t["description"],
+                "parameters": t["parameters"],
+            },
+        }
+        for t in tools
+    ]
+
+
 async def chat(
     *,
     provider: str,
@@ -167,3 +217,137 @@ async def chat(
         if not choices:
             return ""
         return (choices[0].get("message", {}).get("content") or "").strip()
+
+
+async def turn(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[Any],
+    system: str,
+    tools: list[dict[str, Any]],
+    base_url: str | None = None,
+    max_tokens: int = 2048,
+) -> Turn:
+    """One round-trip WITH tools available.
+
+    `messages` here is the provider's own conversation array (built up across
+    rounds by the caller), not our neutral shape: once tool results are in the
+    history, every provider wants them back in its own format.
+    """
+    if provider not in PROVIDERS:
+        raise ProviderError(f"Unknown provider: {provider}")
+    url_root = base_url_for(provider, base_url)
+    timeout = httpx.Timeout(float(get_settings().AI_REQUEST_TIMEOUT))
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        if provider == "anthropic":
+            payload: dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+                "tools": _tools_for(provider, tools),
+            }
+            if system:
+                payload["system"] = system
+            response = await client.post(
+                f"{url_root}/v1/messages",
+                json=payload,
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+            if response.status_code >= 400:
+                raise _safe_error(provider, response)
+            body = response.json()
+            blocks = body.get("content", [])
+            text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+            calls = [
+                ToolCall(id=b.get("id", ""), name=b.get("name", ""), arguments=b.get("input") or {})
+                for b in blocks
+                if b.get("type") == "tool_use"
+            ]
+            return Turn(text=text, tool_calls=calls, raw_message={"role": "assistant", "content": blocks})
+
+        if provider == "gemini":
+            payload = {"contents": messages, "tools": _tools_for(provider, tools)}
+            if system:
+                payload["systemInstruction"] = {"parts": [{"text": system}]}
+            response = await client.post(
+                f"{url_root}/models/{model}:generateContent",
+                json=payload,
+                headers={"x-goog-api-key": api_key},
+            )
+            if response.status_code >= 400:
+                raise _safe_error(provider, response)
+            candidates = response.json().get("candidates", [])
+            if not candidates:
+                return Turn(text="", tool_calls=[], raw_message=None)
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
+            calls = [
+                # Gemini has no call ids; the function name is the correlator.
+                ToolCall(
+                    id=p["functionCall"].get("name", ""),
+                    name=p["functionCall"].get("name", ""),
+                    arguments=p["functionCall"].get("args") or {},
+                )
+                for p in parts
+                if "functionCall" in p
+            ]
+            return Turn(text=text, tool_calls=calls, raw_message={"role": "model", "parts": parts})
+
+        # openai / qwen
+        response = await client.post(
+            f"{url_root}/chat/completions",
+            json={
+                "model": model,
+                "messages": ([{"role": "system", "content": system}] if system else []) + messages,
+                "max_tokens": max_tokens,
+                "tools": _tools_for(provider, tools),
+            },
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        if response.status_code >= 400:
+            raise _safe_error(provider, response)
+        choices = response.json().get("choices", [])
+        if not choices:
+            return Turn(text="", tool_calls=[], raw_message=None)
+        message = choices[0].get("message", {}) or {}
+        calls = []
+        for call in message.get("tool_calls") or []:
+            function = call.get("function", {}) or {}
+            try:
+                arguments = json.loads(function.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
+            calls.append(ToolCall(id=call.get("id", ""), name=function.get("name", ""), arguments=arguments))
+        return Turn(text=(message.get("content") or "").strip(), tool_calls=calls, raw_message=message)
+
+
+def user_message(provider: str, text: str) -> Any:
+    """The provider's shape for a user turn."""
+    if provider == "gemini":
+        return {"role": "user", "parts": [{"text": text}]}
+    return {"role": "user", "content": text}
+
+
+def assistant_message(provider: str, text: str) -> Any:
+    if provider == "gemini":
+        return {"role": "model", "parts": [{"text": text}]}
+    return {"role": "assistant", "content": text}
+
+
+def tool_result_message(provider: str, call: ToolCall, result: dict[str, Any]) -> Any:
+    """The provider's shape for handing a tool's output back to the model."""
+    payload = json.dumps(result)
+    if provider == "anthropic":
+        return {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": call.id, "content": payload}],
+        }
+    if provider == "gemini":
+        return {
+            "role": "user",
+            "parts": [{"functionResponse": {"name": call.name, "response": result}}],
+        }
+    return {"role": "tool", "tool_call_id": call.id, "content": payload}
