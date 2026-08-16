@@ -45,6 +45,7 @@ import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-e
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { usePlugins } from "@/lib/plugins/use-plugins";
+import { useDocumentTitle } from "@/lib/hooks/use-document-title";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export function Workspace({ vault }: { vault: Vault }) {
@@ -139,6 +140,11 @@ export function Workspace({ vault }: { vault: Vault }) {
   useEffect(() => {
     useWorkspaceStore.setState({ ribbonVisible: showRibbon });
   }, [showRibbon]);
+
+  // Switching vault opens a NEW browser tab, so the tab title has to say which
+  // vault — two open vaults are otherwise indistinguishable in the tab strip.
+  useDocumentTitle(`${vault.name} — Nodum`);
+
   const currentPane = panes[activePane] ?? panes[0];
   const activeTab = currentPane.tabs.find((t) => t.id === currentPane.activeTabId) ?? null;
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
@@ -225,7 +231,10 @@ export function Workspace({ vault }: { vault: Vault }) {
 
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // In the store, not local state: the vault switcher and (later) the AI panel
+  // open settings straight to a named tab from far outside this component.
+  const settingsOpen = useWorkspaceStore((s) => s.settingsOpen);
+  const setSettingsOpen = useWorkspaceStore((s) => s.setSettingsOpen);
   const importInputRef = useRef<HTMLInputElement>(null);
   const { commands: pluginCommands, runCommand: runPluginCommand } = usePlugins(vault.id, { run: true });
   const importFolderRef = useRef<HTMLInputElement>(null);
@@ -384,7 +393,7 @@ export function Workspace({ vault }: { vault: Vault }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setSwitcherOpen, switcherOpen, newNote, openGraph, closeActiveTab]);
+  }, [setSwitcherOpen, switcherOpen, newNote, openGraph, closeActiveTab, setSettingsOpen]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-ob-sidebar text-ob-text md:flex-row">

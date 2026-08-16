@@ -284,7 +284,13 @@ export function CommandPalette({
       label: c.label,
       run: () => onRunPluginCommand(c.pluginId, c.commandId),
     })),
-    { id: "switch-vault", label: "Change vault…", run: () => router.push("/vault") },
+    {
+      // router.push("/vault") used to bounce straight back here: the dispatcher
+      // resolves to the vault you are already in. Send people to the list.
+      id: "switch-vault",
+      label: "Change vault…",
+      run: () => useWorkspaceStore.getState().openSettings("Vault"),
+    },
     { id: "reload", label: "Reload app without saving", run: () => window.location.reload() },
     {
       id: "logout",
