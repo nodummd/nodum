@@ -38,6 +38,11 @@ services:
       # Encrypts users' AI provider keys. Dev default so the feature works out
       # of the box; production refuses a placeholder (see settings/production.py).
       - AI_ENCRYPTION_KEY=${AI_ENCRYPTION_KEY:-dev-only-ai-encryption-key-change-me}
+      # Dev only: lets you point the AI provider at a self-hosted endpoint on
+      # the compose network or localhost (http://ollama:11434/v1). Production
+      # leaves this off — there it is an SSRF hole, since any signed-up user
+      # controls the value.
+      - AI_ALLOW_PRIVATE_BASE_URLS=${AI_ALLOW_PRIVATE_BASE_URLS:-true}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:

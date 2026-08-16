@@ -159,3 +159,34 @@ async def test_import_attachments_and_obsidian_config(client: AsyncClient, works
     settings = next(v for v in vaults.json()["data"] if v["id"] == workspace["vault_id"])["settings"]
     assert settings["dailyNoteFormat"] == "YYYY/MM/DD"
     assert settings["dailyNoteFolder"] == "Journal"
+
+
+async def test_oversized_body_is_rejected_before_it_is_read(client: AsyncClient, workspace: dict) -> None:
+    """The cap must bite on Content-Length, not after the bytes are in RAM.
+
+    FastAPI parses multipart before resolving auth, so a handler-level check
+    fires too late to stop an unauthenticated caller filling the disk.
+    """
+    from app.constants.limits import MAX_REQUEST_BODY_BYTES
+
+    auth, vault_id = workspace["headers"], workspace["vault_id"]
+
+    # Declare a huge body without sending one — if the guard works, the request
+    # is refused on the header alone.
+    resp = await client.post(
+        f"/api/v1/vaults/{vault_id}/import",
+        headers={**auth, "Content-Length": str(MAX_REQUEST_BODY_BYTES + 1), "Content-Type": "application/octet-stream"},
+        content=b"",
+    )
+    assert resp.status_code == 413
+    assert resp.json()["error"]["code"] == "payload_too_large"
+
+
+async def test_malformed_content_length_is_rejected(client: AsyncClient, workspace: dict) -> None:
+    auth, vault_id = workspace["headers"], workspace["vault_id"]
+    resp = await client.post(
+        f"/api/v1/vaults/{vault_id}/import",
+        headers={**auth, "Content-Length": "not-a-number", "Content-Type": "application/octet-stream"},
+        content=b"",
+    )
+    assert resp.status_code == 400

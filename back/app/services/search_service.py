@@ -69,15 +69,15 @@ def _parse_date_range(raw: str) -> tuple[datetime | None, datetime | None]:
 
 def _apply_operators(stmt: Select, operators: dict[str, list[str]], vault_id: UUID) -> Select:
     for value in operators.get("path", []):
-        stmt = stmt.where(Note.path.ilike(f"%{value}%"))
+        stmt = stmt.where(Note.path.icontains(value, autoescape=True))
     for value in operators.get("file", []):
-        stmt = stmt.where(Note.title.ilike(f"%{value}%"))
+        stmt = stmt.where(Note.title.icontains(value, autoescape=True))
     for value in operators.get("tag", []):
         tag = value.lstrip("#").lower()
         tag_notes = (
             select(NoteTag.note_id)
             .join(Tag, Tag.id == NoteTag.tag_id)
-            .where(Tag.vault_id == vault_id, or_(Tag.name == tag, Tag.name.like(f"{tag}/%")))
+            .where(Tag.vault_id == vault_id, or_(Tag.name == tag, Tag.name.startswith(f"{tag}/", autoescape=True)))
         )
         stmt = stmt.where(Note.id.in_(tag_notes))
     for op_name, column in (("created", Note.created_at), ("updated", Note.updated_at)):
@@ -188,9 +188,11 @@ async def quick_switch(
             select(Note.id, Note.title, Note.path, similarity.label("score"))
             .where(
                 Note.vault_id == vault_id,
-                or_(Note.title.ilike(f"%{q}%"), Note.path.ilike(f"%{q}%"), similarity > 0.15),
+                or_(
+                    Note.title.icontains(q, autoescape=True), Note.path.icontains(q, autoescape=True), similarity > 0.15
+                ),
             )
-            .order_by(Note.title.ilike(f"{q}%").desc(), similarity.desc(), Note.updated_at.desc())
+            .order_by(Note.title.istartswith(q, autoescape=True).desc(), similarity.desc(), Note.updated_at.desc())
             .limit(limit)
         )
     ).all()
@@ -205,9 +207,9 @@ async def quick_switch(
             .join(Note, Note.id == NoteAlias.note_id)
             .where(
                 NoteAlias.vault_id == vault_id,
-                or_(NoteAlias.alias.ilike(f"%{q}%"), alias_similarity > 0.15),
+                or_(NoteAlias.alias.icontains(q, autoescape=True), alias_similarity > 0.15),
             )
-            .order_by(NoteAlias.alias.ilike(f"{q}%").desc(), alias_similarity.desc())
+            .order_by(NoteAlias.alias.istartswith(q, autoescape=True).desc(), alias_similarity.desc())
             .limit(limit)
         )
     ).all()

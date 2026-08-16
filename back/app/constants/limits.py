@@ -6,6 +6,12 @@ MAX_NOTES_PER_VAULT = 100_000
 MAX_FOLDER_DEPTH = 20
 MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB per attachment
 MAX_IMPORT_ZIP_SIZE_BYTES = 500 * 1024 * 1024  # 500 MB
+# Hard ceiling on any request body, enforced from Content-Length before routing.
+# FastAPI parses multipart (spooling to disk past ~1MB) *before* it resolves the
+# auth dependency, so without this an unauthenticated caller can fill the
+# container's disk. Sized above the import cap plus multipart overhead so it
+# never bites a legitimate upload.
+MAX_REQUEST_BODY_BYTES = MAX_IMPORT_ZIP_SIZE_BYTES + 16 * 1024 * 1024
 MAX_TITLE_LENGTH = 255
 MAX_PATH_LENGTH = 1024
 NOTE_VERSIONS_KEPT = 50

@@ -40,6 +40,12 @@ services:
       - BACKEND_BASE_URL=${BACKEND_BASE_URL:?set in deploy/.env}
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:?set in deploy/.env}
       - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:?set in deploy/.env}
+      # This service has no env_file, so a variable that is not listed here
+      # never reaches the container no matter what deploy/.env says. Without
+      # these two the API sees only the proxy's socket IP and every visitor
+      # shares one rate-limit bucket.
+      - TRUST_PROXY_HEADERS=${TRUST_PROXY_HEADERS:-false}
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-1}
       - SENTRY_DSN=${SENTRY_DSN:-}
     ports:
       - "127.0.0.1:8000:8000"

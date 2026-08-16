@@ -12,6 +12,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from app.api.exceptions import register_exception_handlers
 from app.api.v1.router import api_router
 from app.core.logging import get_logger, setup_logging
+from app.core.middlewares.body_size_middleware import MaxBodySizeMiddleware
 from app.core.middlewares.cors_middleware import add_cors_middleware
 from app.core.middlewares.logging_middleware import LoggingMiddleware
 from app.core.middlewares.rate_limit_middleware import RateLimitMiddleware
@@ -56,8 +57,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("app_stopped")
 
 
+def _init_sentry() -> None:
+    """Wire up error reporting when a DSN is configured.
+
+    sentry-sdk has been a declared dependency and SENTRY_DSN has been plumbed
+    through prod compose since the beginning, but nothing ever called init() —
+    so production has been silently reporting nothing.
+
+    PII stays off deliberately: this app's request bodies *are* the user's
+    private notes, and shipping them to a third party to debug a 500 would be
+    a worse bug than the 500.
+    """
+    settings = get_settings()
+    if not settings.SENTRY_DSN:
+        return
+
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.ENVIRONMENT,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+        max_request_body_size="never",
+    )
+    logger.info("sentry_initialised", environment=settings.ENVIRONMENT)
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    # Before anything else: an exception raised while building the app should
+    # still be reported.
+    _init_sentry()
+
     openapi_config = get_openapi_config()
 
     app = FastAPI(
@@ -75,6 +107,9 @@ def create_app() -> FastAPI:
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(RateLimitMiddleware)
+    # Added last, so it is the outermost layer and an oversized body is
+    # rejected before any other middleware — or the multipart parser — sees it.
+    app.add_middleware(MaxBodySizeMiddleware)
 
     register_exception_handlers(app)
 
