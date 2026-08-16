@@ -154,6 +154,14 @@ export function Workspace({ vault }: { vault: Vault }) {
     [openTab, setGraphFocus],
   );
 
+  // Keep the graph's "note you are working in" on whatever note is actually
+  // showing — switching tabs and Back/Forward change it just as much as opening
+  // one does. Never cleared: moving into the graph pane itself leaves
+  // activeNoteId null, and the note you came from is still the one you are on.
+  useEffect(() => {
+    if (activeNoteId) setGraphFocus(activeNoteId);
+  }, [activeNoteId, setGraphFocus]);
+
   // "Open in new window" navigates to /vault/{id}?note={noteId}; without this
   // the new window opened the vault and ignored the note entirely.
   const openedFromUrl = useRef(false);

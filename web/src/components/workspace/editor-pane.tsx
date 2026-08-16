@@ -29,7 +29,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ApiError } from "@/lib/api/client";
 import { bookmarkApi, noteApi, searchApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
-import { setNoteHover } from "@/lib/graph/hover-bus";
+import { currentActiveNote, setActiveNote, setNoteHover } from "@/lib/graph/hover-bus";
 import { useEditorSettings } from "@/lib/hooks/use-editor-settings";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -223,6 +223,11 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       // A tab switch can retire the note out from under the pointer, which
       // fires no mouseleave — the graph would keep breathing a stale node.
       setNoteHover(null);
+      // Same for focus: a closed editor is never "the note you are working in",
+      // and removing a focused element fires no blur — ⌘W with the caret in the
+      // text would otherwise leave the node breathing forever. Only clear our
+      // own claim; the other pane may have taken over already.
+      if (currentActiveNote() === note.id) setActiveNote(null);
       if (saveTimer.current && !collabLiveRef.current) {
         clearTimeout(saveTimer.current);
         void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
@@ -300,7 +305,16 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="flex h-full flex-col"
+      // "The note you are working in" for the graph's breathing highlight — it
+      // means the caret is HERE, so it starts when focus enters this pane and
+      // ends the moment focus leaves it (or the tab closes, below).
+      onFocus={() => setActiveNote(note.id)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setActiveNote(null);
+      }}
+    >
       {/* Three columns so the breadcrumb stays optically centred no matter how
           wide the button cluster gets. */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 pt-1.5">
