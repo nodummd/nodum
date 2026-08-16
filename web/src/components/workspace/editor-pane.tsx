@@ -95,6 +95,11 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
   const [editorEpoch, setEditorEpoch] = useState(0);
   const baseUpdatedAt = useRef(note.updated_at);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The body we know is on the server. `draftRef !== lastSavedRef` is the
+  // "there are unsaved keystrokes" test — including the window after the
+  // debounce fires but before the save lands, which the timer ref alone cannot
+  // express.
+  const lastSavedRef = useRef(note.content);
   const conflictRetries = useRef(0);
 
   // ── Live collaboration (per-vault opt-in via settings.collabEnabled) ──────
@@ -180,6 +185,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
     onSuccess: (saved: Note) => {
       conflictRetries.current = 0;
       baseUpdatedAt.current = saved.updated_at;
+      lastSavedRef.current = draftRef.current;
       queryClient.setQueryData(["note", vaultId, note.id], { ...saved, content: draftRef.current });
       void queryClient.invalidateQueries({ queryKey: ["backlinks", vaultId] });
       void queryClient.invalidateQueries({ queryKey: ["outgoing", vaultId] });
@@ -193,7 +199,12 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       if (err instanceof ApiError && err.status === 409 && conflictRetries.current < 2) {
         conflictRetries.current += 1;
         const details = err.details as { server_updated_at?: string } | undefined;
-        if (details?.server_updated_at) {
+        // Only resubmit when there is something of the user's to resubmit.
+        // Retrying a draft identical to what we already persisted just
+        // overwrites whatever the other writer put there with a body the user
+        // never edited — which is how a merge or template insert got silently
+        // reverted.
+        if (details?.server_updated_at && draftRef.current !== lastSavedRef.current) {
           baseUpdatedAt.current = details.server_updated_at;
           save.mutate(draftRef.current);
           return;
@@ -210,8 +221,17 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       // Only a LIVE collab session persists on our behalf; a session that never
       // connected must still autosave over REST or the work is lost.
       if (collabLiveRef.current) return;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => save.mutate(content), 700);
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      // Nulling the ref inside the callback is what makes the external-write
+      // adoption below work at all: it is gated on `saveTimer.current === null`,
+      // and this ref used to stay truthy forever after the first keystroke.
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        save.mutate(content);
+      }, 700);
     },
     [save],
   );
@@ -228,8 +248,17 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       // text would otherwise leave the node breathing forever. Only clear our
       // own claim; the other pane may have taken over already.
       if (currentActiveNote() === note.id) setActiveNote(null);
-      if (saveTimer.current && !collabLiveRef.current) {
-        clearTimeout(saveTimer.current);
+      // Gate on the draft actually differing from what was persisted, not on
+      // the timer alone. The timer ref used to never clear, so this fired a
+      // second redundant saveContent on every tab close even when the debounced
+      // save had already succeeded — racing it, with a now-stale base timestamp.
+      if (
+        !collabLiveRef.current &&
+        draftRef.current !== lastSavedRef.current &&
+        (saveTimer.current !== null || draftRef.current !== note.content)
+      ) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = null;
         void noteApi.saveContent(vaultId, note.id, draftRef.current, baseUpdatedAt.current);
       }
     };
@@ -262,8 +291,17 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       if (next === undefined || next === draftRef.current) return;
       // Never clobber unsaved keystrokes, and stay out of collab's way — a live
       // room already receives external writes through its own reset channel.
-      if (saveTimer.current !== null || collabLiveRef.current) return;
+      // The second clause covers the in-flight window: between the debounce
+      // firing and onSuccess landing there is no timer, but the draft is not
+      // persisted yet either.
+      if (
+        saveTimer.current !== null ||
+        draftRef.current !== lastSavedRef.current ||
+        collabLiveRef.current
+      )
+        return;
       draftRef.current = next;
+      lastSavedRef.current = next;
       setDraft(next);
       baseUpdatedAt.current = (event.query.state.data as Note).updated_at;
       // Remount CodeMirror: its document is independent of `draft` after mount.
@@ -461,7 +499,11 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
         onOpenChange={setVersionsOpen}
         onRestored={(restored) => {
           if (saveTimer.current) clearTimeout(saveTimer.current);
+          saveTimer.current = null;
           draftRef.current = restored.content;
+          // Without this the pane looks permanently dirty and would refuse
+          // every subsequent external write for the rest of its life.
+          lastSavedRef.current = restored.content;
           setDraft(restored.content);
           baseUpdatedAt.current = restored.updated_at;
           setEditorEpoch((n) => n + 1);

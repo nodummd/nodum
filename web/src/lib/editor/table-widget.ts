@@ -103,7 +103,10 @@ function setCaretOffset(cell: HTMLElement, offset: number): void {
   const max = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? "").length : 0;
   const range = doc.createRange();
   if (node.nodeType === Node.TEXT_NODE) range.setStart(node, Math.min(offset, max));
-  else range.selectNodeContents(cell), range.collapse(false);
+  // An empty cell has no text node to offset into, so anchor to its contents.
+  // The comma-operator `range.collapse(false)` that used to live here was dead:
+  // the unconditional collapse(true) below immediately overrode it.
+  else range.selectNodeContents(cell);
   range.collapse(true);
   sel.removeAllRanges();
   sel.addRange(range);

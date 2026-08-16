@@ -299,6 +299,41 @@ test.describe("note menu", () => {
     ).toHaveCount(0);
   });
 
+  test("merge is adopted even after the note has been typed in", async ({ page }) => {
+    // Regression: the autosave debounce ref was assigned but never cleared, so
+    // from the first keystroke onward it stayed truthy forever — and the cache
+    // subscription that adopts externally-written content is gated on exactly
+    // that ref. The editor kept showing the pre-merge body, and the next
+    // keystroke saved that stale body back over the merged text. The source
+    // note is deleted by then, so the merged-in content was gone for good.
+    await signupFreshUser(page, "notemenu-merge-dirty");
+    await createNoteViaApi(page, "Dirty target", "first body\n");
+    await createNoteViaApi(page, "Dirty source", "merged-in body\n");
+    await page.reload();
+    await openNoteFromExplorer(page, "Dirty target");
+
+    // One keystroke, then let the 700ms debounce fire and the save land.
+    await editorSurface(page).click();
+    await page.keyboard.type("X");
+    await expect(editorSurface(page)).toContainText("X");
+    await page.waitForTimeout(1500);
+
+    const menu = await openNoteMenu(page);
+    await menu.getByRole("menuitem", { name: "Merge entire file with…", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Dirty source", exact: true }).click();
+
+    await expect(editorSurface(page)).toContainText("merged-in body");
+
+    // And it must survive: typing again previously resubmitted the stale
+    // pre-merge draft, and the 409 retry path pushed it through.
+    await editorSurface(page).click();
+    await page.keyboard.type("Y");
+    await page.waitForTimeout(1500);
+    await page.reload();
+    await openNoteFromExplorer(page, "Dirty target");
+    await expect(editorSurface(page)).toContainText("merged-in body");
+  });
+
   test("merge appends the other note and deletes it", async ({ page }) => {
     await signupFreshUser(page, "notemenu-merge");
     await createNoteViaApi(page, "Merge target", "first body\n");
