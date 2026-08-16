@@ -92,6 +92,13 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           S3_ENDPOINT_URL: http://localhost:9000
           S3_PUBLIC_URL: http://localhost:9000
+          # ai-chat.spec.ts points the provider base_url at a stub server on
+          # 127.0.0.1, which the SSRF guard refuses by default — correctly, on
+          # a multi-tenant server. The e2e stack is single-tenant and the stub
+          # is the whole point, so the opt-in is switched on here rather than
+          # weakening the guard. The integration suite still runs with it off,
+          # so the rejection path stays covered.
+          AI_ALLOW_PRIVATE_BASE_URLS: "true"
         run: |
           uv run alembic upgrade head
           nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
