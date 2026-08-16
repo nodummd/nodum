@@ -184,3 +184,32 @@ async def test_folder_rename_reresolves_path_links(client: AsyncClient, workspac
     await _create(client, workspace, "Fresh pointer", "Now [[Archive/Spec]].")
     back3 = await client.get(f"{base}/notes/{target_id}/backlinks", headers=workspace["headers"])
     assert [b["title"] for b in back3.json()["data"]["backlinks"]] == ["Fresh pointer"]
+
+
+async def test_backlinks_counts_and_ordering_survive_the_two_query_split(client: AsyncClient, workspace: dict) -> None:
+    """Backlinks now select sources first and bodies second, capped in SQL.
+
+    Previously one query pulled every linking note's full body and applied
+    MAX_BACKLINK_SOURCES in Python — a hub note transferred thousands of bodies
+    to render a 200-entry panel. This pins the behaviour the split must keep:
+    per-source link counts are summed, and sources come back title-ordered.
+    """
+    headers = workspace["headers"]
+    base = f"/api/v1/vaults/{workspace['vault_id']}"
+
+    hub = await _create(client, workspace, "Hub", "hub\n")
+    # Zebra links to Hub twice, Alpha once — counts must aggregate per source.
+    await _create(client, workspace, "Zebra", "see [[Hub]] and again [[Hub]]\n")
+    await _create(client, workspace, "Alpha", "see [[Hub]]\n")
+
+    body = (await client.get(f"{base}/notes/{hub['id']}/backlinks", headers=headers)).json()["data"]
+
+    titles = [b["title"] for b in body["backlinks"]]
+    assert titles == sorted(titles), f"sources must come back title-ordered: {titles}"
+    counts = {b["title"]: b["count"] for b in body["backlinks"]}
+    assert counts["Zebra"] == 2, f"link counts not summed per source: {counts}"
+    assert counts["Alpha"] == 1
+    # Snippets and path still come from the source body, fetched separately now.
+    zebra = next(b for b in body["backlinks"] if b["title"] == "Zebra")
+    assert zebra["snippets"], "snippet lost when bodies moved to the second query"
+    assert zebra["path"], "path lost when it moved to the second query"

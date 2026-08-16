@@ -54,15 +54,33 @@ async def related_notes(
     if target is None:
         return {"data": {"related": []}}
 
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.constants import limits
+
     distance = Note.embedding.cosine_distance(target)
-    rows = (
-        await db.execute(
-            select(Note.id, Note.title, Note.path, distance.label("distance"))
-            .where(Note.vault_id == vault_id, Note.id != note_id, Note.embedding.is_not(None))
-            .order_by(distance)
-            .limit(limit)
-        )
-    ).all()
+    try:
+        # Exact sequential scan, bounded in time — the same bargain
+        # get_unlinked_mentions makes. There is no ANN index and cannot be a
+        # table-wide one: pgvector post-filters HNSW, so with a vault_id
+        # predicate it would return the globally-nearest vectors and only then
+        # apply the tenant filter, yielding empty or wrong results.
+        await db.execute(sql_text(f"SET LOCAL statement_timeout = {int(limits.RELATED_NOTES_TIMEOUT_MS)}"))
+        rows = (
+            await db.execute(
+                select(Note.id, Note.title, Note.path, distance.label("distance"))
+                .where(Note.vault_id == vault_id, Note.id != note_id, Note.embedding.is_not(None))
+                .order_by(distance)
+                .limit(limit)
+            )
+        ).all()
+    except DBAPIError:
+        # A vault big enough to blow the budget degrades to an empty pane
+        # rather than holding a worker and a connection.
+        await db.rollback()
+        return {"data": {"related": [], "timed_out": True}}
+
     related = [
         {"id": str(r.id), "title": r.title, "path": r.path, "similarity": round(1 - float(r.distance), 3)}
         for r in rows
