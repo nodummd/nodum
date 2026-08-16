@@ -1,0 +1,469 @@
+/* ============================================================
+   Marketing surface — landing, log in, sign up.
+   Its own skin, deliberately darker and more saturated than the
+   workspace: every colour here is sampled from the logo, a 3D
+   knot whose strands run azure → indigo → violet → magenta.
+   "Nodum" is Latin for knot, and the knot is the whole argument:
+   notes are not a stack of files, they are tied to each other.
+   ============================================================ */
+
+[data-marketing] {
+  /* ink — the logo is rendered on black, so the page is too */
+  --mk-ink: #06060b;
+  --mk-ink-raised: #0b0b14;
+  --mk-line: rgba(164, 151, 255, 0.14);
+  --mk-line-strong: rgba(164, 151, 255, 0.28);
+
+  /* the knot's own gradient, sampled from the render */
+  --mk-violet: #a497ff;
+  --mk-indigo: #473aff;
+  --mk-azure: #3790ff;
+  --mk-magenta: #c56bff;
+
+  --mk-paper: #ece9f5;
+  --mk-muted: #9c97b0;
+  /* Light enough to clear 4.5:1 on the ink — this carries eyebrows and
+     captions, which are small. */
+  --mk-faint: #8a86a0;
+
+  --mk-strand: linear-gradient(100deg, var(--mk-azure), var(--mk-indigo) 38%, var(--mk-violet) 68%, var(--mk-magenta));
+  /* Same hues, walked down in lightness so white type clears 4.5:1 at every
+     stop — the bright strand is for decoration, this one carries labels. */
+  --mk-strand-deep: linear-gradient(100deg, #2a5fe6, #4b2ce0 46%, #8b4ff2);
+
+  background: var(--mk-ink);
+  color: var(--mk-paper);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "cv05" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The workspace paints the body its own grey; overscroll would show it. */
+body:has([data-marketing]) {
+  background: #06060b;
+}
+
+/* ── type roles ─────────────────────────────────────────── */
+
+.mk-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 0.96;
+  text-wrap: balance;
+}
+
+.mk-eyebrow {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.688rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mk-faint);
+}
+
+.mk-mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* Ink the strand gradient into the type itself — used once, on the
+   word the whole page turns on. */
+.mk-strand-text {
+  background: var(--mk-strand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── the knot ───────────────────────────────────────────── */
+
+.mk-knot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
+
+/* Aurora: the logo's three hues, slowly turning behind it. The knot
+   render itself never spins — spinning a rendered 3D object reads as
+   a spinning photograph — so the light moves instead of the object. */
+.mk-knot::before {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  z-index: -2;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgba(55, 144, 255, 0.5),
+    rgba(71, 58, 255, 0.55),
+    rgba(197, 107, 255, 0.5),
+    rgba(164, 151, 255, 0.45),
+    rgba(55, 144, 255, 0.5)
+  );
+  filter: blur(58px);
+  opacity: 0.5;
+  animation: mk-turn 30s linear infinite;
+}
+
+/* A tighter core glow keeps the middle from going muddy. */
+.mk-knot::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(6, 6, 11, 0.9) 30%, transparent 72%);
+}
+
+.mk-knot img {
+  width: 100%;
+  height: auto;
+  animation: mk-float 9s ease-in-out infinite;
+}
+
+/* Pointer parallax: a few degrees of tilt is enough to make a flat
+   render read as an object you could walk around. */
+.mk-knot-tilt {
+  transform: perspective(900px) rotateX(var(--mk-rx, 0deg)) rotateY(var(--mk-ry, 0deg));
+  transition: transform 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform;
+}
+
+/* ── surfaces ───────────────────────────────────────────── */
+
+.mk-card {
+  border: 1px solid var(--mk-line);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(164, 151, 255, 0.05), rgba(164, 151, 255, 0) 55%),
+    var(--mk-ink-raised);
+}
+
+.mk-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--mk-line-strong), transparent);
+}
+
+/* ── buttons ────────────────────────────────────────────── */
+
+.mk-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.875rem;
+  padding: 0 1.375rem;
+  border-radius: 999px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.mk-btn:focus-visible {
+  outline: 2px solid var(--mk-violet);
+  outline-offset: 3px;
+}
+
+.mk-btn--primary {
+  color: #ffffff;
+  background: var(--mk-strand-deep);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22) inset, 0 12px 30px -16px rgba(126, 96, 255, 0.85);
+  overflow: hidden;
+}
+
+/* A single sheen crossing the button on hover — the same light that
+   travels the knot's strands. */
+.mk-btn--primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, 0.4) 50%, transparent 65%);
+  transform: translateX(-120%);
+}
+
+.mk-btn--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.3) inset, 0 18px 36px -18px rgba(126, 96, 255, 0.95);
+}
+
+.mk-btn--primary:hover::after {
+  animation: mk-sheen 720ms cubic-bezier(0.3, 0.6, 0.2, 1);
+}
+
+.mk-btn--ghost {
+  color: var(--mk-paper);
+  border: 1px solid var(--mk-line-strong);
+  background: rgba(164, 151, 255, 0.04);
+}
+
+.mk-btn--ghost:hover {
+  border-color: rgba(164, 151, 255, 0.5);
+  background: rgba(164, 151, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+/* ── form fields (log in / sign up) ─────────────────────── */
+
+.mk-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--mk-muted);
+}
+
+.mk-field {
+  width: 100%;
+  height: 2.75rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--mk-line-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--mk-paper);
+  font-size: 0.9375rem;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.mk-field::placeholder {
+  color: var(--mk-faint);
+}
+
+.mk-field:hover {
+  border-color: rgba(164, 151, 255, 0.4);
+}
+
+.mk-field:focus {
+  outline: none;
+  border-color: var(--mk-violet);
+  background: rgba(164, 151, 255, 0.06);
+  box-shadow: 0 0 0 4px rgba(164, 151, 255, 0.16);
+}
+
+.mk-field-button {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  height: 1.875rem;
+  width: 1.875rem;
+  border-radius: 8px;
+  color: var(--mk-faint);
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.mk-field-button:hover {
+  color: var(--mk-paper);
+  background: rgba(164, 151, 255, 0.1);
+}
+
+.mk-field-button:focus-visible {
+  outline: 2px solid var(--mk-violet);
+  outline-offset: 2px;
+}
+
+/* ── links ──────────────────────────────────────────────── */
+
+.mk-navlink {
+  position: relative;
+  color: var(--mk-muted);
+  font-size: 0.875rem;
+  transition: color 160ms ease;
+}
+
+.mk-navlink::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1px;
+  background: var(--mk-strand);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.mk-navlink:hover {
+  color: var(--mk-paper);
+}
+
+.mk-navlink:focus-visible {
+  outline: 2px solid var(--mk-violet);
+  outline-offset: 4px;
+  border-radius: 4px;
+  color: var(--mk-paper);
+}
+
+/* The sticky header would otherwise eat the top of a jumped-to section. */
+[data-marketing] section[id] {
+  scroll-margin-top: 5.5rem;
+}
+
+.mk-navlink:hover::after {
+  transform: scaleX(1);
+}
+
+/* A wikilink, styled the way the editor styles one. */
+.mk-wikilink {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  color: var(--mk-violet);
+}
+
+.mk-wikilink .mk-bracket {
+  color: var(--mk-faint);
+}
+
+/* ── the live demo vault ────────────────────────────────── */
+
+.mk-demo .nodum-demo-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--mk-muted);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  transition: opacity 200ms ease, color 200ms ease;
+}
+
+.mk-swatch {
+  height: 0.75rem;
+  width: 0.75rem;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--mk-line-strong);
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.mk-swatch:hover {
+  transform: scale(1.2);
+  border-color: var(--mk-paper);
+}
+
+.mk-swatch:focus-visible {
+  outline: 2px solid var(--mk-violet);
+  outline-offset: 2px;
+}
+
+.mk-swatch--pick {
+  border-color: transparent;
+}
+
+.mk-note-row {
+  display: block;
+  width: 100%;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem 0.25rem 2rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  color: var(--mk-muted);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.mk-note-row:hover,
+.mk-note-row.is-on,
+.mk-note-row:focus-visible {
+  background: rgba(164, 151, 255, 0.1);
+  outline: none;
+}
+
+/* ── motion ─────────────────────────────────────────────── */
+
+@keyframes mk-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes mk-float {
+  0%,
+  100% {
+    transform: translateY(-6px);
+  }
+  50% {
+    transform: translateY(10px);
+  }
+}
+
+@keyframes mk-sheen {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes mk-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mk-emerge {
+  from {
+    opacity: 0;
+    transform: scale(0.93);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Page-load sequence: the knot arrives first, then the words under it. */
+.mk-in {
+  animation: mk-rise 0.85s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.mk-in-scale {
+  animation: mk-emerge 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Scroll reveal — one pass, never re-triggers. */
+.mk-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.mk-reveal[data-shown="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-marketing] *,
+  [data-marketing] *::before,
+  [data-marketing] *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .mk-reveal {
+    opacity: 1;
+    transform: none;
+  }
+
+  .mk-knot-tilt {
+    transform: none;
+  }
+}

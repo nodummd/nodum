@@ -136,7 +136,7 @@ browser tabs**; and **directly editable tables**.
 ## Quick start
 
 ```bash
-git clone git@github.com:vorreix/nodum.git
+git clone git@github.com:nodummd/nodum.git
 cd nodum/deploy
 cp .env.example .env        # then edit the values (every one is commented)
 ./compose.sh dev up -d      # postgres + redis + minio + api + web

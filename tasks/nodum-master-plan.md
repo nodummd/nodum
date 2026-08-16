@@ -223,6 +223,54 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-16 (public face: landing + auth)** — nodum.md was a shadcn card
+  stack with a hand-drawn SVG placeholder for a mark; the actual logo (a 3D
+  torus knot, magenta→violet→azure on black) only ever appeared 48px tall on
+  the login card. The three public routes now live in an `app/(marketing)`
+  route group with their own skin (`marketing.css`), where every colour is
+  sampled from that render and the knot is the hero at up to 23rem, lit by a
+  slow conic aurora and tilted a few degrees under the pointer — the light
+  moves, never the render, because spinning a rendered object reads as a
+  spinning photograph. Type is Bricolage Grotesque over Instrument Sans, with
+  Geist Mono carrying the product's own vernacular (`[[Note]]`, `#tag`,
+  `![[image.png]]`) in a strip under the hero. The mid-page product shot is a
+  real screenshot of a seeded vault, not a mockup, and it happens to show the
+  folder-colour work from earlier today. Auth is a two-up: brand panel left,
+  form right, dropping to knot-over-form on phones.
+  Two accessibility fixes fell out of building it: the gradient button failed
+  4.5:1 both ways (dark text on the indigo stop, white on the magenta) so
+  buttons use a deepened strand with white type, and `--mk-faint` was lifted
+  to #8a86a0 since it carries the eyebrows and captions. Reduced motion is
+  respected without hiding anything (verified: 20 animated elements, 0 left
+  under-opacity). Gotchas worth remembering: sips writes AVIF that Chromium
+  decodes to the right dimensions but paints blank when the source is opaque
+  — the knot (with alpha) is fine, the screenshot ships as JPEG; and a
+  password-reveal button labelled "Show password" makes
+  `getByLabel("Password")` ambiguous, which is how the whole auth e2e reaches
+  that field, so it is labelled "Show characters".
+  New `e2e/landing.spec.ts` asserts both images actually decode; auth suite
+  green; `make verify` green.
+
+  **Follow-up the same day** — the repo links pointed at the old
+  `vorreix/nodum`; every one of them (README, `app-meta.ts`, the marketing
+  pages) now points at `nodummd/nodum`, which is what `origin` actually is.
+  And the static workspace shot became a *working* miniature: `DemoVault`
+  runs the real @cosmos.gl/graph engine over a 21-note vault beside a small
+  explorer, so recolouring a folder recolours its nodes on the landing page
+  itself, and hovering a file picks its node out of the graph. The engine is
+  dynamically imported on scroll-into-view, so the first load still pays
+  nothing for WebGL; reduced motion and any WebGL failure fall back to the
+  screenshot.
+  Framing that demo took three wrong turns worth recording: `fitView()` frames
+  the whole 4096² field, not the points; `getPointPositions()` returns the
+  *seeded* layout, not the settled one (`getTrackedPointPositionsMap()` is the
+  live truth); and the `scale` argument of `setZoomTransformByPointPositions`
+  is not an absolute zoom — `setZoomLevel` afterwards is what lands it. The
+  fit therefore measures px-per-unit from the engine's own projection and
+  corrects itself over a couple of passes, after the simulation is parked
+  (fitting a still-cooling layout drifts small as the centre force pulls the
+  cloud in). Worth reusing if the app's own fit is ever revisited.
+
 - **2026-08-16 (explorer colours reach the graph)** — Colouring a folder in
   the explorer only ever repainted the tree; the graph kept every node grey,
   because the canvas coloured from `settings.graph.groups` alone and never
