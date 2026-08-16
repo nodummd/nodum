@@ -15,7 +15,11 @@ from sqlalchemy import select
 from app.core.db import async_session_factory
 from app.models.ai import AICredential
 
-SECRET_KEY_VALUE = "sk-ant-test-DO-NOT-ECHO-4f2b9c"
+# Deliberately NOT shaped like a real provider key ("sk-ant-…"): secret
+# scanners flag the vendor prefix on every diff that touches this file, and a
+# permanently-failing scanner is worse than no scanner. Nothing validates the
+# format, and the assertions only rely on the value and its last four chars.
+SECRET_KEY_VALUE = "fake-provider-key-DO-NOT-ECHO-4f2b9c"
 
 
 async def _signup(client: AsyncClient, prefix: str) -> dict:
@@ -65,8 +69,10 @@ async def test_the_key_is_stored_encrypted_and_never_returned(client: AsyncClien
     assert body["active_provider"] == "anthropic"
     assert body["active_model"] == "claude-sonnet-4-5"
     assert SECRET_KEY_VALUE not in status.text
-    # A hint, not the key: enough to recognise which key is stored.
-    assert body["credentials"][0]["key_hint"] == "sk-ant…2b9c"
+    # A hint, not the key: enough to recognise which key is stored. Derived
+    # from the fixture rather than hardcoded so it cannot rot if the value
+    # changes — the shape (first 6, ellipsis, last 4) is what matters.
+    assert body["credentials"][0]["key_hint"] == f"{SECRET_KEY_VALUE[:6]}…{SECRET_KEY_VALUE[-4:]}"
 
     # The auth endpoints serialize users.settings in full — the key must not be
     # anywhere in there either.

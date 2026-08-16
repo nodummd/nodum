@@ -35,7 +35,8 @@ async def account(client: AsyncClient) -> dict:
     tokens = await _signup(client, "aiconv")
     await client.put(
         "/api/v1/ai/credentials",
-        json={"provider": "openai", "api_key": "sk-stub-conv", "model": "stub"},
+        # Not "sk-…": a vendor-shaped prefix trips secret scanners on every diff.
+        json={"provider": "openai", "api_key": "fake-stub-conv-key", "model": "stub"},
         headers=_auth(tokens),
     )
     vaults = await client.get("/api/v1/vaults", headers=_auth(tokens))

@@ -124,6 +124,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # Without this the server refuses to store provider keys and 12 AI tests
+      # fail. Generated per run rather than committed: a real Fernet key
+      # exercises the primary crypto path (not the passphrase-stretch
+      # fallback), and nothing secret-shaped ends up in the repo.
+      - name: Generate ephemeral AI encryption key
+        run: |
+          KEY=$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "::add-mask::$KEY"
+          echo "AI_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Run migrations
         run: uv run alembic upgrade head
 

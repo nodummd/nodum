@@ -73,6 +73,16 @@ jobs:
         working-directory: back
         run: uv sync --frozen
 
+      # Without this the API refuses to store provider keys, so every AI e2e
+      # spec fails deterministically — and burns all `retries: 2` doing it.
+      # Generated per run so nothing secret-shaped is committed.
+      - name: Generate ephemeral AI encryption key
+        working-directory: back
+        run: |
+          KEY=$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "::add-mask::$KEY"
+          echo "AI_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Migrate and start API
         working-directory: back
         env:
