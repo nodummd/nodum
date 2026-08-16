@@ -50,7 +50,10 @@ class CommonSettings(BaseSettings):
     ] = "dev"
     DEBUG_MODE: bool = False
     LOG_LEVEL: str = "INFO"
-    SECRET_KEY: str = "change-me-in-production"
+    # Long enough that HS256 never sees an under-strength HMAC key (PyJWT
+    # raises InsecureKeyLengthWarning below 32 bytes), while still carrying the
+    # "change-me" fragment ProductionSettings refuses to boot on.
+    SECRET_KEY: str = "change-me-in-production-this-default-is-not-a-secret"
 
     # ── Database (component-based) ────────────────────────────────────────────
     POSTGRES_SERVER: str = "localhost"
@@ -102,7 +105,7 @@ class CommonSettings(BaseSettings):
     CACHE_TREE_TTL: int = 300
 
     # ── JWT ───────────────────────────────────────────────────────────────────
-    JWT_SECRET_KEY: str = "jwt-secret-change-me"
+    JWT_SECRET_KEY: str = "jwt-secret-change-me-this-default-is-not-a-secret"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -153,7 +156,12 @@ class CommonSettings(BaseSettings):
     TRUST_PROXY_HEADERS: bool = False
 
     # ── Monitoring ────────────────────────────────────────────────────────────
+    # Empty disables error reporting entirely (the default, and what every
+    # dev/test run uses). Set it and app.main wires up sentry-sdk.
     SENTRY_DSN: str = ""
+    # Errors only by default. Tracing is opt-in because every sampled
+    # transaction is billed and this app's hot paths are chatty.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
 
     # ── Semantic search ───────────────────────────────────────────────────────
     # hash (default, offline) | openai (needs OPENAI_API_KEY; same 384-dim column)

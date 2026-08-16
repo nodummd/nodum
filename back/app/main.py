@@ -56,8 +56,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("app_stopped")
 
 
+def _init_sentry() -> None:
+    """Wire up error reporting when a DSN is configured.
+
+    sentry-sdk has been a declared dependency and SENTRY_DSN has been plumbed
+    through prod compose since the beginning, but nothing ever called init() —
+    so production has been silently reporting nothing.
+
+    PII stays off deliberately: this app's request bodies *are* the user's
+    private notes, and shipping them to a third party to debug a 500 would be
+    a worse bug than the 500.
+    """
+    settings = get_settings()
+    if not settings.SENTRY_DSN:
+        return
+
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.ENVIRONMENT,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+        max_request_body_size="never",
+    )
+    logger.info("sentry_initialised", environment=settings.ENVIRONMENT)
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    # Before anything else: an exception raised while building the app should
+    # still be reported.
+    _init_sentry()
+
     openapi_config = get_openapi_config()
 
     app = FastAPI(

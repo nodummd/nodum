@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 
 from app.settings import get_settings
 
@@ -60,8 +61,18 @@ def decode_token(token: str, expected_type: str) -> dict[str, Any] | None:
     if settings.JWT_ALGORITHM not in _ALLOWED_JWT_ALGORITHMS:
         return None
     try:
-        payload = dict(jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]))
-    except JWTError:
+        payload = dict(
+            jwt.decode(
+                token,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM],
+                # Belt and braces on top of the allowlist above: PyJWT verifies
+                # exp by default, but be explicit about it and require the
+                # claims every token we mint actually carries.
+                options={"require": ["exp", "iat", "sub", "jti"], "verify_exp": True},
+            )
+        )
+    except PyJWTError:
         return None
     if payload.get("type") != expected_type:
         return None
