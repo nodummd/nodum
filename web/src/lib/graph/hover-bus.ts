@@ -1,12 +1,16 @@
 "use client";
 
 /**
- * "The pointer is on this note" channel, shared by the surfaces that name notes
- * (file explorer rows, editor links) and the graph, which highlights the node.
+ * Two channels the graph listens to, both about "which note is the user on":
  *
- * A plain module emitter rather than store state: the pointer crosses dozens of
+ *  - HOVER: the pointer is on this note somewhere in the app (a file explorer
+ *    row, a link in a note).
+ *  - ACTIVE: the caret is in this note's editor — you are working in it right
+ *    now. It ends the moment focus leaves that editor, or the editor closes.
+ *
+ * Plain module emitters rather than store state: the pointer crosses dozens of
  * rows a second, and each crossing must nudge one WebGL node — not re-render the
- * workspace. Nothing here is persisted; it is pure pointer state.
+ * workspace. Nothing here is persisted; it is pure interaction state.
  */
 
 export interface NoteHover {
@@ -44,4 +48,29 @@ export function subscribeNoteHover(listener: Listener): () => void {
  *  data) mid-hover pick the highlight up without waiting for the next move. */
 export function currentNoteHover(): NoteHover | null {
   return current;
+}
+
+// ── Active note: the editor the caret is actually in ──────────────────────────
+
+type ActiveListener = (noteId: string | null) => void;
+
+const activeListeners = new Set<ActiveListener>();
+let activeNoteId: string | null = null;
+
+/** Called by an editor when focus enters it (id) or leaves it (null). */
+export function setActiveNote(noteId: string | null): void {
+  if (activeNoteId === noteId) return;
+  activeNoteId = noteId;
+  for (const listener of activeListeners) listener(noteId);
+}
+
+export function subscribeActiveNote(listener: ActiveListener): () => void {
+  activeListeners.add(listener);
+  return () => {
+    activeListeners.delete(listener);
+  };
+}
+
+export function currentActiveNote(): string | null {
+  return activeNoteId;
 }

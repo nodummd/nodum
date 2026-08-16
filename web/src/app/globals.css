@@ -240,10 +240,11 @@ body {
   will-change: transform, opacity;
 }
 
-/* The node under the pointer elsewhere in the app (explorer row, editor link).
-   Weight + an accent glow, not colour: group-coloured labels carry an inline
-   colour, and this must read the same on every one of them. */
-.nodum-graph-label[data-hover-pulse] {
+/* A breathing node: the note being worked in, or the one under the pointer
+   elsewhere in the app (explorer row, editor link). Weight + an accent glow,
+   not colour: group-coloured labels carry an inline colour, and this must read
+   the same on every one of them. */
+.nodum-graph-label[data-pulse] {
   font-weight: 700;
   text-shadow:
     0 0 7px var(--ob-interactive-accent),
