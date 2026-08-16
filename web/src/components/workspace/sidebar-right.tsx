@@ -113,7 +113,9 @@ export function SidebarRight({
         {pane === "tags" && <TagsPane vaultId={vaultId} />}
         {pane === "outline" && <OutlinePane vaultId={vaultId} noteId={noteId} />}
         {pane === "local-graph" && <LocalGraphPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
-        {pane === "ai" && <AiChatPane vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />}
+        {pane === "ai" && (
+          <AiChatPane key={vaultId} vaultId={vaultId} noteId={noteId} onOpenNote={onOpenNote} />
+        )}
       </div>
 
       <div
