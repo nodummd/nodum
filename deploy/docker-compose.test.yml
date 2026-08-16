@@ -42,6 +42,7 @@ services:
       - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - SECRET_KEY=test-secret
       - JWT_SECRET_KEY=test-jwt-secret
+      - AI_ENCRYPTION_KEY=test-secret-ai-encryption-key
       - BACKEND_CORS_ORIGINS=http://localhost:53000
     ports:
       - "127.0.0.1:58000:8000"

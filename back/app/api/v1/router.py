@@ -7,6 +7,7 @@ auth, vaults, notes, folders, links, graph, search, tags, attachments.
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    ai,
     attachments,
     auth,
     bookmarks,
@@ -43,3 +44,4 @@ api_router.include_router(collab.router, tags=["Collab"])
 api_router.include_router(clipper.router, prefix="/clipper", tags=["Web Clipper"])
 api_router.include_router(publish.site_router, prefix="/vaults/{vault_id}", tags=["Publish"])
 api_router.include_router(canvases.router, prefix="/vaults/{vault_id}/canvases", tags=["Canvases"])
+api_router.include_router(ai.router, prefix="/ai", tags=["AI"])

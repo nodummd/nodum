@@ -191,3 +191,37 @@ export interface CanvasMeta {
 export interface CanvasFull extends CanvasMeta {
   data: CanvasData;
 }
+
+// ── AI (bring your own key) ──────────────────────────────────────────────────
+
+export interface AIProviderInfo {
+  id: string;
+  label: string;
+  default_model: string;
+  models: string[];
+  key_url: string;
+}
+
+/** Never carries an API key — only a hint like `sk-ant…7f2a`. */
+export interface AICredentialInfo {
+  provider: string;
+  model: string;
+  key_hint: string;
+  base_url: string;
+}
+
+export interface AIStatus {
+  /** False when the server has no encryption key, so keys cannot be stored. */
+  available: boolean;
+  configured: boolean;
+  active_provider: string | null;
+  active_model: string;
+  credentials: AICredentialInfo[];
+  providers: AIProviderInfo[];
+}
+
+export interface AIChatReply {
+  reply: string;
+  provider: string;
+  model: string;
+}

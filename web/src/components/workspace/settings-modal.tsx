@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
+import { AiSettingsTab } from "./ai-settings-tab";
 import { ClipperTab } from "./clipper-tab";
 import { PluginsTab } from "./plugins-tab";
 import { VaultsSection } from "./vaults-section";
@@ -47,6 +48,7 @@ const TABS = [
   "Vault",
   "Canvas",
   "Plugins",
+  "AI",
   "Web Clipper",
   "Publish",
   "Collab",
@@ -284,6 +286,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             {tab === "Plugins" && <PluginsTab vaultId={vaultId} />}
+            {tab === "AI" && <AiSettingsTab />}
 
             {tab === "Web Clipper" && <ClipperTab />}
 
