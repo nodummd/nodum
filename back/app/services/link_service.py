@@ -302,7 +302,7 @@ async def get_unlinked_mentions(
                     Note.vault_id == vault_id,
                     Note.id != note_id,
                     Note.id.not_in(already_linking),
-                    Note.content.ilike(f"%{note.title}%"),
+                    Note.content.icontains(note.title, autoescape=True),
                 )
                 .limit(limit)
             )

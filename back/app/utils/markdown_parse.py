@@ -15,7 +15,6 @@ import re
 from dataclasses import dataclass
 
 _FRONTMATTER_RE = re.compile(r"\A---\n.*?\n(?:---|\.\.\.)\n", re.DOTALL)
-_FENCED_CODE_RE = re.compile(r"^(```|~~~).*?^\1[^\S\n]*$", re.DOTALL | re.MULTILINE)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
 
 _WIKILINK_RE = re.compile(r"(!?)\[\[([^\[\]\n]+?)\]\]")
@@ -35,6 +34,41 @@ class WikiLink:
     is_embed: bool  # ![[...]]
 
 
+def _strip_fenced_code(text: str) -> str:
+    """Remove fenced code blocks in a single linear pass.
+
+    This replaces ``^(```|~~~).*?^\\1[^\\S\\n]*$`` with DOTALL|MULTILINE, which
+    backtracked quadratically: an opening fence with no valid closing fence
+    made ``.*?`` expand across the whole remaining document before failing, and
+    the engine then retried from every subsequent fence. Measured at exactly 4x
+    per doubling — 3s at 80KB, extrapolating to ~35 minutes at the 2MB note
+    cap. Because link/tag extraction is synchronous CPU work inside an async
+    handler, that froze the entire uvicorn worker, not just the one request.
+
+    Semantics preserved from the regex: the fence must start at column 0, and
+    the closing line must contain only the same marker plus trailing blanks.
+
+    One deliberate change: an unterminated fence now swallows the rest of the
+    document rather than being ignored, which is what CommonMark and Obsidian
+    both do.
+    """
+    out: list[str] = []
+    fence: str | None = None
+    # split("\n"), not splitlines(): splitlines() also breaks on \v, \f, \x85
+    # and U+2028/9, which MULTILINE ^/$ do not treat as line boundaries. A note
+    # with a form feed inside a code block would otherwise close the fence
+    # early and leak [[links]] out of code.
+    for line in text.split("\n"):
+        if fence is None:
+            if line.startswith(("```", "~~~")):
+                fence = line[:3]
+                continue
+            out.append(line)
+        elif line.startswith(fence) and not line[len(fence) :].strip(" \t"):
+            fence = None
+    return "\n".join(out)
+
+
 def strip_non_content(markdown: str) -> str:
     """Remove frontmatter, fenced code blocks, and inline code spans.
 
@@ -42,7 +76,7 @@ def strip_non_content(markdown: str) -> str:
     not needed by callers; simple removal is enough for link/tag harvesting.
     """
     text = _FRONTMATTER_RE.sub("", markdown)
-    text = _FENCED_CODE_RE.sub("", text)
+    text = _strip_fenced_code(text)
     return _INLINE_CODE_RE.sub("", text)
 
 

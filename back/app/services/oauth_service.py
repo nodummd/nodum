@@ -107,6 +107,16 @@ async def handle_google_callback(
     if not sub or not email:
         return ServiceResponse.fail("unauthorized", "Google profile is missing id or email.")
 
+    # Google returns email_verified alongside email, and an *unverified*
+    # address proves nothing about who is driving the flow. Without this check
+    # the branch below signs the caller into whatever local account happens to
+    # carry that address — account takeover with no password.
+    # Accept the string form too: some providers serialise it as "true".
+    verified = info.get("email_verified")
+    if verified is not True and str(verified).lower() != "true":
+        logger.warning("google_oauth_unverified_email", email=email)
+        return ServiceResponse.fail("unauthorized", "Google has not verified this email address.")
+
     connection = await db.scalar(
         select(OAuthConnection).where(OAuthConnection.provider == "google", OAuthConnection.provider_account_id == sub)
     )
@@ -119,6 +129,16 @@ async def handle_google_callback(
             if not created.success:
                 return created
             user = created.data
+        else:
+            # First time this Google identity attaches to an account that
+            # already existed locally. If somebody registered the address
+            # before its real owner showed up, this is where their foothold
+            # ends: every session they hold dies before we mint the new one.
+            await auth_service.revoke_existing_sessions(db, user.id, "oauth_account_linked")
+
+        # Google vouched for the address (checked above), so the column stops
+        # being decorative and becomes a usable trust signal.
+        user.email_verified = True
         db.add(OAuthConnection(user_id=user.id, provider="google", provider_account_id=sub, email=email))
         await db.commit()
 

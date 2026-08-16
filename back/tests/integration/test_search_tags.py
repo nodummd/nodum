@@ -169,3 +169,36 @@ async def test_date_operators_and_sort(client: AsyncClient, workspace: dict) -> 
 
     # results now expose created_at for client-side display
     assert "created_at" in r_sorted.json()["data"]["results"][0]
+
+
+async def test_like_wildcards_from_the_url_are_literals_not_wildcards(client: AsyncClient, workspace: dict) -> None:
+    """`%` in a tag path must match a tag literally named `%`, not every tag.
+
+    Unescaped, `Tag.name LIKE '%/%'` turned the tag filter into "any note with
+    any nested tag", silently defeating the filter the caller asked for.
+    """
+    auth, base = workspace["headers"], workspace["base"]
+
+    await client.post(base + "/notes", headers=auth, json={"title": "Tagged A", "content": "#alpha/one body"})
+    await client.post(base + "/notes", headers=auth, json={"title": "Tagged B", "content": "#beta/two body"})
+
+    resp = await client.get(f"{base}/tags/%25/notes", headers=auth)
+    assert resp.status_code == 200
+    assert resp.json()["data"] == [], "a literal '%' tag matched every nested tag"
+
+    # The real tag still resolves, so the escaping did not break normal lookup.
+    real = await client.get(f"{base}/tags/alpha/notes", headers=auth)
+    assert [n["title"] for n in real.json()["data"]] == ["Tagged A"]
+
+
+async def test_search_operators_escape_wildcards(client: AsyncClient, workspace: dict) -> None:
+    auth, base = workspace["headers"], workspace["base"]
+    await client.post(base + "/notes", headers=auth, json={"title": "Wildcard Probe", "content": "body"})
+
+    body = (await client.get(f"{base}/search", headers=auth, params={"q": "path:%"})).json()["data"]
+    assert body["total"] == 0, "path:% matched every note instead of a literal percent"
+    assert body["results"] == []
+
+    # A literal path fragment still matches, so escaping did not break the operator.
+    real = (await client.get(f"{base}/search", headers=auth, params={"q": "path:Wildcard"})).json()["data"]
+    assert real["total"] >= 1

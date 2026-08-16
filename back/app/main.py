@@ -12,6 +12,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from app.api.exceptions import register_exception_handlers
 from app.api.v1.router import api_router
 from app.core.logging import get_logger, setup_logging
+from app.core.middlewares.body_size_middleware import MaxBodySizeMiddleware
 from app.core.middlewares.cors_middleware import add_cors_middleware
 from app.core.middlewares.logging_middleware import LoggingMiddleware
 from app.core.middlewares.rate_limit_middleware import RateLimitMiddleware
@@ -106,6 +107,9 @@ def create_app() -> FastAPI:
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(LoggingMiddleware)
     app.add_middleware(RateLimitMiddleware)
+    # Added last, so it is the outermost layer and an oversized body is
+    # rejected before any other middleware — or the multipart parser — sees it.
+    app.add_middleware(MaxBodySizeMiddleware)
 
     register_exception_handlers(app)
 

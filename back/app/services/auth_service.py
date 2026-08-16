@@ -191,6 +191,32 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     )
 
 
+async def revoke_existing_sessions(db: AsyncSession, user_id: UUID, reason: str) -> None:
+    """Kill every session this user currently holds. The caller commits.
+
+    Deliberately per-session (``revoked_sid:``) rather than the user-wide
+    ``auth_revoked_user:`` marker used by change_password: that marker is
+    compared with ``iat <= revoked_at``, so a session minted in the same second
+    as the revocation would be killed too. Callers that revoke and then
+    immediately issue a new session — OAuth account linking — need the new one
+    to survive, and a fresh session id is never in this set.
+    """
+    result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))
+    sessions = list(result.scalars())
+    for session in sessions:
+        session.invalidate(reason)
+
+    try:
+        from app.core.redis import redis_control
+
+        settings = get_settings()
+        ttl = (settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 1) * 60
+        for session in sessions:
+            await redis_control.set(f"revoked_sid:{session.id}", "1", ex=ttl)
+    except Exception:
+        logger.warning("revocation_marker_failed")
+
+
 async def logout(db: AsyncSession, *, refresh_token: str | None) -> ServiceResponse[None]:
     """Invalidate the session and instantly revoke its outstanding access tokens."""
     if refresh_token:
