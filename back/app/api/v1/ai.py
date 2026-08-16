@@ -52,7 +52,6 @@ class RenameConversationRequest(BaseModel):
     title: str = Field(max_length=200)
 
 
-
 @router.get("/status")
 async def ai_status(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Which providers this user has configured — never the keys themselves."""
@@ -60,9 +59,7 @@ async def ai_status(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
 
 
 @router.put("/credentials")
-async def save_credential(
-    body: CredentialRequest, user_id: CurrentUserId, db: SessionDep
-) -> dict[str, Any]:
+async def save_credential(body: CredentialRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     data = (
         await ai_service.save_credential(
             db,
@@ -110,9 +107,7 @@ async def rename_conversation(
     user_id: CurrentUserId,
     db: SessionDep,
 ) -> dict[str, Any]:
-    data = (
-        await ai_service.rename_conversation(db, user_id, vault_id, conversation_id, body.title)
-    ).unwrap()
+    data = (await ai_service.rename_conversation(db, user_id, vault_id, conversation_id, body.title)).unwrap()
     return {"data": data}
 
 

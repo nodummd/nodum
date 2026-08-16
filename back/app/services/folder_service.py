@@ -23,9 +23,7 @@ async def _path_taken(db: AsyncSession, vault_id: UUID, path: str, *, exclude_id
     return (await db.scalar(q)) is not None
 
 
-async def ensure_folder_path(
-    db: AsyncSession, vault_id: UUID, user_id: UUID, path: str
-) -> UUID | None:
+async def ensure_folder_path(db: AsyncSession, vault_id: UUID, user_id: UUID, path: str) -> UUID | None:
     """Get or create the (possibly nested) folder for a slash path; None = root."""
     path = path.strip().strip("/")
     if not path:
@@ -37,9 +35,7 @@ async def ensure_folder_path(
         if not segment:
             continue
         walked = f"{walked}/{segment}" if walked else segment
-        existing = await db.scalar(
-            select(Folder).where(Folder.vault_id == vault_id, Folder.path == walked)
-        )
+        existing = await db.scalar(select(Folder).where(Folder.vault_id == vault_id, Folder.path == walked))
         if existing:
             parent_id = existing.id
             continue

@@ -126,6 +126,4 @@ async def clip(
     created = await create_note(db, target, user.id, title=clean_title, folder_id=folder_id, content=body)
     if not created.success or created.data is None:
         return ServiceResponse.fail(created.error_code or "validation_failed", created.message or "Clip failed.")
-    return ServiceResponse.ok(
-        {"id": str(created.data.id), "title": created.data.title, "vault_id": str(target)}
-    )
+    return ServiceResponse.ok({"id": str(created.data.id), "title": created.data.title, "vault_id": str(target)})

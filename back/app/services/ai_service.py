@@ -278,9 +278,7 @@ async def get_conversation(
             "id": str(conversation.id),
             "title": conversation.title,
             "updated_at": conversation.updated_at.isoformat(),
-            "messages": [
-                {"role": m.role, "content": m.content, "actions": m.actions or []} for m in messages
-            ],
+            "messages": [{"role": m.role, "content": m.content, "actions": m.actions or []} for m in messages],
         }
     )
 
@@ -392,10 +390,9 @@ async def chat_with_vault(
         if found is None:
             return ServiceResponse.fail("not_found", "Conversation not found.")
         conversation = found
-        prior = [
-            {"role": m.role, "content": m.content}
-            for m in await _conversation_messages(db, conversation.id)
-        ][-MAX_MESSAGES:]
+        prior = [{"role": m.role, "content": m.content} for m in await _conversation_messages(db, conversation.id)][
+            -MAX_MESSAGES:
+        ]
 
     messages = [*prior, {"role": "user", "content": message}]
 
@@ -464,9 +461,7 @@ async def chat_with_vault(
         return ServiceResponse.fail("validation_failed", "Could not reach the provider.")
 
     db.add(AIMessage(conversation_id=conversation.id, role="user", content=message))
-    db.add(
-        AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions)
-    )
+    db.add(AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions))
     # Touch the thread so the history list sorts by real activity. (The tools
     # may have committed mid-turn, which leaves updated_at stale otherwise.)
     conversation.updated_at = datetime.now(UTC)

@@ -58,9 +58,23 @@ ALLOWED_ATTACHMENT_TYPES: dict[str, str] = {
 # Types safe to render in a browser tab; everything else downloads instead of
 # being interpreted (defence in depth on top of the allowlist).
 _INLINE_TYPES = {
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp",
-    "image/x-icon", "application/pdf", "text/plain", "text/markdown", "text/csv",
-    "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "video/mp4", "video/webm",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/avif",
+    "image/bmp",
+    "image/x-icon",
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/ogg",
+    "audio/mp4",
+    "video/mp4",
+    "video/webm",
     "video/quicktime",
 }
 

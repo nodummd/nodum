@@ -121,16 +121,12 @@ class Turn:
 def _tools_for(provider: str, tools: list[dict[str, Any]]) -> Any:
     """Translate our neutral tool declarations into the provider's shape."""
     if provider == "anthropic":
-        return [
-            {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
-            for t in tools
-        ]
+        return [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
     if provider == "gemini":
         return [
             {
                 "functionDeclarations": [
-                    {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
-                    for t in tools
+                    {"name": t["name"], "description": t["description"], "parameters": t["parameters"]} for t in tools
                 ]
             }
         ]

@@ -65,9 +65,7 @@ async def update_note_content(
 async def update_note_tags(
     vault_id: UUID, note_id: UUID, body: NoteTagsRequest, user_id: CurrentUserId, db: SessionDep
 ) -> dict[str, Any]:
-    note = (
-        await note_service.set_tags(db, vault_id, user_id, note_id, add=body.add, remove=body.remove)
-    ).unwrap()
+    note = (await note_service.set_tags(db, vault_id, user_id, note_id, add=body.add, remove=body.remove)).unwrap()
     return {"data": NoteOut.model_validate(note).model_dump()}
 
 

@@ -35,7 +35,8 @@ async def account(client: AsyncClient) -> dict:
     tokens = await _signup(client, "aiconv")
     await client.put(
         "/api/v1/ai/credentials",
-        json={"provider": "openai", "api_key": "sk-stub-conv", "model": "stub"},
+        # Not "sk-…": a vendor-shaped prefix trips secret scanners on every diff.
+        json={"provider": "openai", "api_key": "fake-stub-conv-key", "model": "stub"},
         headers=_auth(tokens),
     )
     vaults = await client.get("/api/v1/vaults", headers=_auth(tokens))
@@ -73,9 +74,7 @@ async def test_a_turn_creates_a_conversation_titled_after_the_question(
     listed = await client.get(f"/api/v1/ai/vaults/{vault}/conversations", headers=headers)
     assert [c["id"] for c in listed.json()["data"]] == [data["conversation_id"]]
 
-    full = await client.get(
-        f"/api/v1/ai/vaults/{vault}/conversations/{data['conversation_id']}", headers=headers
-    )
+    full = await client.get(f"/api/v1/ai/vaults/{vault}/conversations/{data['conversation_id']}", headers=headers)
     messages = full.json()["data"]["messages"]
     assert [(m["role"], m["content"]) for m in messages] == [
         ("user", "What is spaced repetition?"),
@@ -88,9 +87,7 @@ async def test_the_stored_history_is_what_the_provider_sees_next_turn(
 ) -> None:
     headers = _auth(account["tokens"])
     vault = account["vault_id"]
-    first = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "first"}, headers=headers
-    )
+    first = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "first"}, headers=headers)
     conversation_id = first.json()["data"]["conversation_id"]
 
     await client.post(
@@ -102,28 +99,18 @@ async def test_the_stored_history_is_what_the_provider_sees_next_turn(
     second_call = stub_provider[1]
     assert [m["content"] for m in second_call] == ["first", "stub reply", "second"]
 
-    full = await client.get(
-        f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers
-    )
+    full = await client.get(f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers)
     assert len(full.json()["data"]["messages"]) == 4
 
 
-async def test_a_second_chat_is_a_separate_thread(
-    client: AsyncClient, account: dict, stub_provider: list
-) -> None:
+async def test_a_second_chat_is_a_separate_thread(client: AsyncClient, account: dict, stub_provider: list) -> None:
     headers = _auth(account["tokens"])
     vault = account["vault_id"]
-    one = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "alpha"}, headers=headers
-    )
-    two = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "beta"}, headers=headers
-    )
+    one = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "alpha"}, headers=headers)
+    two = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "beta"}, headers=headers)
     assert one.json()["data"]["conversation_id"] != two.json()["data"]["conversation_id"]
 
-    listed = (await client.get(f"/api/v1/ai/vaults/{vault}/conversations", headers=headers)).json()[
-        "data"
-    ]
+    listed = (await client.get(f"/api/v1/ai/vaults/{vault}/conversations", headers=headers)).json()["data"]
     # Most recent first.
     assert [c["title"] for c in listed] == ["beta", "alpha"]
 
@@ -131,9 +118,7 @@ async def test_a_second_chat_is_a_separate_thread(
 async def test_rename_and_delete(client: AsyncClient, account: dict, stub_provider: list) -> None:
     headers = _auth(account["tokens"])
     vault = account["vault_id"]
-    created = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "throwaway"}, headers=headers
-    )
+    created = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "throwaway"}, headers=headers)
     conversation_id = created.json()["data"]["conversation_id"]
 
     renamed = await client.patch(
@@ -143,16 +128,12 @@ async def test_rename_and_delete(client: AsyncClient, account: dict, stub_provid
     )
     assert renamed.json()["data"]["title"] == "Reading list"
 
-    removed = await client.delete(
-        f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers
-    )
+    removed = await client.delete(f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers)
     assert removed.status_code == 200
     listed = await client.get(f"/api/v1/ai/vaults/{vault}/conversations", headers=headers)
     assert listed.json()["data"] == []
     # And the messages went with it.
-    gone = await client.get(
-        f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers
-    )
+    gone = await client.get(f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers)
     assert gone.status_code == 404
 
 
@@ -161,9 +142,7 @@ async def test_history_belongs_to_its_vault_and_its_owner(
 ) -> None:
     headers = _auth(account["tokens"])
     vault = account["vault_id"]
-    created = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "private"}, headers=headers
-    )
+    created = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "private"}, headers=headers)
     conversation_id = created.json()["data"]["conversation_id"]
 
     # Another vault of the SAME user must not answer for it: the assistant's
@@ -172,21 +151,15 @@ async def test_history_belongs_to_its_vault_and_its_owner(
         await client.post("/api/v1/vaults", json={"name": f"Other {uuid.uuid4().hex[:6]}"}, headers=headers)
     ).json()["data"]["id"]
     assert (
-        await client.get(
-            f"/api/v1/ai/vaults/{other_vault}/conversations/{conversation_id}", headers=headers
-        )
+        await client.get(f"/api/v1/ai/vaults/{other_vault}/conversations/{conversation_id}", headers=headers)
     ).status_code == 404
-    assert (
-        await client.get(f"/api/v1/ai/vaults/{other_vault}/conversations", headers=headers)
-    ).json()["data"] == []
+    assert (await client.get(f"/api/v1/ai/vaults/{other_vault}/conversations", headers=headers)).json()["data"] == []
 
     # And another user sees nothing at all.
     stranger = _auth(await _signup(client, "aiconv-other"))
     assert (await client.get(f"/api/v1/ai/vaults/{vault}/conversations", headers=stranger)).status_code == 404
     assert (
-        await client.get(
-            f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=stranger
-        )
+        await client.get(f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=stranger)
     ).status_code == 404
 
 
@@ -198,9 +171,7 @@ async def test_a_failed_turn_stores_nothing(client: AsyncClient, account: dict, 
         raise ai_providers.ProviderError("nope")
 
     monkeypatch.setattr(ai_providers, "turn", failing_turn)
-    resp = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "will fail"}, headers=headers
-    )
+    resp = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "will fail"}, headers=headers)
     assert resp.status_code == 422
     # No half-written thread left behind.
     listed = await client.get(f"/api/v1/ai/vaults/{vault}/conversations", headers=headers)
@@ -218,9 +189,7 @@ async def test_context_only_matters_for_the_prompt_not_the_transcript(
         headers=headers,
     )
     conversation_id = created.json()["data"]["conversation_id"]
-    full = await client.get(
-        f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers
-    )
+    full = await client.get(f"/api/v1/ai/vaults/{vault}/conversations/{conversation_id}", headers=headers)
     stored = full.json()["data"]["messages"]
     # The note excerpt rode along in the system prompt; storing it would make
     # the saved thread balloon and go stale.
@@ -232,9 +201,7 @@ async def test_long_conversations_are_capped_when_sent_to_the_provider(
 ) -> None:
     headers = _auth(account["tokens"])
     vault = account["vault_id"]
-    resp = await client.post(
-        f"/api/v1/ai/vaults/{vault}/chat", json={"message": "start"}, headers=headers
-    )
+    resp = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "start"}, headers=headers)
     conversation_id = resp.json()["data"]["conversation_id"]
     for i in range(int(ai_service.MAX_MESSAGES / 2) + 2):
         await client.post(
