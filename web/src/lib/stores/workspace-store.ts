@@ -7,7 +7,9 @@
  */
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
+
+const STORAGE_KEY = "nodum-workspace";
 
 export type MainView =
   | { kind: "note"; noteId: string }
@@ -137,6 +139,93 @@ function recorded(p: PaneState, tab: Tab): Pick<PaneState, "history" | "historyI
   return { history, historyIndex: history.length - 1 };
 }
 
+// ── Persistence: one record, partitioned by vault ────────────────────────────
+//
+// A vault is a whole separate workspace, and switching to one opens a NEW
+// BROWSER TAB — so two tabs, on two vaults, write this record at the same time.
+// Storing a single `panes` array meant last-write-wins: the vault you were not
+// touching lost its open tabs. Layouts are therefore keyed by vault id, and
+// every write RE-READS the record and replaces only this tab's own vault.
+//
+// Which vault a tab belongs to comes from the URL (/vault/<id>), not from the
+// store: the URL is the one thing that is genuinely per-tab.
+
+interface StoredLayout {
+  panes: PaneState[];
+  activePane: number;
+}
+
+/** The on-disk shape: shared chrome + one layout per vault. */
+type StoredState = Omit<Persisted, "panes" | "activePane"> & {
+  layouts?: Record<string, StoredLayout>;
+};
+
+function vaultIdFromPath(): string | null {
+  if (typeof window === "undefined") return null;
+  const match = /^\/vault\/([^/?#]+)/.exec(window.location.pathname);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function readRecord(): { state?: StoredState; version?: number } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as { state?: StoredState; version?: number }) : null;
+  } catch {
+    return null; // private mode, quota, corrupted JSON — start clean
+  }
+}
+
+/** This vault's last layout, straight from storage — used when a single tab
+ *  changes vault (the dispatcher) without a reload. */
+function readStoredLayout(vaultId: string): StoredLayout | null {
+  return readRecord()?.state?.layouts?.[vaultId] ?? null;
+}
+
+const vaultScopedStorage: PersistStorage<Persisted> = {
+  getItem: (): StorageValue<Persisted> | null => {
+    const record = readRecord();
+    if (!record?.state) return null;
+    const state = record.state;
+    const vaultId = vaultIdFromPath() ?? state.activeVaultId ?? null;
+    const layout = vaultId ? state.layouts?.[vaultId] : undefined;
+    // No layouts map = written by a build before this one. Its top-level panes
+    // belong to whatever vault was active then; adopt them only for that vault.
+    const legacy =
+      state.layouts === undefined && vaultId && vaultId === state.activeVaultId
+        ? ((state as unknown as Persisted).panes ?? null)
+        : null;
+    return {
+      version: record.version,
+      state: {
+        ...(state as unknown as Persisted),
+        panes: layout?.panes ?? legacy ?? [],
+        activePane: layout?.activePane ?? 0,
+      },
+    };
+  },
+  setItem: (_name, value) => {
+    if (typeof window === "undefined") return;
+    const { panes, activePane, ...chrome } = value.state;
+    const vaultId = vaultIdFromPath() ?? value.state.activeVaultId ?? null;
+    // Re-read rather than trusting what we last wrote: the other tab may have
+    // saved its own vault's layout since.
+    const layouts = { ...(readRecord()?.state?.layouts ?? {}) };
+    if (vaultId) layouts[vaultId] = { panes, activePane };
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ state: { ...chrome, layouts }, version: value.version }),
+      );
+    } catch {
+      /* storage full or blocked — the layout is a convenience, not data */
+    }
+  },
+  removeItem: () => {
+    if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
+  },
+};
+
 interface WorkspaceState {
   activeVaultId: string | null;
   /** 1 or 2 editor panes (split view). */
@@ -168,6 +257,10 @@ interface WorkspaceState {
   paletteOpen: boolean;
   switcherOpen: boolean;
   versionsOpen: boolean;
+  /** Settings dialog, in the store so any panel can send you to a tab of it
+   *  (the vault switcher's "Manage vaults…", the AI panel's "set this up"). */
+  settingsOpen: boolean;
+  settingsTab: string | null;
   leftPane: "files" | "search" | "bookmarks";
   /** One-shot query seed for the search pane (tag pane click-to-search). */
   searchSeed: string | null;
@@ -223,9 +316,30 @@ interface WorkspaceState {
   setPaletteOpen: (open: boolean) => void;
   setSwitcherOpen: (open: boolean) => void;
   setVersionsOpen: (open: boolean) => void;
+  /** Open settings, optionally straight to a named tab. */
+  openSettings: (tab?: string) => void;
+  setSettingsOpen: (open: boolean) => void;
   setLeftPane: (pane: "files" | "search" | "bookmarks") => void;
   setSearchSeed: (q: string | null) => void;
 }
+
+/** Exactly what `partialize` keeps. `panes`/`activePane` are the ACTIVE vault's;
+ *  the storage adapter above files them under that vault on the way out. */
+type Persisted = Pick<
+  WorkspaceState,
+  | "activeVaultId"
+  | "panes"
+  | "activePane"
+  | "leftSidebarOpen"
+  | "rightSidebarOpen"
+  | "ribbonVisible"
+  | "leftWidth"
+  | "rightWidth"
+  | "splitRatio"
+  | "splitOrientation"
+  | "editorMode"
+  | "explorerSort"
+>;
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
@@ -250,13 +364,26 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       paletteOpen: false,
       switcherOpen: false,
       versionsOpen: false,
+      settingsOpen: false,
+      settingsTab: null,
       leftPane: "files",
       searchSeed: null,
 
       setActiveVault: (vaultId) => {
-        if (get().activeVaultId !== vaultId) {
-          set({ activeVaultId: vaultId, panes: [emptyPane()], activePane: 0 });
-        }
+        if (get().activeVaultId === vaultId) return;
+        // A vault is a whole separate workspace: swap in the layout this vault
+        // was last left in rather than wiping the tab strip. Everything else
+        // held here refers to notes BY ID, so it is meaningless in the new
+        // vault and has to go with the old one.
+        const layout = vaultId ? readStoredLayout(vaultId) : null;
+        set({
+          activeVaultId: vaultId,
+          panes: layout?.panes ?? [emptyPane()],
+          activePane: layout?.activePane ?? 0,
+          graphFocusNoteId: null,
+          revealTarget: null,
+          searchSeed: null,
+        });
       },
 
       openTab: (tab, opts) => {
@@ -598,12 +725,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setPaletteOpen: (open) => set({ paletteOpen: open }),
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
       setVersionsOpen: (open) => set({ versionsOpen: open }),
+      openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab ?? null }),
+      setSettingsOpen: (open) => set({ settingsOpen: open, settingsTab: open ? get().settingsTab : null }),
       setLeftPane: (pane) => set({ leftPane: pane }),
       setSearchSeed: (q) => set({ searchSeed: q }),
     }),
     {
-      name: "nodum-workspace",
-      version: 4,
+      name: STORAGE_KEY,
+      storage: vaultScopedStorage,
+      version: 5,
       migrate: (persisted: unknown) => {
         const old = persisted as {
           tabs?: Tab[];
@@ -630,7 +760,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             historyIndex: Math.min(p.historyIndex ?? history.length - 1, history.length - 1),
           };
         });
-        return old;
+        return old as unknown as Persisted;
       },
       // Defensive on EVERY load: a pane must never hold two tabs with the same
       // id (React key collision → render crash). Older builds could persist a
@@ -656,7 +786,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
         return { ...current, ...p, panes };
       },
-      partialize: (s) => ({
+      partialize: (s): Persisted => ({
         activeVaultId: s.activeVaultId,
         panes: s.panes,
         activePane: s.activePane,
