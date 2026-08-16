@@ -9,7 +9,7 @@
 # protocol itself and does not link libpq.
 
 # ── Builder ───────────────────────────────────────────────
-FROM python:3.13-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -45,7 +45,7 @@ ENTRYPOINT ["./scripts/pre-start.sh"]
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 # ── Production ────────────────────────────────────────────
-FROM python:3.13-slim-bookworm AS production
+FROM python:3.14-slim-bookworm AS production
 
 # Base-layer security patches, then strip pip out of the runtime.
 #
