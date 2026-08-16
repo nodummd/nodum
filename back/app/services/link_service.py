@@ -211,30 +211,55 @@ async def get_backlinks(
     if note is None:
         return ServiceResponse.fail("not_found", "Note not found.")
 
-    rows = (
+    from app.constants import limits
+
+    # Two queries on purpose. This used to be one, selecting Note.content over
+    # every link pointing here and applying MAX_BACKLINK_SOURCES in Python
+    # *after* Postgres had returned and decoded every row. On a hub note — an
+    # MOC, exactly the pattern this product is for — that transferred thousands
+    # of note bodies to render a 200-entry panel, on every note switch.
+    #
+    # Pass 1 picks the sources and their link counts, without touching content.
+    # Note is joined only for the ordering key, so truncation keeps the
+    # alphabetically-first 200 and stays stable across requests. The +1 row is
+    # the "is there more" sentinel.
+    source_rows = (
         await db.execute(
-            select(Link.count, Note.id, Note.title, Note.path, Note.content)
+            select(Link.source_note_id, Note.title, func.sum(Link.count).label("total"))
             .join(Note, Note.id == Link.source_note_id)
             .where(Link.vault_id == vault_id, Link.target_note_id == note_id)
+            .group_by(Link.source_note_id, Note.title)
             .order_by(Note.title)
+            .limit(limits.MAX_BACKLINK_SOURCES + 1)
         )
     ).all()
 
-    from app.constants import limits
+    truncated = len(source_rows) > limits.MAX_BACKLINK_SOURCES
+    source_rows = source_rows[: limits.MAX_BACKLINK_SOURCES]
+
+    # Pass 2 fetches at most MAX_BACKLINK_SOURCES bodies, for the snippets.
+    bodies: dict[UUID, tuple[str, str]] = {}
+    if source_rows:
+        body_rows = (
+            await db.execute(
+                select(Note.id, Note.path, Note.content).where(
+                    Note.vault_id == vault_id,
+                    Note.id.in_([row.source_note_id for row in source_rows]),
+                )
+            )
+        ).all()
+        bodies = {row.id: (row.path, row.content) for row in body_rows}
 
     by_source: dict[UUID, dict[str, Any]] = {}
-    truncated = False
-    for count, src_id, title, path, content in rows:
-        if src_id not in by_source and len(by_source) >= limits.MAX_BACKLINK_SOURCES:
-            truncated = True
-            continue
-        entry = by_source.setdefault(
-            src_id,
-            {"note_id": str(src_id), "title": title, "path": path, "count": 0, "snippets": []},
-        )
-        entry["count"] += count
-        if not entry["snippets"]:
-            entry["snippets"] = _snippets_for(content, [f"[[{note.title}", f"[[{note.path}"])
+    for src_id, title, total in source_rows:
+        path, content = bodies.get(src_id, ("", ""))
+        by_source[src_id] = {
+            "note_id": str(src_id),
+            "title": title,
+            "path": path,
+            "count": int(total or 0),
+            "snippets": _snippets_for(content, [f"[[{note.title}", f"[[{note.path}"]),
+        }
 
     payload: dict[str, Any] = {"note_id": str(note_id), "backlinks": list(by_source.values())}
     if truncated:

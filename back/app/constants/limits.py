@@ -28,3 +28,11 @@ MAX_BACKLINK_SOURCES = 200
 # Unlinked-mentions ILIKE scan budget — the pane degrades to empty on timeout
 # (decision: no pg_trgm GIN; 2MB contents make it enormous + write-heavy)
 UNLINKED_MENTIONS_TIMEOUT_MS = 2000
+# Related-notes cosine scan budget. Same bargain as above: exact results,
+# bounded time. Deliberately NOT an ANN index — the query filters on vault_id,
+# and pgvector post-filters an HNSW index, so a table-wide one would return the
+# globally-nearest rows and only then apply the tenant filter, handing back
+# empty or wrong results on a multi-tenant table. An index here would have to
+# be per-tenant (partitioning or partial indexes), which is a schema decision,
+# not a tuning one.
+RELATED_NOTES_TIMEOUT_MS = 2000
