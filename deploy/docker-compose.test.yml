@@ -8,8 +8,14 @@ services:
     container_name: nodum-postgres-test
     ports:
       - "127.0.0.1:55432:5432"
-    tmpfs:
-      - /var/lib/postgresql/data    # ephemeral — fast, wiped on down
+    # No tmpfs here. The base file already mounts the postgres_data named
+    # volume at /var/lib/postgresql/data, and Compose merges the two rather
+    # than letting the override win — so adding a tmpfs at the same target made
+    # the whole test environment fail to render ("target ... already mounted"),
+    # which meant `./compose.sh test up` and `make test-up` did not work at all.
+    # Ephemerality comes from the project name instead: compose.sh runs this
+    # stack as `nodum-test`, so the volume is nodum-test_postgres_data, and
+    # `make test-down` (down -v) removes it.
 
   redis:
     container_name: nodum-redis-test

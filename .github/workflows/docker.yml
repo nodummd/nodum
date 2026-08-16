@@ -1,0 +1,108 @@
+name: Docker
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "back/**"
+      - "web/**"
+      - "deploy/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - "back/**"
+      - "web/**"
+      - "deploy/**"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-config:
+    name: Validate compose files
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # A typo in a compose file is otherwise found by an operator mid-deploy.
+      # Every environment resolves against .env.example, which also proves the
+      # example still carries every variable the files interpolate.
+      - name: Render every environment
+        working-directory: deploy
+        run: |
+          cp .env.example .env
+          for env in dev test prod; do
+            echo "── $env ──"
+            ./compose.sh "$env" config --quiet
+          done
+
+  build-scan:
+    name: Build & scan ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: back
+            dockerfile: back/build/Dockerfile.api
+          - name: web
+            context: web
+            dockerfile: web/docker/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # The production images were never built in CI, so a broken Dockerfile
+      # only surfaced during a deploy. Loaded into the local daemon rather than
+      # pushed — this validates the build and feeds the scanner, it does not
+      # publish anything.
+      - name: Build production image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: production
+          load: true
+          tags: nodum-${{ matrix.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      # ignore-unfixed: base-image CVEs with no upstream patch are not
+      # actionable, and a gate that cannot be made green is a gate everyone
+      # learns to skip. This fails only on something we can actually fix.
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: nodum-${{ matrix.name }}:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Confirm the image does not run as root
+        run: |
+          user=$(docker image inspect nodum-${{ matrix.name }}:ci --format '{{.Config.User}}')
+          echo "USER=${user:-<empty>}"
+          if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            echo "::error::nodum-${{ matrix.name }} production image runs as root"
+            exit 1
+          fi
+
+      - name: Confirm no secrets were baked into the image
+        run: |
+          if docker run --rm --entrypoint sh nodum-${{ matrix.name }}:ci -c 'ls -a /app/.env /app/.git 2>/dev/null' | grep -q .; then
+            echo "::error::nodum-${{ matrix.name }} image contains .env or .git"
+            exit 1
+          fi
+          echo "clean"
