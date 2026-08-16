@@ -36,7 +36,7 @@ the backend assumes one vault per user.
 
 Everything missing is frontend.
 
-## A1 — Per-vault workspace layout (do this FIRST; it is the blocker)
+## A1 — Per-vault workspace layout ✅ DONE 2026-08-16 (`cbac7a7`)
 
 **The problem.** `panes` (open tabs, holding note ids from ONE vault) is persisted
 globally in `localStorage["nodum-workspace"]` next to `activeVaultId`
@@ -61,7 +61,7 @@ instead of clobber:
 tab and work there, return to A and reload: A still has its three tabs. Verified
 by e2e driving two `BrowserContext` pages.
 
-## A2 — Vault switcher, and switching opens a new tab
+## A2 — Vault switcher, and switching opens a new tab ✅ DONE 2026-08-16
 
 - The static vault-name caption (`sidebar-left.tsx:83`) becomes a dropdown: every
   vault, a checkmark on the current one, `New vault…`, `Manage vaults…`.
@@ -76,7 +76,7 @@ by e2e driving two `BrowserContext` pages.
 - Fix the dead `Change vault…` palette command (`command-palette.tsx:287`), which
   today `router.push("/vault")` → dispatcher → straight back to the same vault.
 
-## A3 — Create / rename / delete a vault
+## A3 — Create / rename / delete a vault ✅ DONE 2026-08-16
 
 Settings → **Vault** tab grows a vault list at the top: rename inline, delete with
 `confirmDelete()` (the backend cascade-deletes everything — say so), create.
@@ -96,7 +96,7 @@ orphan the user.
 Explicitly user-owned: their key, their spend, their terms with the provider. The
 UI says so plainly, once, where the key is entered.
 
-## B1 — Encrypted credentials + settings tab
+## B1 — Encrypted credentials + settings tab ✅ DONE 2026-08-16 (`59d15eb`)
 
 **Where the key must NOT go.** `users.settings` is echoed to the browser in full
 on signup, login, refresh, `GET /auth/me` and every `PATCH /auth/me` response —
@@ -130,7 +130,7 @@ picker with a per-provider list plus free text, Save / Test / Remove.
 appears in **no** API response; the DB column is ciphertext (asserted directly);
 another user cannot read it; Test reports success/failure honestly.
 
-## B2 — AI chat panel
+## B2 — AI chat panel ✅ DONE 2026-08-16 (`5f71571`)
 
 Right sidebar gains an `"ai"` pane (`RightPaneKind` + `sidebar-right.tsx` +
 palette command + ribbon). Chat against the configured provider through the
@@ -140,7 +140,7 @@ backend (the key never reaches the browser).
 shows a short explainer and a button that opens Settings → AI — exactly what the
 mandate asks for.
 
-## B3 — The AI can write into the vault
+## B3 — The AI can write into the vault ✅ DONE 2026-08-16 (`5f71571`)
 
 Tools, server-side, provider-adapted (Anthropic `tools`, OpenAI/Qwen `tools`,
 Gemini `functionDeclarations`):
@@ -161,12 +161,17 @@ key never appears in a browser payload.
 
 | # | Item | Effort | Why here |
 |---|------|--------|----------|
-| 1 | A1 per-vault layout | M | Blocks everything else in A |
-| 2 | A2 switcher + new tab | M | The headline behaviour |
-| 3 | A3 create/rename/delete | S | Completes A |
-| 4 | B1 encrypted keys + settings | L | Security-critical; do it carefully |
-| 5 | B2 chat panel + unconfigured gate | M | Usable AI |
-| 6 | B3 vault-writing tools | L | The point of AI in a knowledge base |
+| 1 | ~~A1 per-vault layout~~ | M | ✅ Done 2026-08-16 |
+| 2 | ~~A2 switcher + new tab~~ | M | ✅ Done 2026-08-16 |
+| 3 | ~~A3 create/rename/delete~~ | S | ✅ Done 2026-08-16 |
+| 4 | ~~B1 encrypted keys + settings~~ | L | ✅ Done 2026-08-16 |
+| 5 | ~~B2 chat panel + gate~~ | M | ✅ Done 2026-08-16 |
+| 6 | ~~B3 vault-writing tools~~ | L | ✅ Done 2026-08-16 |
+
+Both features are complete. What is deliberately NOT done yet: streaming
+replies (every turn arrives whole), conversation persistence (a chat lives in
+the panel until reload), and per-vault AI keys (a key is per user, shared by
+all their vaults).
 
 ## Carried over from the previous goal doc
 
