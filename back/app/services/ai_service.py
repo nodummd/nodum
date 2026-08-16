@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai import AICredential
 from app.models.auth import User
-from app.services import ai_providers
+from app.services import ai_providers, ai_tools
 from app.services.ai_providers import PROVIDERS, ProviderError
 from app.services.service_response import ServiceResponse
 from app.utils.crypto_utils import decrypt_secret, encrypt_secret, encryption_available, mask_secret
@@ -240,3 +240,99 @@ async def chat(
         logger.warning("ai chat failed for provider=%s", credential.provider, exc_info=True)
         return ServiceResponse.fail("validation_failed", "Could not reach the provider.")
     return ServiceResponse.ok({"reply": reply, "provider": credential.provider, "model": credential.model})
+
+
+async def chat_with_vault(
+    db: AsyncSession,
+    user_id: UUID,
+    vault_id: UUID,
+    *,
+    messages: list[dict[str, str]],
+    context: str = "",
+) -> ServiceResponse[dict[str, Any]]:
+    """A chat turn that can search, read and write the vault.
+
+    The tool loop runs here, on the server, because the tools touch the
+    database and the key must never leave it. It is bounded: at most
+    MAX_TOOL_ROUNDS provider round-trips, so a model that keeps calling tools
+    cannot spend the user's money in a loop.
+    """
+    if not messages:
+        return ServiceResponse.fail("validation_failed", "No messages.")
+    if len(messages) > MAX_MESSAGES:
+        messages = messages[-MAX_MESSAGES:]
+    for message in messages:
+        if message.get("role") not in ("user", "assistant"):
+            return ServiceResponse.fail("validation_failed", "Messages must be from user or assistant.")
+        if len(message.get("content", "")) > MAX_MESSAGE_CHARS:
+            return ServiceResponse.fail("validation_failed", "That message is too long.")
+
+    resolved = await resolve(db, user_id)
+    if not resolved.success:
+        return ServiceResponse.fail(resolved.error_code or "not_found", resolved.message)
+    credential, key = resolved.data
+    provider = credential.provider
+
+    system = (
+        "You are the assistant inside Nodum, a markdown knowledge base. "
+        "You can search, read, create and extend the user's notes with the tools "
+        "provided — use them rather than guessing what the vault contains. "
+        "When you write a note, connect it to related ones with [[wikilinks]]. "
+        "Answer in markdown, and be concise."
+    )
+    if context:
+        system += f"\n\nThe note the user is looking at:\n{context}"
+
+    history: list[Any] = [
+        (
+            ai_providers.user_message(provider, m["content"])
+            if m["role"] == "user"
+            else ai_providers.assistant_message(provider, m["content"])
+        )
+        for m in messages
+    ]
+    actions: list[dict[str, Any]] = []
+
+    try:
+        for _ in range(ai_tools.MAX_TOOL_ROUNDS):
+            turn = await ai_providers.turn(
+                provider=provider,
+                api_key=key,
+                model=credential.model,
+                messages=history,
+                system=system,
+                tools=ai_tools.TOOLS,
+                base_url=credential.base_url,
+            )
+            if not turn.tool_calls:
+                return ServiceResponse.ok(
+                    {
+                        "reply": turn.text,
+                        "provider": provider,
+                        "model": credential.model,
+                        "actions": actions,
+                    }
+                )
+            if turn.raw_message is not None:
+                history.append(turn.raw_message)
+            for call in turn.tool_calls:
+                result = await ai_tools.run_tool(db, vault_id, user_id, call.name, call.arguments)
+                recorded = ai_tools.describe(call.name, call.arguments, result)
+                if recorded:
+                    actions.append(recorded)
+                history.append(ai_providers.tool_result_message(provider, call, result))
+        # Ran out of rounds with tools still pending: report what was done
+        # rather than pretending nothing happened.
+        return ServiceResponse.ok(
+            {
+                "reply": "I stopped after several steps. Ask me to continue if that was not enough.",
+                "provider": provider,
+                "model": credential.model,
+                "actions": actions,
+            }
+        )
+    except ProviderError as exc:
+        return ServiceResponse.fail("validation_failed", str(exc))
+    except Exception:
+        logger.warning("ai vault chat failed for provider=%s", provider, exc_info=True)
+        return ServiceResponse.fail("validation_failed", "Could not reach the provider.")

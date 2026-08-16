@@ -220,8 +220,16 @@ export interface AIStatus {
   providers: AIProviderInfo[];
 }
 
+/** A change the assistant made to the vault during a turn. */
+export interface AIAction {
+  kind: "created" | "updated";
+  title: string;
+  note_id: string;
+}
+
 export interface AIChatReply {
   reply: string;
   provider: string;
   model: string;
+  actions?: AIAction[];
 }

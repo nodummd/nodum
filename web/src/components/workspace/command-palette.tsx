@@ -202,7 +202,7 @@ export function CommandPalette({
     s.setActivePane(dir === 1 ? Math.min(s.activePane + 1, s.panes.length - 1) : Math.max(s.activePane - 1, 0));
   };
 
-  const setRightPanel = (pane: "backlinks" | "outgoing" | "tags" | "outline" | "local-graph") =>
+  const setRightPanel = (pane: "backlinks" | "outgoing" | "tags" | "outline" | "local-graph" | "ai") =>
     useWorkspaceStore.setState({ rightSidebarOpen: true, rightPane: pane });
 
   const zoom = (delta: number) =>
@@ -269,6 +269,12 @@ export function CommandPalette({
     { id: "show-outgoing", label: "Outgoing links: Show outgoing links", run: () => setRightPanel("outgoing"), needsNote: true },
     { id: "show-outline", label: "Outline: Show outline of the current file", run: () => setRightPanel("outline"), needsNote: true },
     { id: "show-tags", label: "Tags view: Show tags", run: () => setRightPanel("tags") },
+    { id: "show-ai", label: "AI: Open chat", run: () => setRightPanel("ai") },
+    {
+      id: "ai-settings",
+      label: "AI: Configure provider and API key",
+      run: () => useWorkspaceStore.getState().openSettings("AI"),
+    },
     { id: "toggle-left", label: "Toggle left sidebar", run: toggleLeft },
     { id: "toggle-right", label: "Toggle right sidebar", run: toggleRight },
     { id: "toggle-ribbon", label: "Toggle ribbon", run: () => toggleSetting({ showRibbon: !parseUserPrefs(user?.settings).showRibbon }) },

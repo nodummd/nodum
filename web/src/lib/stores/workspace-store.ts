@@ -19,7 +19,7 @@ export type MainView =
 export type EditorMode = "live" | "source" | "reading";
 
 /** Right-sidebar panels (mirrors sidebar-right.tsx). */
-export type RightPaneKind = "backlinks" | "outgoing" | "tags" | "outline" | "local-graph";
+export type RightPaneKind = "backlinks" | "outgoing" | "tags" | "outline" | "local-graph" | "ai";
 
 export type ExplorerSort =
   | "title-asc"
