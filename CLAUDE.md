@@ -11,7 +11,9 @@ truth for project state, architecture, and what to build next. Update it
 
 - `back/` — FastAPI backend (uv, SQLAlchemy 2 async, alembic, Redis, Celery)
 - `web/` — Next.js frontend (App Router, TypeScript, Tailwind v4, CodeMirror 6, sigma.js)
-- `deploy/` — docker-compose (dev/test/prod) + `compose.sh` + `.env.example`
+- `deploy/` — compose stacks (dev/test/staging/prod) + `compose.sh` + `caddy/` +
+  `smoke.sh` + per-environment `.env*.example`. staging and prod share
+  `docker-compose.deploy.yml`, so staging mirrors prod by construction.
 - `tasks/` — master plan; `docs/research/` — research specs (Obsidian parity)
 
 ## Rules
@@ -22,15 +24,18 @@ truth for project state, architecture, and what to build next. Update it
   placeholders. This repo is public.
 - Backend: routers thin / services fat (`ServiceResponse.unwrap()` pattern);
   responses `{"data": ...}`, errors `{"error": {"code","message"}}`;
-  numbered alembic migrations (`0001_...`); `uv run pytest tests/unit` and
-  `uv run ruff check .` must pass before commit.
+  numbered alembic migrations (`0001_...`); **`make verify` must pass before
+  commit** — it runs the exact gate CI runs. `ruff check` alone is not enough:
+  CI also runs `ruff format --check`, and skipping it is what silently rotted
+  the pipeline before.
 - All compose host ports bind to `127.0.0.1`. Containers run non-root in prod.
 - Frontend: workspace state in Zustand, server data via TanStack Query;
   API access only through `src/lib/api/`.
 
 ## Commands
 
+- `make verify` — the full pre-push gate (everything CI runs except e2e)
 - `make dev-up` / `make dev-down` — full dev stack via Docker
-- `make back-test back-lint` — backend checks
-- `make web-build web-lint` — web checks
+- `make back-test back-test-int back-lint` — backend checks
+- `make web-typecheck web-lint web-build` — web checks
 - `make e2e` — Playwright suite

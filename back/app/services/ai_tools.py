@@ -110,9 +110,7 @@ async def run_tool(
     because a tool failure is something the model should see and recover from."""
     try:
         if name == "search_notes":
-            found = await search_service.search_notes(
-                db, vault_id, user_id, q=str(args.get("query", "")), limit=8
-            )
+            found = await search_service.search_notes(db, vault_id, user_id, q=str(args.get("query", "")), limit=8)
             if not found.success:
                 return {"ok": False, "error": found.message}
             return {

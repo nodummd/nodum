@@ -1,0 +1,21 @@
+# Gitleaks configuration — see .github/workflows/secret-scan.yml
+#
+# Start from the full upstream ruleset and only ever subtract from it with a
+# narrowly scoped allowlist. Never widen a rule: a false positive is cheap,
+# a missed credential in a public repo is not.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+`s3_key = attachment.s3_key` — an ORM attribute read, not a credential. The
+generic-api-key rule fires on the `key =` shape. Scoped to that one expression
+in that one file, so a real secret assigned anywhere else here is still caught.
+This has to live in config rather than an inline `# gitleaks:allow` comment
+because the scan walks git history, where older revisions carry no comment.
+"""
+condition = "AND"
+paths = ['''back/app/services/attachment_service\.py''']
+regexTarget = "match"
+regexes = ['''s3_key\s*=\s*attachment\.s3_key''']

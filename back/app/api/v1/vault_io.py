@@ -31,7 +31,15 @@ async def export_vault(vault_id: UUID, user_id: CurrentUserId, db: SessionDep) -
 @router.post("/import")
 async def import_vault(vault_id: UUID, file: UploadFile, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Import a zip of markdown files (an Obsidian vault works as-is)."""
+    # Check BEFORE reading. Starlette's multipart parser has already counted
+    # the part (UploadFile.size is exact by the time a handler runs), so this
+    # is free — whereas reading first and measuring after commits the whole
+    # allocation the cap exists to prevent, and a multi-GB body OOM-kills the
+    # worker before any validation runs.
+    if (file.size or 0) > MAX_IMPORT_ZIP_SIZE_BYTES:
+        raise ValidationFailedError("Archive is too large.")
     archive = await file.read()
+    # Fallback for a hand-constructed UploadFile with no size (unit tests).
     if len(archive) > MAX_IMPORT_ZIP_SIZE_BYTES:
         raise ValidationFailedError("Archive is too large.")
     stats = (await vault_io_service.import_zip(db, vault_id, user_id, archive=archive)).unwrap()
@@ -57,17 +65,18 @@ async def import_files(
     total = 0
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for upload in files:
-            content = await upload.read()
-            total += len(content)
+            # Per-file, and before the read: the running total was already
+            # checked inside this loop, but a single oversized member was read
+            # into memory whole before `total` was ever consulted.
+            total += upload.size or 0
             if total > MAX_IMPORT_ZIP_SIZE_BYTES:
                 raise ValidationFailedError("Selection is too large.")
+            content = await upload.read()
             # filename carries the relative path; posixpath keeps separators sane
             name = (upload.filename or "file").replace("\\", "/").lstrip("/")
             if not name or name.endswith("/"):
                 continue
             zf.writestr(name, content)
 
-    stats = (
-        await vault_io_service.import_zip(db, vault_id, user_id, archive=buffer.getvalue())
-    ).unwrap()
+    stats = (await vault_io_service.import_zip(db, vault_id, user_id, archive=buffer.getvalue())).unwrap()
     return {"data": stats}

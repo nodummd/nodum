@@ -77,7 +77,7 @@ async def notes_by_tag(
             .join(Tag, Tag.id == NoteTag.tag_id)
             .where(
                 Tag.vault_id == vault_id,
-                or_(Tag.name == tag_name, Tag.name.like(f"{tag_name}/%")),
+                or_(Tag.name == tag_name, Tag.name.startswith(f"{tag_name}/", autoescape=True)),
             )
             .distinct()
             .order_by(Note.title)

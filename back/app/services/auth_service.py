@@ -11,7 +11,7 @@ from app.models.auth import Session, User
 from app.services.service_response import ServiceResponse
 from app.settings import get_settings
 from app.utils.jwt_utils import create_access_token, create_refresh_token, decode_token, new_jti
-from app.utils.password_utils import hash_password, verify_password
+from app.utils.password_utils import hash_password_async, verify_password_async
 
 logger = get_logger("auth")
 
@@ -32,7 +32,7 @@ async def signup(db: AsyncSession, *, email: str, password: str, name: str) -> S
     if existing:
         return ServiceResponse.fail("already_exists", "An account with this email already exists.")
 
-    user = User(email=email, password_hash=hash_password(password), name=name.strip())
+    user = User(email=email, password_hash=await hash_password_async(password), name=name.strip())
     db.add(user)
     await db.flush()
 
@@ -56,7 +56,7 @@ async def login(
     """Verify credentials and mint a token pair backed by a session row."""
     email = email.strip().lower()
     user = await db.scalar(select(User).where(User.email == email))
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None or not await verify_password_async(password, user.password_hash):
         # Same error for unknown email and wrong password — no account probing.
         return ServiceResponse.fail("unauthorized", "Invalid email or password.")
     if not user.is_active:
@@ -191,6 +191,32 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> ServiceResponse[To
     )
 
 
+async def revoke_existing_sessions(db: AsyncSession, user_id: UUID, reason: str) -> None:
+    """Kill every session this user currently holds. The caller commits.
+
+    Deliberately per-session (``revoked_sid:``) rather than the user-wide
+    ``auth_revoked_user:`` marker used by change_password: that marker is
+    compared with ``iat <= revoked_at``, so a session minted in the same second
+    as the revocation would be killed too. Callers that revoke and then
+    immediately issue a new session — OAuth account linking — need the new one
+    to survive, and a fresh session id is never in this set.
+    """
+    result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))
+    sessions = list(result.scalars())
+    for session in sessions:
+        session.invalidate(reason)
+
+    try:
+        from app.core.redis import redis_control
+
+        settings = get_settings()
+        ttl = (settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES + 1) * 60
+        for session in sessions:
+            await redis_control.set(f"revoked_sid:{session.id}", "1", ex=ttl)
+    except Exception:
+        logger.warning("revocation_marker_failed")
+
+
 async def logout(db: AsyncSession, *, refresh_token: str | None) -> ServiceResponse[None]:
     """Invalidate the session and instantly revoke its outstanding access tokens."""
     if refresh_token:
@@ -253,10 +279,10 @@ async def change_password(
     user = await db.get(User, user_id)
     if user is None:
         return ServiceResponse.fail("unauthorized", "Account is not available.")
-    if not verify_password(current_password, user.password_hash):
+    if not await verify_password_async(current_password, user.password_hash):
         return ServiceResponse.fail("unauthorized", "Current password is incorrect.")
 
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password_async(new_password)
     result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))
     for s in result.scalars():
         s.invalidate("password_changed")

@@ -1,7 +1,10 @@
 # ── Secrets & environment ──────────────────────────────────
 .env
 .env.*
-!.env.example
+# Every *.example is a template with no real values — .env.example,
+# .env.staging.example, .env.prod.example. The `.env.*` rule above would
+# otherwise swallow the per-environment ones.
+!.env*.example
 *.pem
 *.key
 *.crt

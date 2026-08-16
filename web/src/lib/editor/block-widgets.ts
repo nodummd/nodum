@@ -16,7 +16,6 @@ import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 import { renderMathHTML } from "./math";
-import { renderCellHTML, splitRow } from "./table-model";
 import { EditableTableWidget } from "./table-widget";
 import { renderMermaidSvg } from "./mermaid";
 import { cachedHighlight, highlightToHtml } from "./shiki";
@@ -27,49 +26,6 @@ function selectionTouches(state: EditorState, from: number, to: number): boolean
 
 // ── Table widget ─────────────────────────────────────────────────────────────
 
-/** Minimal inline-markdown for table cells: bold/italic/code/strike as text styling. */
-
-
-class TableWidget extends WidgetType {
-  constructor(readonly source: string) {
-    super();
-  }
-
-  override eq(other: TableWidget): boolean {
-    return other.source === this.source;
-  }
-
-  override toDOM(): HTMLElement {
-    const lines = this.source
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith("|") || l.includes("|"));
-    // Shared with table-commands.ts: if the widget and the commands split
-    // differently, the column you click is not the column they edit.
-    const parseRow = (line: string): string[] => splitRow(line);
-
-    const wrap = document.createElement("div");
-    wrap.className = "cm-table-widget";
-    const table = document.createElement("table");
-    wrap.appendChild(table);
-
-    lines.forEach((line, i) => {
-      if (i === 1 && /^[\s|:-]+$/.test(line)) return; // separator row
-      const tr = document.createElement("tr");
-      for (const cell of parseRow(line)) {
-        const td = document.createElement(i === 0 ? "th" : "td");
-        td.innerHTML = renderCellHTML(cell);
-        tr.appendChild(td);
-      }
-      table.appendChild(tr);
-    });
-    return wrap;
-  }
-
-  override ignoreEvent(): boolean {
-    return false; // click → cursor enters the region → raw syntax reveals
-  }
-}
 
 // ── Properties (frontmatter) widget — field-level editing ────────────────────
 

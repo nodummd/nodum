@@ -2,7 +2,8 @@
 # Nodum — Development Makefile
 # ============================================================
 
-.PHONY: help dev-up dev-down dev-logs test-up test-down back-test back-lint back-format web-dev web-build web-lint e2e
+.PHONY: help dev-up dev-down dev-logs test-up test-down back-test back-test-int back-lint back-format \
+        web-dev web-build web-lint web-typecheck e2e verify
 
 help:            ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -23,11 +24,39 @@ test-up:         ## Start test stack (isolated ports)
 test-down:       ## Stop test stack
 	./deploy/compose.sh test down -v
 
+# ── Deployments ─────────────────────────────────────────────
+# Staging and production run the same compose layer, so staging is a real
+# mirror. Each needs its own env file — see deploy/.env.{staging,prod}.example.
+staging-up:      ## Start staging stack (needs deploy/.env.staging)
+	./deploy/compose.sh staging up -d --build
+
+staging-down:    ## Stop staging stack
+	./deploy/compose.sh staging down
+
+staging-logs:    ## Follow staging API logs
+	./deploy/compose.sh staging logs -f api
+
+prod-up:         ## Start production stack (needs deploy/.env.prod)
+	./deploy/compose.sh prod up -d --build
+
+prod-down:       ## Stop production stack
+	./deploy/compose.sh prod down
+
+prod-logs:       ## Follow production API logs
+	./deploy/compose.sh prod logs -f api
+
+prod-verify:     ## Boot production locally on :8080 and smoke-test it end to end
+	NODUM_HTTP_PORT=8080 NODUM_HTTPS_PORT=8081 ./deploy/compose.sh prod up -d --build
+	./deploy/smoke.sh http://localhost:8080
+
 # ── Backend ─────────────────────────────────────────────────
 back-test:       ## Run backend unit tests
 	cd back && uv run pytest tests/unit -q
 
-back-lint:       ## Lint backend
+back-test-int:   ## Run backend integration tests (needs infra up)
+	cd back && uv run pytest tests/integration -q
+
+back-lint:       ## Lint backend (check + format check — same gate as CI)
 	cd back && uv run ruff check . && uv run ruff format --check .
 
 back-format:     ## Format backend
@@ -43,8 +72,19 @@ web-build:       ## Production build of the web app
 web-lint:        ## Lint web
 	cd web && npm run lint
 
+web-typecheck:   ## Typecheck web (tsc --noEmit)
+	cd web && npm run typecheck
+
 e2e:             ## Run Playwright e2e suite (needs test stack up)
 	cd web && npx playwright test
+
+# ── Gates ───────────────────────────────────────────────────
+verify:          ## Everything CI runs, minus e2e — run before you push
+	$(MAKE) back-lint
+	$(MAKE) back-test
+	$(MAKE) web-typecheck
+	$(MAKE) web-lint
+	$(MAKE) web-build
 
 
 # ── Utilities ─────────────────────────────────────────────────────

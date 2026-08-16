@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from app.settings import get_settings
+from app.utils.url_guard import UnsafeUrlError, assert_safe_url
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,25 @@ def base_url_for(provider: str, override: str | None) -> str:
     return (override or _DEFAULT_BASE_URLS[provider]).rstrip("/")
 
 
+async def _checked_base_url(provider: str, override: str | None) -> str:
+    """Resolve the provider root, refusing an override that points somewhere
+    the server must not reach.
+
+    Enforced here and not only in save_credential: a save-time check misses
+    every credential stored before the guard existed, and a hostname is free to
+    resolve differently on the second lookup. Built-in defaults skip the check
+    — they are ours, and resolving them on every call would add a DNS round
+    trip to the hot path.
+    """
+    if not override:
+        return _DEFAULT_BASE_URLS[provider].rstrip("/")
+    try:
+        await assert_safe_url(override, allow_private=get_settings().AI_ALLOW_PRIVATE_BASE_URLS)
+    except UnsafeUrlError as exc:
+        raise ProviderError(str(exc)) from exc
+    return override.rstrip("/")
+
+
 def _safe_error(provider: str, response: httpx.Response) -> ProviderError:
     """Map a provider failure to something we can show without leaking the key.
 
@@ -121,16 +141,12 @@ class Turn:
 def _tools_for(provider: str, tools: list[dict[str, Any]]) -> Any:
     """Translate our neutral tool declarations into the provider's shape."""
     if provider == "anthropic":
-        return [
-            {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
-            for t in tools
-        ]
+        return [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
     if provider == "gemini":
         return [
             {
                 "functionDeclarations": [
-                    {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
-                    for t in tools
+                    {"name": t["name"], "description": t["description"], "parameters": t["parameters"]} for t in tools
                 ]
             }
         ]
@@ -160,7 +176,7 @@ async def chat(
     """Send one turn and return the assistant's reply text."""
     if provider not in PROVIDERS:
         raise ProviderError(f"Unknown provider: {provider}")
-    url_root = base_url_for(provider, base_url)
+    url_root = await _checked_base_url(provider, base_url)
     timeout = httpx.Timeout(float(get_settings().AI_REQUEST_TIMEOUT))
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -238,7 +254,7 @@ async def turn(
     """
     if provider not in PROVIDERS:
         raise ProviderError(f"Unknown provider: {provider}")
-    url_root = base_url_for(provider, base_url)
+    url_root = await _checked_base_url(provider, base_url)
     timeout = httpx.Timeout(float(get_settings().AI_REQUEST_TIMEOUT))
 
     async with httpx.AsyncClient(timeout=timeout) as client:

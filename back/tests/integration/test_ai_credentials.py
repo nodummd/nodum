@@ -15,7 +15,11 @@ from sqlalchemy import select
 from app.core.db import async_session_factory
 from app.models.ai import AICredential
 
-SECRET_KEY_VALUE = "sk-ant-test-DO-NOT-ECHO-4f2b9c"
+# Deliberately NOT shaped like a real provider key ("sk-ant-…"): secret
+# scanners flag the vendor prefix on every diff that touches this file, and a
+# permanently-failing scanner is worse than no scanner. Nothing validates the
+# format, and the assertions only rely on the value and its last four chars.
+SECRET_KEY_VALUE = "fake-provider-key-DO-NOT-ECHO-4f2b9c"
 
 
 async def _signup(client: AsyncClient, prefix: str) -> dict:
@@ -39,9 +43,7 @@ def _auth(tokens: dict) -> dict:
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-async def test_status_is_unconfigured_before_anything_is_saved(
-    client: AsyncClient, account: dict
-) -> None:
+async def test_status_is_unconfigured_before_anything_is_saved(client: AsyncClient, account: dict) -> None:
     resp = await client.get("/api/v1/ai/status", headers=_auth(account))
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -51,9 +53,7 @@ async def test_status_is_unconfigured_before_anything_is_saved(
     assert {p["id"] for p in data["providers"]} == {"anthropic", "openai", "gemini", "qwen"}
 
 
-async def test_the_key_is_stored_encrypted_and_never_returned(
-    client: AsyncClient, account: dict
-) -> None:
+async def test_the_key_is_stored_encrypted_and_never_returned(client: AsyncClient, account: dict) -> None:
     headers = _auth(account)
     saved = await client.put(
         "/api/v1/ai/credentials",
@@ -69,8 +69,10 @@ async def test_the_key_is_stored_encrypted_and_never_returned(
     assert body["active_provider"] == "anthropic"
     assert body["active_model"] == "claude-sonnet-4-5"
     assert SECRET_KEY_VALUE not in status.text
-    # A hint, not the key: enough to recognise which key is stored.
-    assert body["credentials"][0]["key_hint"] == "sk-ant…2b9c"
+    # A hint, not the key: enough to recognise which key is stored. Derived
+    # from the fixture rather than hardcoded so it cannot rot if the value
+    # changes — the shape (first 6, ellipsis, last 4) is what matters.
+    assert body["credentials"][0]["key_hint"] == f"{SECRET_KEY_VALUE[:6]}…{SECRET_KEY_VALUE[-4:]}"
 
     # The auth endpoints serialize users.settings in full — the key must not be
     # anywhere in there either.
@@ -80,11 +82,7 @@ async def test_the_key_is_stored_encrypted_and_never_returned(
 
     # And the column itself is ciphertext.
     async with async_session_factory() as session:
-        row = (
-            await session.execute(
-                select(AICredential).where(AICredential.provider == "anthropic")
-            )
-        ).scalars().all()
+        row = (await session.execute(select(AICredential).where(AICredential.provider == "anthropic"))).scalars().all()
         stored = [c for c in row if c.key_hint.endswith(SECRET_KEY_VALUE[-4:])]
         assert stored, "credential row not found"
         assert SECRET_KEY_VALUE not in stored[0].key_ciphertext
@@ -110,9 +108,7 @@ async def test_another_user_cannot_see_or_delete_it(client: AsyncClient, account
     assert mine.json()["data"]["configured"] is True
 
 
-async def test_model_can_be_changed_without_re_pasting_the_key(
-    client: AsyncClient, account: dict
-) -> None:
+async def test_model_can_be_changed_without_re_pasting_the_key(client: AsyncClient, account: dict) -> None:
     headers = _auth(account)
     await client.put(
         "/api/v1/ai/credentials",
@@ -164,6 +160,48 @@ async def test_chat_without_a_key_says_so(client: AsyncClient, account: dict) ->
 
 async def test_ai_endpoints_require_authentication(client: AsyncClient) -> None:
     assert (await client.get("/api/v1/ai/status")).status_code == 401
-    assert (
-        await client.put("/api/v1/ai/credentials", json={"provider": "openai", "api_key": "x"})
-    ).status_code == 401
+    assert (await client.put("/api/v1/ai/credentials", json={"provider": "openai", "api_key": "x"})).status_code == 401
+
+
+async def test_private_base_url_is_refused(client: AsyncClient, account: dict) -> None:
+    """base_url is a URL the *server* fetches, so it must not reach inside.
+
+    Unvalidated, any signed-up user can aim it at the cloud metadata endpoint
+    or the compose network and read the provider error to fingerprint what
+    answered.
+    """
+    headers = _auth(account)
+    for endpoint in (
+        "http://169.254.169.254/latest/meta-data",  # cloud metadata
+        "http://127.0.0.1:8000",  # the API itself
+        "http://localhost:9000",  # MinIO
+        "http://10.0.0.5/v1",  # RFC1918
+    ):
+        resp = await client.put(
+            "/api/v1/ai/credentials",
+            headers=headers,
+            json={"provider": "openai", "api_key": SECRET_KEY_VALUE, "base_url": endpoint},
+        )
+        assert resp.status_code == 422, f"{endpoint} was accepted: {resp.text}"
+        assert resp.json()["error"]["code"] == "validation_failed"
+
+
+async def test_malformed_base_url_is_refused(client: AsyncClient, account: dict) -> None:
+    headers = _auth(account)
+    for endpoint in ("file:///etc/passwd", "gopher://x", "http://user:pw@example.com", "not-a-url"):
+        resp = await client.put(
+            "/api/v1/ai/credentials",
+            headers=headers,
+            json={"provider": "openai", "api_key": SECRET_KEY_VALUE, "base_url": endpoint},
+        )
+        assert resp.status_code == 422, f"{endpoint} was accepted: {resp.text}"
+
+
+async def test_public_base_url_is_still_allowed(client: AsyncClient, account: dict) -> None:
+    """Self-hosting on a public host stays supported — this is not a ban."""
+    resp = await client.put(
+        "/api/v1/ai/credentials",
+        headers=_auth(account),
+        json={"provider": "openai", "api_key": SECRET_KEY_VALUE, "base_url": "https://api.openai.com/v1"},
+    )
+    assert resp.status_code == 200, resp.text

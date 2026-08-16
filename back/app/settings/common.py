@@ -50,7 +50,10 @@ class CommonSettings(BaseSettings):
     ] = "dev"
     DEBUG_MODE: bool = False
     LOG_LEVEL: str = "INFO"
-    SECRET_KEY: str = "change-me-in-production"
+    # Long enough that HS256 never sees an under-strength HMAC key (PyJWT
+    # raises InsecureKeyLengthWarning below 32 bytes), while still carrying the
+    # "change-me" fragment ProductionSettings refuses to boot on.
+    SECRET_KEY: str = "change-me-in-production-this-default-is-not-a-secret"
 
     # ── Database (component-based) ────────────────────────────────────────────
     POSTGRES_SERVER: str = "localhost"
@@ -102,7 +105,7 @@ class CommonSettings(BaseSettings):
     CACHE_TREE_TTL: int = 300
 
     # ── JWT ───────────────────────────────────────────────────────────────────
-    JWT_SECRET_KEY: str = "jwt-secret-change-me"
+    JWT_SECRET_KEY: str = "jwt-secret-change-me-this-default-is-not-a-secret"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -116,6 +119,13 @@ class CommonSettings(BaseSettings):
     # Ceiling on a single AI request, in seconds — a provider hanging must not
     # hold a worker forever.
     AI_REQUEST_TIMEOUT: int = 120
+    # A user-supplied provider base_url is a URL the *server* fetches, so by
+    # default it may not resolve to a private, loopback, link-local or reserved
+    # address — otherwise any signed-up user can probe the cloud metadata
+    # endpoint or the compose network from inside the API container.
+    # Turn this on only on a single-tenant/self-hosted install, where pointing
+    # at http://ollama:11434/v1 is the whole point.
+    AI_ALLOW_PRIVATE_BASE_URLS: bool = False
 
     # ── S3 / MinIO (attachments) ──────────────────────────────────────────────
     S3_ENDPOINT_URL: str = "http://localhost:9000"
@@ -147,13 +157,26 @@ class CommonSettings(BaseSettings):
     RATE_LIMIT_AUTH_WINDOW_SECONDS: int = 60
     USER_RATE_LIMIT_REQUESTS_PER_MINUTE: int = 300
     USER_RATE_LIMIT_WINDOW_SECONDS: int = 60
-    # True when the API sits behind a trusted reverse proxy (prod compose):
-    # rate limiting then keys on the first X-Forwarded-For hop instead of the
+    # True when the API sits behind a trusted reverse proxy: rate limiting then
+    # reads the client address out of X-Forwarded-For instead of using the
     # proxy's socket IP (which would put every user in one shared bucket).
+    # Leave false when nothing trusted sits in front — the header is
+    # client-writable, so trusting it without a proxy is a rate-limit bypass.
     TRUST_PROXY_HEADERS: bool = False
+    # How many trusted proxies sit between the client and this app. The client
+    # address is read this many entries from the RIGHT of X-Forwarded-For, so a
+    # client-supplied prefix cannot displace it. 1 = a single reverse proxy
+    # (the shipped topology: Caddy/nginx, or the Next.js rewrite). Raise it if
+    # you add a CDN in front, or the CDN's address becomes the client.
+    TRUSTED_PROXY_HOPS: int = 1
 
     # ── Monitoring ────────────────────────────────────────────────────────────
+    # Empty disables error reporting entirely (the default, and what every
+    # dev/test run uses). Set it and app.main wires up sentry-sdk.
     SENTRY_DSN: str = ""
+    # Errors only by default. Tracing is opt-in because every sampled
+    # transaction is billed and this app's hot paths are chatty.
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
 
     # ── Semantic search ───────────────────────────────────────────────────────
     # hash (default, offline) | openai (needs OPENAI_API_KEY; same 384-dim column)

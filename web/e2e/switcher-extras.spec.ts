@@ -29,6 +29,13 @@ test.describe("quick switcher extras", () => {
     ).toBeVisible({ timeout: 10_000 });
     await input.press("ControlOrMeta+Enter");
 
+    // Wait for the modal to actually go away before reaching past it. While the
+    // switcher is open the workspace behind it is inert/aria-hidden, so the
+    // title textbox is not in the accessibility tree and the next assertion
+    // fails with "element(s) not found" rather than retrying — an intermittent
+    // failure that had nothing to do with the behaviour under test.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
     // Switcher closed; active note unchanged; the new tab exists unselected
     await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(
       "Welcome to Nodum",

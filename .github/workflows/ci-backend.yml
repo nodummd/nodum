@@ -3,32 +3,148 @@ name: CI Backend
 on:
   push:
     branches: [main, dev]
-    paths: ["back/**", ".github/workflows/ci-backend.yml"]
+    paths:
+      - "back/**"
+      - ".github/workflows/ci-backend.yml"
   pull_request:
-    paths: ["back/**", ".github/workflows/ci-backend.yml"]
+    paths:
+      - "back/**"
+      - ".github/workflows/ci-backend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the in-flight run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to the version baked into back/build/Dockerfile.api so CI and the
+  # image resolve dependencies identically.
+  UV_VERSION: "0.12.3"
 
 jobs:
-  lint-test:
+  lint:
+    name: Lint & format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: back
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
+          cache-dependency-glob: back/uv.lock
 
       - name: Install dependencies
         run: uv sync --frozen
 
       - name: Ruff lint
-        run: uv run ruff check .
+        run: uv run ruff check --output-format=github .
 
+      # Kept in the same gate as the linter: `ruff check` does not enforce
+      # formatting, so without this the tree drifts until a release run fails.
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check --diff .
+
+  test:
+    name: Tests (unit + integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: back
+
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env:
+          POSTGRES_USER: nodum
+          POSTGRES_PASSWORD: nodum
+          POSTGRES_DB: nodum
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nodum" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+
+      redis:
+        image: redis:7.4.2-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+
+    env:
+      ENVIRONMENT: test
+      POSTGRES_SERVER: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: nodum
+      POSTGRES_PASSWORD: nodum
+      POSTGRES_DB: nodum
+      REDIS_URL: redis://localhost:6379/0
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_PUBLIC_URL: http://localhost:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # MinIO cannot be a `services:` container: its image needs the `server
+      # /data` command, and service containers cannot override CMD. Same image
+      # and args as deploy/docker-compose.yml so CI matches the real stack.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              echo "MinIO ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::MinIO never became ready"; docker logs minio; exit 1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # Without this the server refuses to store provider keys and 12 AI tests
+      # fail. Generated per run rather than committed: a real Fernet key
+      # exercises the primary crypto path (not the passphrase-stretch
+      # fallback), and nothing secret-shaped ends up in the repo.
+      - name: Generate ephemeral AI encryption key
+        run: |
+          KEY=$(uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+          echo "::add-mask::$KEY"
+          echo "AI_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
 
       - name: Unit tests
         run: uv run pytest tests/unit -q
+
+      # These exercise the real Postgres/Redis/S3 stack and had never run in
+      # CI — every ownership, publish-token and rotation guarantee lives here.
+      - name: Integration tests
+        run: uv run pytest tests/integration -q
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker logs minio || true

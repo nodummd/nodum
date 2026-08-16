@@ -24,7 +24,9 @@ from app.services import ai_providers, ai_tools
 from app.services.ai_providers import PROVIDERS, ProviderError
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault
+from app.settings import get_settings
 from app.utils.crypto_utils import decrypt_secret, encrypt_secret, encryption_available, mask_secret
+from app.utils.url_guard import UnsafeUrlError, assert_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +121,15 @@ async def save_credential(
 
     chosen_model = (model or "").strip() or (existing.model if existing else "") or PROVIDERS[provider].default_model
     endpoint = (base_url or "").strip() or None
+
+    # A custom endpoint is a URL the server will POST to with a bearer token.
+    # Reject it here as well as at request time so the user gets a clear error
+    # at the moment they set it, rather than a confusing failure later.
+    if endpoint is not None:
+        try:
+            await assert_safe_url(endpoint, allow_private=get_settings().AI_ALLOW_PRIVATE_BASE_URLS)
+        except UnsafeUrlError as exc:
+            return ServiceResponse.fail("validation_failed", str(exc))
 
     if existing is None:
         existing = AICredential(
@@ -278,9 +289,7 @@ async def get_conversation(
             "id": str(conversation.id),
             "title": conversation.title,
             "updated_at": conversation.updated_at.isoformat(),
-            "messages": [
-                {"role": m.role, "content": m.content, "actions": m.actions or []} for m in messages
-            ],
+            "messages": [{"role": m.role, "content": m.content, "actions": m.actions or []} for m in messages],
         }
     )
 
@@ -392,10 +401,9 @@ async def chat_with_vault(
         if found is None:
             return ServiceResponse.fail("not_found", "Conversation not found.")
         conversation = found
-        prior = [
-            {"role": m.role, "content": m.content}
-            for m in await _conversation_messages(db, conversation.id)
-        ][-MAX_MESSAGES:]
+        prior = [{"role": m.role, "content": m.content} for m in await _conversation_messages(db, conversation.id)][
+            -MAX_MESSAGES:
+        ]
 
     messages = [*prior, {"role": "user", "content": message}]
 
@@ -464,9 +472,7 @@ async def chat_with_vault(
         return ServiceResponse.fail("validation_failed", "Could not reach the provider.")
 
     db.add(AIMessage(conversation_id=conversation.id, role="user", content=message))
-    db.add(
-        AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions)
-    )
+    db.add(AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions))
     # Touch the thread so the history list sorts by real activity. (The tools
     # may have committed mid-turn, which leaves updated_at stale otherwise.)
     conversation.updated_at = datetime.now(UTC)
