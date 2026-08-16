@@ -65,7 +65,7 @@ test.beforeEach(() => {
 
 /** Store a key pointed at the stub, through the real API. */
 async function configureStubProvider(page: Page, baseUrl: string) {
-  const result = await page.evaluate(async (url) => {
+  const result = await page.evaluate(async ([url, key]) => {
     const token = (await (await fetch("/api/v1/auth/refresh", { method: "POST" })).json()).data
       .access_token;
     const resp = await fetch("/api/v1/ai/credentials", {
@@ -74,13 +74,13 @@ async function configureStubProvider(page: Page, baseUrl: string) {
       body: JSON.stringify({
         provider: "openai",
         // Not "sk-…": a vendor-shaped prefix trips secret scanners on every diff.
-        api_key: "fake-stub-e2e-key",
+        api_key: key,
         model: "stub-model",
         base_url: url,
       }),
     });
     return { status: resp.status, body: await resp.text() };
-  }, baseUrl);
+  }, [baseUrl, STUB_API_KEY]);
 
   // Check it. This used to be fire-and-forget, so when the server started
   // rejecting the stub's base_url every dependent test just timed out after
@@ -90,6 +90,10 @@ async function configureStubProvider(page: Page, baseUrl: string) {
     `stub provider was not configured (${result.status}): ${result.body}`,
   ).toBe(200);
 }
+
+// One constant: this literal is asserted against the header the stub receives,
+// and a rename that updated only one of the two sites broke CI.
+const STUB_API_KEY = "fake-stub-e2e-key";
 
 const openAiPanel = (page: Page) => page.getByRole("button", { name: "AI chat" }).click();
 
@@ -124,7 +128,7 @@ test.describe("AI chat panel", () => {
       headers: Record<string, string>;
       body: { messages: { role: string; content: string }[] };
     };
-    expect(sent.headers.authorization).toBe("Bearer sk-stub-e2e-key");
+    expect(sent.headers.authorization).toBe(`Bearer ${STUB_API_KEY}`);
     expect(sent.body.messages[0].content).toContain("Welcome to Nodum");
   });
 
