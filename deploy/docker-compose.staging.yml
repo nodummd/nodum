@@ -1,0 +1,55 @@
+# ============================================================
+# Staging
+# ============================================================
+# Usage: ./compose.sh staging up -d --build
+#
+# Deliberately the same stack as production, from the same
+# docker-compose.deploy.yml — same proxy, same network split, same one-shot
+# migration, same noeviction control-plane Redis. A staging environment that
+# differs structurally from production tells you nothing.
+#
+# What differs: container names, an image tag of its own so a staging deploy
+# cannot overwrite the production image on a shared host, and edge ports that
+# default to 8080/8443 so both stacks fit on one machine.
+#
+# ENVIRONMENT=staging maps to ProductionSettings in the API (see
+# back/app/settings/__init__.py), so the placeholder-secret guard applies here
+# too — staging gets real credentials, not the dev ones.
+#
+# Requires deploy/.env.staging (copy .env.staging.example).
+# ============================================================
+
+services:
+  postgres:
+    container_name: nodum-staging-postgres
+
+  redis:
+    container_name: nodum-staging-redis
+
+  redis-control:
+    container_name: nodum-staging-redis-control
+
+  minio:
+    container_name: nodum-staging-minio
+
+  migrate:
+    container_name: nodum-staging-migrate
+
+  api:
+    container_name: nodum-staging-api
+
+  celery-worker:
+    container_name: nodum-staging-celery-worker
+
+  celery-beat:
+    container_name: nodum-staging-celery-beat
+
+  web:
+    container_name: nodum-staging-web
+
+  caddy:
+    container_name: nodum-staging-caddy
+    ports:
+      - "${NODUM_HTTP_PORT:-8080}:80"
+      - "${NODUM_HTTPS_PORT:-8443}:443"
+      - "${NODUM_HTTPS_PORT:-8443}:443/udp"

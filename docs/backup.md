@@ -12,7 +12,7 @@ set -euo pipefail
 STAMP=$(date +%F)
 BACKUP_DIR=/var/backups/nodum
 mkdir -p "$BACKUP_DIR"
-docker exec nodum-postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc \
+deploy/compose.sh prod exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc \
   > "$BACKUP_DIR/nodum-$STAMP.dump"
 # keep 14 nightly dumps
 ls -1t "$BACKUP_DIR"/nodum-*.dump | tail -n +15 | xargs -r rm
@@ -43,7 +43,7 @@ rclone/rsync job as the DB dumps.
    ```
 2. **Database:**
    ```bash
-   docker exec -i nodum-postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+   deploy/compose.sh prod exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
      --clean --if-exists < /var/backups/nodum/nodum-<date>.dump
    ```
 3. **Attachments:**

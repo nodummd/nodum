@@ -11,7 +11,9 @@ truth for project state, architecture, and what to build next. Update it
 
 - `back/` — FastAPI backend (uv, SQLAlchemy 2 async, alembic, Redis, Celery)
 - `web/` — Next.js frontend (App Router, TypeScript, Tailwind v4, CodeMirror 6, sigma.js)
-- `deploy/` — docker-compose (dev/test/prod) + `compose.sh` + `.env.example`
+- `deploy/` — compose stacks (dev/test/staging/prod) + `compose.sh` + `caddy/` +
+  `smoke.sh` + per-environment `.env*.example`. staging and prod share
+  `docker-compose.deploy.yml`, so staging mirrors prod by construction.
 - `tasks/` — master plan; `docs/research/` — research specs (Obsidian parity)
 
 ## Rules

@@ -3,11 +3,25 @@
 # Nodum Docker Compose Helper
 # ============================================================
 # Usage:
-#   ./compose.sh dev up -d         # Start dev environment
-#   ./compose.sh dev down          # Stop dev environment
-#   ./compose.sh test up -d        # Start test environment
-#   ./compose.sh prod up -d        # Start production
-#   ./compose.sh dev logs -f api   # Follow API logs
+#   ./compose.sh dev up -d              # Development
+#   ./compose.sh test up -d             # Isolated test stack
+#   ./compose.sh staging up -d --build  # Staging (mirrors production)
+#   ./compose.sh prod up -d --build     # Production
+#   ./compose.sh dev logs -f api        # Follow API logs
+#
+# Environment files, in order of preference:
+#   dev      -> .env.dev      | .env
+#   test     -> .env.test     | .env
+#   staging  -> .env.staging  (required — copy .env.staging.example)
+#   prod     -> .env.prod     (required — copy .env.prod.example)
+#
+# staging and prod insist on their own file rather than falling back to .env.
+# Sharing one file is how a staging deploy ends up pointed at the production
+# database, and how the dev stack's known-default credentials end up on a
+# public host.
+#
+# Verifying the production stack locally, beside a running dev stack:
+#   NODUM_HTTP_PORT=8080 NODUM_HTTPS_PORT=8443 ./compose.sh prod up -d --build
 #
 # Works with Docker or Podman (podman compose).
 # ============================================================
@@ -28,37 +42,67 @@ else
     exit 1
 fi
 
-# Load environment variables
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    set -a
-    source "$SCRIPT_DIR/.env"
-    set +a
-fi
+# ── Resolve the environment file ────────────────────────────
+env_file=""
+resolve_env_file() {
+    local preferred="$SCRIPT_DIR/.env.$1"
+    if [ -f "$preferred" ]; then
+        env_file="$preferred"
+        return
+    fi
+    case "$1" in
+        staging|prod)
+            echo "ERROR: $preferred not found." >&2
+            echo "       cp $SCRIPT_DIR/.env.$1.example $preferred  # then fill it in" >&2
+            echo "       ($1 will not fall back to .env — see the header of this script)" >&2
+            exit 1
+            ;;
+    esac
+    if [ -f "$SCRIPT_DIR/.env" ]; then
+        env_file="$SCRIPT_DIR/.env"
+        return
+    fi
+    echo "ERROR: no $preferred and no $SCRIPT_DIR/.env." >&2
+    echo "       cp $SCRIPT_DIR/.env.example $SCRIPT_DIR/.env" >&2
+    exit 1
+}
+
+# ── Compose invocation ──────────────────────────────────────
+# ENVIRONMENT and the image tag are exported here rather than read from the
+# env file: which stack you asked for is decided by the argument you typed,
+# never by whichever file happens to be on disk.
+run() {
+    local project="$1"; shift
+    local -a files=()
+    for f in "$@"; do files+=(-f "$SCRIPT_DIR/$f"); done
+    "${ENGINE[@]}" --env-file "$env_file" "${files[@]}" --project-name "$project" "${ARGS[@]}"
+}
+
+ARGS=("$@")
 
 case "$ENV" in
     dev)
-        "${ENGINE[@]}" \
-            -f "$SCRIPT_DIR/docker-compose.yml" \
-            -f "$SCRIPT_DIR/docker-compose.dev.yml" \
-            --project-name nodum-dev \
-            "$@"
+        resolve_env_file dev
+        export NODUM_ENVIRONMENT=dev NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-dev}"
+        run nodum-dev docker-compose.yml docker-compose.dev.yml
         ;;
     test)
-        "${ENGINE[@]}" \
-            -f "$SCRIPT_DIR/docker-compose.yml" \
-            -f "$SCRIPT_DIR/docker-compose.test.yml" \
-            --project-name nodum-test \
-            "$@"
+        resolve_env_file test
+        export NODUM_ENVIRONMENT=test NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-test}"
+        run nodum-test docker-compose.yml docker-compose.test.yml
+        ;;
+    staging)
+        resolve_env_file staging
+        export NODUM_ENVIRONMENT=staging NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-staging}"
+        run nodum-staging docker-compose.yml docker-compose.deploy.yml docker-compose.staging.yml
         ;;
     prod)
-        "${ENGINE[@]}" \
-            -f "$SCRIPT_DIR/docker-compose.yml" \
-            -f "$SCRIPT_DIR/docker-compose.prod.yml" \
-            --project-name nodum-prod \
-            "$@"
+        resolve_env_file prod
+        export NODUM_ENVIRONMENT=production NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-prod}"
+        run nodum-prod docker-compose.yml docker-compose.deploy.yml docker-compose.prod.yml
         ;;
     *)
-        echo "Usage: $0 {dev|test|prod} [compose args...]"
+        echo "Usage: $0 {dev|test|staging|prod} [compose args...]" >&2
         exit 1
         ;;
 esac

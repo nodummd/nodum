@@ -131,7 +131,7 @@ browser tabs**; and **directly editable tables**.
 | Backend | FastAPI · SQLAlchemy 2 (async) · PostgreSQL 16 + pgvector · Redis 7 · Celery (+beat) · MinIO |
 | Frontend | Next.js 16 · React 19 · Tailwind v4 · CodeMirror 6 · @cosmos.gl/graph · shadcn/radix · TanStack Query · Zustand |
 | Realtime | Yjs · pycrdt over websockets |
-| Deploy | Docker Compose (dev / test / prod) — Docker or Podman |
+| Deploy | Docker Compose (dev / test / staging / prod) + Caddy edge proxy with automatic TLS — Docker or Podman |
 
 ## Quick start
 
@@ -150,17 +150,28 @@ Or from the repo root: `make dev-up`, `make dev-logs`, `make dev-down`
 ## Self-hosting
 
 ```bash
-cd deploy
-./compose.sh prod up -d --build
+cp deploy/.env.prod.example deploy/.env.prod   # fill it in, then chmod 600
+cd deploy && ./compose.sh prod up -d --build
+./smoke.sh https://your-domain                 # signup → note → attachment round-trip
 ```
 
-Fill `deploy/.env` with real secrets first — **the API refuses to start with placeholder
-values**. Put a reverse proxy in front of `web:3000`; if it terminates TLS, set
-`TRUST_PROXY_HEADERS=true` so rate limiting sees real client IPs. Every compose host port
-binds to `127.0.0.1`, and prod containers run non-root.
+The stack is fully containerised, edge proxy included. **Caddy** terminates TLS
+(certificates provisioned and renewed automatically), proxies `/api` to the API and `/s3`
+to MinIO for presigned attachment URLs, and is the only container that binds a host port —
+Postgres and Redis aren't even on its network. Schema changes run in a one-shot `migrate`
+container that everything else waits on, so no two containers ever race Alembic.
 
-Deployment and backup/restore runbooks live in [`docs/deploy.md`](docs/deploy.md) and
-[`docs/backup.md`](docs/backup.md).
+**Staging is the same stack**, from the same compose layer, with its own credentials and
+ports so it can share a host:
+
+```bash
+cp deploy/.env.staging.example deploy/.env.staging
+cd deploy && ./compose.sh staging up -d --build
+```
+
+The API refuses to start on placeholder or known-default credentials, in staging as well
+as production. Deployment and backup/restore runbooks live in
+[`docs/deploy.md`](docs/deploy.md) and [`docs/backup.md`](docs/backup.md).
 
 ## Testing
 
@@ -180,7 +191,7 @@ push, alongside gitleaks secret scanning.
 back/      FastAPI backend — app/{api,services,models,schemas}, alembic, tests
 web/       Next.js frontend — app router, workspace UI, CM6 editor, graph, Playwright e2e
 clipper/   MV3 Chrome extension (Web Clipper)
-deploy/    docker-compose dev/test/prod, compose.sh, .env.example
+deploy/    compose stacks (dev/test/staging/prod), Caddy config, smoke test, .env examples
 docs/      deploy & backup runbooks, collab notes, Obsidian-parity research specs
 tasks/     master plan, audit & roadmap, backlog — the decision documents
 ```

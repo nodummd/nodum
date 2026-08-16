@@ -24,6 +24,31 @@ test-up:         ## Start test stack (isolated ports)
 test-down:       ## Stop test stack
 	./deploy/compose.sh test down -v
 
+# ── Deployments ─────────────────────────────────────────────
+# Staging and production run the same compose layer, so staging is a real
+# mirror. Each needs its own env file — see deploy/.env.{staging,prod}.example.
+staging-up:      ## Start staging stack (needs deploy/.env.staging)
+	./deploy/compose.sh staging up -d --build
+
+staging-down:    ## Stop staging stack
+	./deploy/compose.sh staging down
+
+staging-logs:    ## Follow staging API logs
+	./deploy/compose.sh staging logs -f api
+
+prod-up:         ## Start production stack (needs deploy/.env.prod)
+	./deploy/compose.sh prod up -d --build
+
+prod-down:       ## Stop production stack
+	./deploy/compose.sh prod down
+
+prod-logs:       ## Follow production API logs
+	./deploy/compose.sh prod logs -f api
+
+prod-verify:     ## Boot production locally on :8080 and smoke-test it end to end
+	NODUM_HTTP_PORT=8080 NODUM_HTTPS_PORT=8081 ./deploy/compose.sh prod up -d --build
+	./deploy/smoke.sh http://localhost:8080
+
 # ── Backend ─────────────────────────────────────────────────
 back-test:       ## Run backend unit tests
 	cd back && uv run pytest tests/unit -q

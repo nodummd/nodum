@@ -52,8 +52,17 @@ async def wait_for_db() -> None:
 asyncio.run(wait_for_db())
 EOF
 
-echo "[pre-start] Running Alembic migrations..."
-uv run alembic upgrade head
+# Alembic has no locking, so two containers upgrading at once is a real race.
+# The deploy stacks run migrations in a dedicated one-shot `migrate` service
+# and set RUN_MIGRATIONS=false everywhere else, which also lets the API scale
+# past one replica. Dev leaves it unset and migrates in place.
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+    echo "[pre-start] Running Alembic migrations..."
+    uv run alembic upgrade head
+    echo "[pre-start] Migrations complete."
+else
+    echo "[pre-start] RUN_MIGRATIONS=false — skipping (the migrate service owns this)."
+fi
 
-echo "[pre-start] Migrations complete. Starting application..."
+echo "[pre-start] Starting application..."
 exec "$@"
