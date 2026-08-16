@@ -168,10 +168,17 @@ key never appears in a browser payload.
 | 5 | ~~B2 chat panel + gate~~ | M | ✅ Done 2026-08-16 |
 | 6 | ~~B3 vault-writing tools~~ | L | ✅ Done 2026-08-16 |
 
-Both features are complete. What is deliberately NOT done yet: streaming
-replies (every turn arrives whole), conversation persistence (a chat lives in
-the panel until reload), and per-vault AI keys (a key is per user, shared by
-all their vaults).
+| 7 | ~~B4 saved chat history~~ | M | ✅ Done 2026-08-16 (`a974128`) |
+
+Both features are complete. **B4 (added after the fact):** chats are stored per
+vault in `ai_conversations` / `ai_messages` (migration 0015). The client sends
+only the new message and the server rebuilds the transcript from its own rows,
+so history survives reloads and devices and a client cannot rewrite what the
+model was told. A failed turn rolls back rather than leaving a half-written
+thread.
+
+What is deliberately NOT done yet: streaming replies (every turn arrives whole)
+and per-vault AI keys (a key is per user, shared by all their vaults).
 
 ## Carried over from the previous goal doc
 
