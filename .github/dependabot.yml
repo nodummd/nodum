@@ -1,0 +1,72 @@
+# Dependency updates.
+#
+# Grouped aggressively on purpose: an ungrouped config on a stack this size
+# opens ~20 PRs a week, which trains you to close them unread. One PR per
+# ecosystem per week is a review you actually do.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: "/back"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Patch/minor across the board in one PR; majors get their own so the
+      # breaking one is not buried in a 40-package diff.
+      backend-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # kombu 5.6.2 declares `redis<6.5`, so a redis 8.x PR cannot resolve.
+      # Revisit when celery/kombu lifts the cap.
+      - dependency-name: redis
+        versions: [">=6.5"]
+
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      web-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # eslint-config-next's bundled eslint-plugin-react calls
+      # context.getFilename(), removed in ESLint 10 — v10 crashes on every file
+      # despite the `>=9.0.0` peer range.
+      - dependency-name: eslint
+        versions: [">=10"]
+      # typescript-eslint refuses to load against TS 7 ("does not support TS
+      # 7.0"), which takes linting out entirely.
+      - dependency-name: typescript
+        versions: [">=7"]
+
+  - package-ecosystem: docker
+    directories:
+      - "/back/build"
+      - "/web/docker"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(docker)"

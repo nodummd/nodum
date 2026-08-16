@@ -39,6 +39,17 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Base patches, then strip npm out of the runtime. This stage runs
+# `node server.js` against a self-contained standalone bundle and never
+# installs anything, but the npm that ships in the base image carries its own
+# vendored tree (brace-expansion, tar, picomatch, sigstore, ip-address) which
+# accounted for every fixable HIGH/CRITICAL Trivy found here — none of them
+# reachable, none of them fixable by updating our dependencies.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm \
+              /usr/local/bin/npm /usr/local/bin/npx \
+              /root/.npm
+
 RUN addgroup -S nodum && adduser -S nodum -G nodum
 
 COPY --from=build --chown=nodum:nodum /app/.next/standalone ./
