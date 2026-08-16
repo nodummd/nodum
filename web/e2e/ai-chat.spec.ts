@@ -110,7 +110,10 @@ test.describe("AI chat panel", () => {
 
     // The open note travelled as context, and the key went to the provider —
     // never to the browser.
-    const sent = stubRequests[0] as { headers: Record<string, string>; body: { messages: { role: string; content: string }[] } };
+    const sent = stubRequests[0] as {
+      headers: Record<string, string>;
+      body: { messages: { role: string; content: string }[] };
+    };
     expect(sent.headers.authorization).toBe("Bearer sk-stub-e2e-key");
     expect(sent.body.messages[0].content).toContain("Welcome to Nodum");
   });
@@ -146,6 +149,63 @@ test.describe("AI chat panel", () => {
     // The tool result went back to the provider before it answered.
     const second = stubRequests[1] as { body: { messages: { role: string }[] } };
     expect(second.body.messages.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  test("the transcript survives a reload, and old chats can be reopened", async ({ page }) => {
+    await signupFreshUser(page, "ai-history");
+    await configureStubProvider(page, stubUrl);
+    await page.reload();
+    await openAiPanel(page);
+
+    stubReplies = [chatMessage("First answer.")];
+    await page.getByLabel("Message the assistant").fill("First question");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("First answer.")).toBeVisible({ timeout: 15_000 });
+
+    // The whole point: a reload does not lose the conversation.
+    await page.reload();
+    await openAiPanel(page);
+    await expect(page.getByText("First question")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("First answer.")).toBeVisible();
+
+    // A second thread is separate, and the first is still reachable.
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await expect(page.getByText("First question")).toHaveCount(0);
+    stubReplies = [chatMessage("Second answer.")];
+    await page.getByLabel("Message the assistant").fill("Second question");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Second answer.")).toBeVisible({ timeout: 15_000 });
+
+    // Continuing a thread sends its history — the server rebuilds it, so the
+    // provider sees the earlier turns even though the client posted one line.
+    const lastCall = stubRequests.at(-1) as { body: { messages: { content: string }[] } };
+    expect(lastCall.body.messages.map((m) => m.content)).toContain("Second question");
+    expect(lastCall.body.messages.map((m) => m.content)).not.toContain("First question");
+
+    await page.getByRole("button", { name: "Chat history" }).click();
+    await page.getByRole("menuitem", { name: "First question" }).click();
+    await expect(page.getByText("First answer.")).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("a chat can be deleted from the history menu", async ({ page }) => {
+    await signupFreshUser(page, "ai-delete");
+    await configureStubProvider(page, stubUrl);
+    await page.reload();
+    await openAiPanel(page);
+
+    stubReplies = [chatMessage("Answer.")];
+    await page.getByLabel("Message the assistant").fill("Disposable question");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Answer.")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole("button", { name: "Chat history" }).click();
+    await page.getByRole("button", { name: "Delete chat Disposable question" }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("Disposable question")).toHaveCount(0, { timeout: 10_000 });
+
+    await page.reload();
+    await openAiPanel(page);
+    await expect(page.getByText("Disposable question")).toHaveCount(0);
   });
 
   test("a provider failure is reported and the question is not lost", async ({ page }) => {

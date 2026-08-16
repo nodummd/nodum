@@ -232,4 +232,27 @@ export interface AIChatReply {
   provider: string;
   model: string;
   actions?: AIAction[];
+  /** The thread this turn was appended to — a new one when none was sent. */
+  conversation_id: string;
+  title: string;
+}
+
+export interface AIConversationMeta {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+  actions: AIAction[];
+}
+
+export interface AIConversationDetail {
+  id: string;
+  title: string;
+  updated_at: string;
+  messages: AIConversationMessage[];
 }

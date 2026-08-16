@@ -11,17 +11,19 @@ gets serialized to the browser.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.ai import AICredential
+from app.models.ai import AIConversation, AICredential, AIMessage
 from app.models.auth import User
 from app.services import ai_providers, ai_tools
 from app.services.ai_providers import PROVIDERS, ProviderError
 from app.services.service_response import ServiceResponse
+from app.services.vault_service import get_owned_vault
 from app.utils.crypto_utils import decrypt_secret, encrypt_secret, encryption_available, mask_secret
 
 logger = logging.getLogger(__name__)
@@ -203,6 +205,115 @@ async def test_credential(db: AsyncSession, user_id: UUID, provider: str) -> Ser
     return ServiceResponse.ok({"provider": credential.provider, "model": credential.model, "reply": reply[:200]})
 
 
+# ── Saved conversations ───────────────────────────────────────────────────────
+
+
+def _title_from(message: str) -> str:
+    """Name a thread after the question that opened it — a list of "New chat"
+    rows is useless, and nobody titles a chat by hand."""
+    first = message.strip().splitlines()[0] if message.strip() else ""
+    return (first[:117] + "…") if len(first) > 118 else (first or "New chat")
+
+
+async def _owned_conversation(
+    db: AsyncSession, user_id: UUID, vault_id: UUID, conversation_id: UUID
+) -> AIConversation | None:
+    """Scoped by BOTH owner and vault: a conversation id from another vault must
+    not be answerable here, since the tools would act on this one."""
+    result = await db.execute(
+        select(AIConversation).where(
+            AIConversation.id == conversation_id,
+            AIConversation.user_id == user_id,
+            AIConversation.vault_id == vault_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _conversation_messages(db: AsyncSession, conversation_id: UUID) -> list[AIMessage]:
+    result = await db.execute(
+        select(AIMessage)
+        .where(AIMessage.conversation_id == conversation_id)
+        .order_by(AIMessage.created_at, AIMessage.id)
+    )
+    return list(result.scalars().all())
+
+
+async def list_conversations(
+    db: AsyncSession, user_id: UUID, vault_id: UUID, limit: int = 50
+) -> ServiceResponse[list[dict[str, Any]]]:
+    """This vault's chat threads, most recently used first."""
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    result = await db.execute(
+        select(AIConversation)
+        .where(AIConversation.user_id == user_id, AIConversation.vault_id == vault_id)
+        .order_by(AIConversation.updated_at.desc())
+        .limit(min(limit, 200))
+    )
+    return ServiceResponse.ok(
+        [
+            {
+                "id": str(c.id),
+                "title": c.title,
+                "created_at": c.created_at.isoformat(),
+                "updated_at": c.updated_at.isoformat(),
+            }
+            for c in result.scalars().all()
+        ]
+    )
+
+
+async def get_conversation(
+    db: AsyncSession, user_id: UUID, vault_id: UUID, conversation_id: UUID
+) -> ServiceResponse[dict[str, Any]]:
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    conversation = await _owned_conversation(db, user_id, vault_id, conversation_id)
+    if conversation is None:
+        return ServiceResponse.fail("not_found", "Conversation not found.")
+    messages = await _conversation_messages(db, conversation.id)
+    return ServiceResponse.ok(
+        {
+            "id": str(conversation.id),
+            "title": conversation.title,
+            "updated_at": conversation.updated_at.isoformat(),
+            "messages": [
+                {"role": m.role, "content": m.content, "actions": m.actions or []} for m in messages
+            ],
+        }
+    )
+
+
+async def delete_conversation(
+    db: AsyncSession, user_id: UUID, vault_id: UUID, conversation_id: UUID
+) -> ServiceResponse[None]:
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    conversation = await _owned_conversation(db, user_id, vault_id, conversation_id)
+    if conversation is None:
+        return ServiceResponse.fail("not_found", "Conversation not found.")
+    await db.delete(conversation)  # messages cascade at the DB level
+    await db.commit()
+    return ServiceResponse.ok(None)
+
+
+async def rename_conversation(
+    db: AsyncSession, user_id: UUID, vault_id: UUID, conversation_id: UUID, title: str
+) -> ServiceResponse[dict[str, Any]]:
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    conversation = await _owned_conversation(db, user_id, vault_id, conversation_id)
+    if conversation is None:
+        return ServiceResponse.fail("not_found", "Conversation not found.")
+    cleaned = title.strip()[:200]
+    if not cleaned:
+        return ServiceResponse.fail("validation_failed", "A title is required.")
+    conversation.title = cleaned
+    await db.commit()
+    return ServiceResponse.ok({"id": str(conversation.id), "title": conversation.title})
+
+
 async def chat(
     db: AsyncSession,
     user_id: UUID,
@@ -247,25 +358,46 @@ async def chat_with_vault(
     user_id: UUID,
     vault_id: UUID,
     *,
-    messages: list[dict[str, str]],
+    message: str,
+    conversation_id: UUID | None = None,
     context: str = "",
 ) -> ServiceResponse[dict[str, Any]]:
     """A chat turn that can search, read and write the vault.
+
+    The transcript comes from the database, not from the client: the client
+    sends one new message and the server appends it to the stored conversation.
+    That keeps history intact across reloads and devices, and means a client
+    cannot rewrite what the assistant was told earlier.
 
     The tool loop runs here, on the server, because the tools touch the
     database and the key must never leave it. It is bounded: at most
     MAX_TOOL_ROUNDS provider round-trips, so a model that keeps calling tools
     cannot spend the user's money in a loop.
     """
-    if not messages:
-        return ServiceResponse.fail("validation_failed", "No messages.")
-    if len(messages) > MAX_MESSAGES:
-        messages = messages[-MAX_MESSAGES:]
-    for message in messages:
-        if message.get("role") not in ("user", "assistant"):
-            return ServiceResponse.fail("validation_failed", "Messages must be from user or assistant.")
-        if len(message.get("content", "")) > MAX_MESSAGE_CHARS:
-            return ServiceResponse.fail("validation_failed", "That message is too long.")
+    message = (message or "").strip()
+    if not message:
+        return ServiceResponse.fail("validation_failed", "No message.")
+    if len(message) > MAX_MESSAGE_CHARS:
+        return ServiceResponse.fail("validation_failed", "That message is too long.")
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+
+    if conversation_id is None:
+        conversation = AIConversation(user_id=user_id, vault_id=vault_id, title=_title_from(message))
+        db.add(conversation)
+        await db.flush()
+        prior: list[dict[str, str]] = []
+    else:
+        found = await _owned_conversation(db, user_id, vault_id, conversation_id)
+        if found is None:
+            return ServiceResponse.fail("not_found", "Conversation not found.")
+        conversation = found
+        prior = [
+            {"role": m.role, "content": m.content}
+            for m in await _conversation_messages(db, conversation.id)
+        ][-MAX_MESSAGES:]
+
+    messages = [*prior, {"role": "user", "content": message}]
 
     resolved = await resolve(db, user_id)
     if not resolved.success:
@@ -293,6 +425,7 @@ async def chat_with_vault(
     ]
     actions: list[dict[str, Any]] = []
 
+    reply = ""
     try:
         for _ in range(ai_tools.MAX_TOOL_ROUNDS):
             turn = await ai_providers.turn(
@@ -305,14 +438,8 @@ async def chat_with_vault(
                 base_url=credential.base_url,
             )
             if not turn.tool_calls:
-                return ServiceResponse.ok(
-                    {
-                        "reply": turn.text,
-                        "provider": provider,
-                        "model": credential.model,
-                        "actions": actions,
-                    }
-                )
+                reply = turn.text
+                break
             if turn.raw_message is not None:
                 history.append(turn.raw_message)
             for call in turn.tool_calls:
@@ -321,18 +448,36 @@ async def chat_with_vault(
                 if recorded:
                     actions.append(recorded)
                 history.append(ai_providers.tool_result_message(provider, call, result))
-        # Ran out of rounds with tools still pending: report what was done
-        # rather than pretending nothing happened.
-        return ServiceResponse.ok(
-            {
-                "reply": "I stopped after several steps. Ask me to continue if that was not enough.",
-                "provider": provider,
-                "model": credential.model,
-                "actions": actions,
-            }
-        )
+        else:
+            # Ran out of rounds with tools still pending: say so rather than
+            # pretending nothing happened. Anything it already did is in
+            # `actions` and has been written to the vault.
+            reply = "I stopped after several steps. Ask me to continue if that was not enough."
     except ProviderError as exc:
+        # The turn failed, so nothing is stored — the panel puts the question
+        # back in the box and a retry starts from the same history.
+        await db.rollback()
         return ServiceResponse.fail("validation_failed", str(exc))
     except Exception:
         logger.warning("ai vault chat failed for provider=%s", provider, exc_info=True)
+        await db.rollback()
         return ServiceResponse.fail("validation_failed", "Could not reach the provider.")
+
+    db.add(AIMessage(conversation_id=conversation.id, role="user", content=message))
+    db.add(
+        AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions)
+    )
+    # Touch the thread so the history list sorts by real activity. (The tools
+    # may have committed mid-turn, which leaves updated_at stale otherwise.)
+    conversation.updated_at = datetime.now(UTC)
+    await db.commit()
+    return ServiceResponse.ok(
+        {
+            "conversation_id": str(conversation.id),
+            "title": conversation.title,
+            "reply": reply,
+            "provider": provider,
+            "model": credential.model,
+            "actions": actions,
+        }
+    )

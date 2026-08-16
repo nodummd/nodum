@@ -38,8 +38,18 @@ class ChatRequest(BaseModel):
     context: str = Field(default="", max_length=20_000)
 
 
-class VaultChatRequest(ChatRequest):
-    """Chat that can act on a vault — same body, plus the vault in the path."""
+class VaultChatRequest(BaseModel):
+    """One new message. The rest of the transcript comes from the stored
+    conversation — the client cannot rewrite what the model was told."""
+
+    message: str = Field(max_length=20_000)
+    conversation_id: UUID | None = None
+    # Vault context the panel wants the model to have (note title/body excerpt).
+    context: str = Field(default="", max_length=20_000)
+
+
+class RenameConversationRequest(BaseModel):
+    title: str = Field(max_length=200)
 
 
 
@@ -78,18 +88,57 @@ async def test_credential(provider: str, user_id: CurrentUserId, db: SessionDep)
     return {"data": (await ai_service.test_credential(db, user_id, provider)).unwrap()}
 
 
+@router.get("/vaults/{vault_id}/conversations")
+async def list_conversations(vault_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """This vault's saved chats, most recently used first."""
+    return {"data": (await ai_service.list_conversations(db, user_id, vault_id)).unwrap()}
+
+
+@router.get("/vaults/{vault_id}/conversations/{conversation_id}")
+async def get_conversation(
+    vault_id: UUID, conversation_id: UUID, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    """One saved chat, in full — this is what a reloaded panel restores from."""
+    return {"data": (await ai_service.get_conversation(db, user_id, vault_id, conversation_id)).unwrap()}
+
+
+@router.patch("/vaults/{vault_id}/conversations/{conversation_id}")
+async def rename_conversation(
+    vault_id: UUID,
+    conversation_id: UUID,
+    body: RenameConversationRequest,
+    user_id: CurrentUserId,
+    db: SessionDep,
+) -> dict[str, Any]:
+    data = (
+        await ai_service.rename_conversation(db, user_id, vault_id, conversation_id, body.title)
+    ).unwrap()
+    return {"data": data}
+
+
+@router.delete("/vaults/{vault_id}/conversations/{conversation_id}")
+async def delete_conversation(
+    vault_id: UUID, conversation_id: UUID, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    (await ai_service.delete_conversation(db, user_id, vault_id, conversation_id)).unwrap()
+    return {"data": {"message": "Deleted."}}
+
+
 @router.post("/vaults/{vault_id}/chat")
 async def chat_in_vault(
     vault_id: UUID, body: VaultChatRequest, user_id: CurrentUserId, db: SessionDep
 ) -> dict[str, Any]:
     """A chat turn the assistant can answer by searching, reading, creating and
-    extending notes in this vault. Every write is reported back in `actions`."""
+    extending notes in this vault. The turn is appended to the conversation
+    (a new one is started when no id is given), and every write to the vault is
+    reported back in `actions`."""
     data = (
         await ai_service.chat_with_vault(
             db,
             user_id,
             vault_id,
-            messages=[{"role": m.role, "content": m.content} for m in body.messages],
+            message=body.message,
+            conversation_id=body.conversation_id,
             context=body.context,
         )
     ).unwrap()

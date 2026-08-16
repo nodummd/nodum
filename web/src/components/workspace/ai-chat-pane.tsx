@@ -7,33 +7,34 @@
  * which decrypts the user's key, calls the provider, runs any vault tools the
  * model asked for, and returns the reply plus a record of what it changed.
  *
+ * The transcript lives on the server, not here. Only the new message is sent;
+ * the history comes back from the conversation, so a reload, a second device or
+ * a cleared browser all keep the thread. Reopening the panel restores the chat
+ * you were last in.
+ *
  * Not configured is a first-class state, not an error: the panel explains what
  * is missing and opens the settings tab that fixes it.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, RefreshCw, Send, Sparkles } from "lucide-react";
+import { Check, FilePlus2, History, Plus, Send, Sparkles, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ReadingView } from "@/components/editor/reading-view";
 import { Button } from "@/components/ui/button";
-import { aiApi, noteApi } from "@/lib/api/endpoints";
-import type { Note } from "@/lib/api/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { aiApi } from "@/lib/api/endpoints";
+import type { AIAction, AIConversationMessage, Note } from "@/lib/api/types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { toastError } from "@/lib/stores/toast-store";
 import { cn } from "@/lib/utils";
-
-interface Action {
-  kind: string;
-  title: string;
-  note_id: string;
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  actions?: Action[];
-}
 
 const CONTEXT_CHARS = 4_000;
 
@@ -49,59 +50,104 @@ export function AiChatPane({
   const queryClient = useQueryClient();
   const openSettings = useWorkspaceStore((s) => s.openSettings);
   const { data: status, isLoading } = useQuery({ queryKey: ["ai-status"], queryFn: aiApi.status });
-  const [messages, setMessages] = useState<Message[]>([]);
+
+  // Which thread is showing, as an intent rather than an id — so "the most
+  // recent one" survives the list loading, and "new chat" is not immediately
+  // undone by it. Derived below; no effect syncs anything.
+  type Selection = { mode: "auto" } | { mode: "new" } | { mode: "pick"; id: string };
+  const [selection, setSelection] = useState<Selection>({ mode: "auto" });
+  // Turns taken in this panel since the last load, layered over the stored
+  // transcript so the reply appears without a refetch.
+  const [pending, setPending] = useState<AIConversationMessage[]>([]);
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+
+  const configured = Boolean(status?.configured);
+  const { data: conversations } = useQuery({
+    queryKey: ["ai-conversations", vaultId],
+    queryFn: () => aiApi.conversations(vaultId),
+    enabled: configured,
+  });
+  // Reopening the panel returns to the thread you were last in — the point of
+  // keeping history at all.
+  const conversationId =
+    selection.mode === "pick"
+      ? selection.id
+      : selection.mode === "new"
+        ? null
+        : (conversations?.[0]?.id ?? null);
+
+  const { data: conversation } = useQuery({
+    queryKey: ["ai-conversation", vaultId, conversationId],
+    queryFn: () => aiApi.conversation(vaultId, conversationId as string),
+    enabled: configured && conversationId !== null,
+  });
+
+  const messages: AIConversationMessage[] = [...(conversation?.messages ?? []), ...pending];
+
+  const scrollToEnd = () => requestAnimationFrame(() => listRef.current?.scrollTo({ top: 1e6 }));
 
   const send = useMutation({
     mutationFn: async (text: string) => {
       // Whatever note is open goes along as context, so "summarise this" works.
       const open = noteId ? queryClient.getQueryData<Note>(["note", vaultId, noteId]) : undefined;
       const context = open ? `# ${open.title}\n\n${open.content.slice(0, CONTEXT_CHARS)}` : "";
-      const history = [...messages, { role: "user" as const, content: text }];
       return aiApi.vaultChat(vaultId, {
-        messages: history.map((m) => ({ role: m.role, content: m.content })),
+        message: text,
+        conversation_id: conversationId ?? undefined,
         context,
       });
     },
     onMutate: (text: string) => {
-      setMessages((m) => [...m, { role: "user", content: text }]);
+      setPending((m) => [...m, { role: "user", content: text, actions: [] }]);
       setDraft("");
-      requestAnimationFrame(() => listRef.current?.scrollTo({ top: 1e6 }));
+      scrollToEnd();
     },
     onSuccess: (data) => {
-      setMessages((m) => [
+      setPending((m) => [
         ...m,
         { role: "assistant", content: data.reply, actions: data.actions ?? [] },
       ]);
-      // The assistant may have written notes — the tree, graph and backlinks
-      // are all stale now.
+      // The turn is stored now; adopt its thread and let the queries catch up.
+      setSelection({ mode: "pick", id: data.conversation_id });
+      void queryClient.invalidateQueries({ queryKey: ["ai-conversations", vaultId] });
+      void queryClient
+        .invalidateQueries({ queryKey: ["ai-conversation", vaultId, data.conversation_id] })
+        // Once the stored transcript includes this turn, the local copy would
+        // double it.
+        .then(() => setPending([]));
       if ((data.actions ?? []).length > 0) {
         void queryClient.invalidateQueries({ queryKey: ["tree", vaultId] });
         void queryClient.invalidateQueries({ queryKey: ["graph", vaultId] });
         void queryClient.invalidateQueries({ queryKey: ["backlinks", vaultId] });
       }
-      requestAnimationFrame(() => listRef.current?.scrollTo({ top: 1e6 }));
+      scrollToEnd();
     },
-    onError: (e) => {
+    onError: (e, text) => {
       toastError(e, "The AI request failed.");
-      // Put the question back so it is not lost with the failure.
-      setMessages((m) => {
-        const last = m.at(-1);
-        if (last?.role === "user") {
-          setDraft(last.content);
-          return m.slice(0, -1);
-        }
-        return m;
-      });
+      // Nothing was stored, so drop the optimistic question and hand it back.
+      setPending((m) => m.filter((msg) => msg.content !== text || msg.role !== "user"));
+      setDraft(text);
     },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => aiApi.deleteConversation(vaultId, id),
+    onSuccess: (_data, id) => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-conversations", vaultId] });
+      if (id === conversationId) {
+        setSelection({ mode: "auto" }); // fall back to the next most recent
+        setPending([]);
+      }
+    },
+    onError: (e) => toastError(e, "Could not delete that chat."),
   });
 
   if (isLoading) {
     return <p className="p-2 text-[13px] text-ob-faint">Loading…</p>;
   }
 
-  if (!status?.configured) {
+  if (!configured) {
     return (
       <div className="flex h-full flex-col items-start justify-center gap-3 p-4 text-[13px]">
         <Sparkles className="size-5 text-ob-accent" strokeWidth={1.75} />
@@ -120,22 +166,80 @@ export function AiChatPane({
     );
   }
 
+  const startNewChat = () => {
+    setSelection({ mode: "new" });
+    setPending([]);
+  };
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-ob-border px-1 pb-1.5 text-[11px] text-ob-faint">
+      <div className="flex items-center gap-1 border-b border-ob-border px-1 pb-1.5 text-[11px] text-ob-faint">
         <span className="truncate">
-          {status.active_provider} · {status.active_model}
+          {status?.active_provider} · {status?.active_model}
         </span>
-        {messages.length > 0 && (
+        <div className="ml-auto flex items-center gap-0.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Chat history"
+                className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-ob-hover hover:text-ob-text"
+              >
+                <History className="size-3.5" strokeWidth={2} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
+              <DropdownMenuLabel className="text-[11px] tracking-wide text-ob-faint uppercase">
+                Chats in this vault
+              </DropdownMenuLabel>
+              {(conversations ?? []).length === 0 && (
+                <p className="px-2 py-1.5 text-[12px] text-ob-faint">Nothing saved yet.</p>
+              )}
+              {(conversations ?? []).map((c) => (
+                <DropdownMenuItem
+                  key={c.id}
+                  onSelect={() => {
+                    setSelection({ mode: "pick", id: c.id });
+                    setPending([]);
+                    scrollToEnd();
+                  }}
+                >
+                  {c.id === conversationId ? (
+                    <Check className="mr-2 size-3.5 shrink-0 text-ob-accent" strokeWidth={2.5} />
+                  ) : (
+                    <span className="mr-2 w-3.5 shrink-0" aria-hidden />
+                  )}
+                  <span className="truncate">{c.title}</span>
+                  <button
+                    type="button"
+                    aria-label={`Delete chat ${c.title}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      remove.mutate(c.id);
+                    }}
+                    className="ml-auto shrink-0 text-ob-faint hover:text-red-400"
+                  >
+                    <Trash2 className="size-3" strokeWidth={2} />
+                  </button>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={startNewChat}>
+                <Plus className="mr-2 size-3.5 shrink-0" strokeWidth={2} />
+                New chat
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
-            onClick={() => setMessages([])}
-            className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 hover:bg-ob-hover hover:text-ob-text"
+            aria-label="New chat"
+            onClick={startNewChat}
+            className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-ob-hover hover:text-ob-text"
           >
-            <RefreshCw className="size-3" strokeWidth={2} />
-            New chat
+            <Plus className="size-3.5" strokeWidth={2} />
           </button>
-        )}
+        </div>
       </div>
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto py-2">
@@ -166,8 +270,9 @@ export function AiChatPane({
                 <p className="whitespace-pre-wrap">{message.content}</p>
               )}
             </div>
-            {/* Every vault change is shown, never silent. */}
-            {(message.actions ?? []).map((action) => (
+            {/* Every vault change is shown, never silent — and it is stored with
+                the message, so a restored thread still shows what was written. */}
+            {(message.actions ?? []).map((action: AIAction) => (
               <button
                 key={`${action.note_id}-${action.kind}`}
                 type="button"
