@@ -1,0 +1,47 @@
+# ============================================================
+# External object storage
+# ============================================================
+# Layered in automatically by compose.sh whenever the environment file sets a
+# non-empty S3_ENDPOINT_URL — i.e. when attachments live in a managed store
+# (Hetzner Object Storage, AWS S3, Cloudflare R2, Backblaze B2) rather than in
+# the bundled MinIO.
+#
+# What it does: takes MinIO out of the stack, and out of everything that waited
+# on it. That removes a stateful service, its volume, its memory budget and its
+# place in your backup plan — on a small host, the single biggest simplification
+# available.
+#
+# What you give up: nothing the application needs. Attachments are handed to the
+# browser as presigned URLs either way; with a managed store those URLs are
+# already public, so the /s3 route in the Caddyfile simply stops being used.
+# ============================================================
+
+services:
+  # An unreferenced profile is how a service gets excluded: nothing activates
+  # "bundled-s3", so MinIO is never created. Compose would otherwise pull the
+  # profile in automatically on behalf of anything that depends_on it — which
+  # is exactly why the dependencies below have to go too.
+  minio:
+    profiles: ["bundled-s3"]
+
+  api:
+    depends_on: !override
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-control:
+        condition: service_healthy
+    networks: !override
+      - app_network
+      - edge
+
+  caddy:
+    # Nothing generates /s3 URLs when the store is external, so the route in the
+    # Caddyfile is dead rather than broken. Caddy dials upstreams lazily, so an
+    # absent `minio` host costs nothing until something requests it.
+    depends_on: !override
+      web:
+        condition: service_healthy

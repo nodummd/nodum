@@ -55,6 +55,18 @@ jobs:
             ./compose.sh "$env" config --quiet
           done
 
+          # The managed-object-store path takes a different set of compose
+          # files, so render it too — and assert it really drops MinIO, which
+          # is the whole point of the override.
+          echo "── prod, external object store ──"
+          printf 'S3_ENDPOINT_URL=https://example.invalid\nS3_ACCESS_KEY=k\nS3_SECRET_KEY=s\n' >> .env.prod
+          sed -i 's|^S3_PUBLIC_URL=.*|S3_PUBLIC_URL=https://example.invalid|' .env.prod
+          ./compose.sh prod config --quiet
+          if ./compose.sh prod config --services | grep -qx minio; then
+            echo "::error::external-S3 override did not remove the minio service"; exit 1
+          fi
+          echo "minio correctly absent"
+
       # The proxy config is the one file compose cannot check for us, and a
       # broken Caddyfile takes the whole site down rather than one service.
       - name: Validate the Caddyfile
