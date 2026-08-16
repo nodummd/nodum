@@ -213,12 +213,10 @@ function OutgoingPane({
   vaultId,
   noteId,
   onOpenNote,
-  drawer = false,
 }: {
   vaultId: string;
   noteId: string | null;
   onOpenNote: (noteId: string, title: string) => void;
-  drawer?: boolean;
 }) {
   const { data } = useQuery({
     queryKey: ["outgoing", vaultId, noteId],
@@ -392,12 +390,10 @@ function LocalGraphPane({
   vaultId,
   noteId,
   onOpenNote,
-  drawer = false,
 }: {
   vaultId: string;
   noteId: string | null;
   onOpenNote: (noteId: string, title: string) => void;
-  drawer?: boolean;
 }) {
   const [depth, setDepth] = useState(1);
 
