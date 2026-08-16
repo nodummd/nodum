@@ -67,7 +67,5 @@ async def import_files(
                 continue
             zf.writestr(name, content)
 
-    stats = (
-        await vault_io_service.import_zip(db, vault_id, user_id, archive=buffer.getvalue())
-    ).unwrap()
+    stats = (await vault_io_service.import_zip(db, vault_id, user_id, archive=buffer.getvalue())).unwrap()
     return {"data": stats}

@@ -39,9 +39,7 @@ def _auth(tokens: dict) -> dict:
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-async def test_status_is_unconfigured_before_anything_is_saved(
-    client: AsyncClient, account: dict
-) -> None:
+async def test_status_is_unconfigured_before_anything_is_saved(client: AsyncClient, account: dict) -> None:
     resp = await client.get("/api/v1/ai/status", headers=_auth(account))
     assert resp.status_code == 200
     data = resp.json()["data"]
@@ -51,9 +49,7 @@ async def test_status_is_unconfigured_before_anything_is_saved(
     assert {p["id"] for p in data["providers"]} == {"anthropic", "openai", "gemini", "qwen"}
 
 
-async def test_the_key_is_stored_encrypted_and_never_returned(
-    client: AsyncClient, account: dict
-) -> None:
+async def test_the_key_is_stored_encrypted_and_never_returned(client: AsyncClient, account: dict) -> None:
     headers = _auth(account)
     saved = await client.put(
         "/api/v1/ai/credentials",
@@ -80,11 +76,7 @@ async def test_the_key_is_stored_encrypted_and_never_returned(
 
     # And the column itself is ciphertext.
     async with async_session_factory() as session:
-        row = (
-            await session.execute(
-                select(AICredential).where(AICredential.provider == "anthropic")
-            )
-        ).scalars().all()
+        row = (await session.execute(select(AICredential).where(AICredential.provider == "anthropic"))).scalars().all()
         stored = [c for c in row if c.key_hint.endswith(SECRET_KEY_VALUE[-4:])]
         assert stored, "credential row not found"
         assert SECRET_KEY_VALUE not in stored[0].key_ciphertext
@@ -110,9 +102,7 @@ async def test_another_user_cannot_see_or_delete_it(client: AsyncClient, account
     assert mine.json()["data"]["configured"] is True
 
 
-async def test_model_can_be_changed_without_re_pasting_the_key(
-    client: AsyncClient, account: dict
-) -> None:
+async def test_model_can_be_changed_without_re_pasting_the_key(client: AsyncClient, account: dict) -> None:
     headers = _auth(account)
     await client.put(
         "/api/v1/ai/credentials",
@@ -164,6 +154,4 @@ async def test_chat_without_a_key_says_so(client: AsyncClient, account: dict) ->
 
 async def test_ai_endpoints_require_authentication(client: AsyncClient) -> None:
     assert (await client.get("/api/v1/ai/status")).status_code == 401
-    assert (
-        await client.put("/api/v1/ai/credentials", json={"provider": "openai", "api_key": "x"})
-    ).status_code == 401
+    assert (await client.put("/api/v1/ai/credentials", json={"provider": "openai", "api_key": "x"})).status_code == 401

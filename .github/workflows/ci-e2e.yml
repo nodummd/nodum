@@ -4,10 +4,24 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.3"
 
 jobs:
   e2e:
+    name: Playwright (full stack)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+
     services:
       postgres:
         image: pgvector/pgvector:0.8.0-pg16
@@ -18,33 +32,48 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U nodum" --health-interval 5s
-          --health-timeout 5s --health-retries 10
+          --health-timeout 5s --health-retries 20
+
       redis:
         image: redis:7.4.2-alpine
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s
-          --health-timeout 5s --health-retries 10
-      minio:
-        image: bitnami/minio:2025.9.7
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports: ["9000:9000"]
+          --health-timeout 5s --health-retries 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      # NOT a `services:` container: the official MinIO image needs the
+      # `server /data` command and service containers cannot set one. The
+      # previous bitnami/minio:2025.9.7 pin was deleted from the public Docker
+      # Hub catalogue, which failed every run at container-init time.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
+              echo "MinIO ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::MinIO never became ready"; docker logs minio; exit 1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.0.1
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
+          cache-dependency-glob: back/uv.lock
 
       - name: Install backend deps
         working-directory: back
         run: uv sync --frozen
 
-      - name: Start API
+      - name: Migrate and start API
         working-directory: back
         env:
           ENVIRONMENT: dev
@@ -55,10 +84,16 @@ jobs:
           S3_PUBLIC_URL: http://localhost:9000
         run: |
           uv run alembic upgrade head
-          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break || sleep 1; done
+          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/health >/dev/null; then
+              echo "API ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::API never became ready"; cat api.log; exit 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -68,18 +103,45 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Build and start web
+      - name: Resolve Playwright version
+        id: pw
         working-directory: web
-        env:
-          API_PROXY_URL: http://127.0.0.1:8000
-        run: |
-          npm run build
-          nohup npx next start -p 3100 &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3100 >/dev/null && break || sleep 1; done
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
 
       - name: Install Playwright browsers
         working-directory: web
         run: npx playwright install --with-deps chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+
+      # Cache restores the browser binaries but not the apt libraries they
+      # link against, so system deps still have to be installed on a hit.
+      - name: Install Playwright system deps
+        working-directory: web
+        run: npx playwright install-deps chromium
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+
+      - name: Build and start web
+        working-directory: web
+        env:
+          API_PROXY_URL: http://127.0.0.1:8000
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          npm run build
+          nohup npx next start -p 3100 > web.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:3100 >/dev/null; then
+              echo "Web ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Web never became ready"; cat web.log; exit 1
 
       - name: Run e2e suite
         working-directory: web
@@ -87,10 +149,31 @@ jobs:
           BASE_URL: http://127.0.0.1:3100
         run: npx playwright test
 
-      - name: Upload traces on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
+      # `if: always()` (not `failure()`): a cancelled or early-failing job
+      # still uploads whatever exists, and `ignore` stops the upload step
+      # itself from erroring when the run died before producing anything.
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: playwright-traces
-          path: web/test-results/
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            web/playwright-report/
+            web/test-results/
           retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload server logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-logs-${{ github.run_id }}
+          path: |
+            back/api.log
+            web/web.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: MinIO logs on failure
+        if: failure()
+        run: docker logs minio || true

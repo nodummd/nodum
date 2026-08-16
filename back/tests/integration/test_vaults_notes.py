@@ -173,9 +173,7 @@ async def test_folders_and_notes_lifecycle(client: AsyncClient, auth: dict) -> N
     assert "Nodum roadmap" in root_titles
 
 
-async def test_note_create_with_folder_path_creates_missing_folders(
-    client: AsyncClient, auth: dict
-) -> None:
+async def test_note_create_with_folder_path_creates_missing_folders(client: AsyncClient, auth: dict) -> None:
     vaults = (await client.get("/api/v1/vaults", headers=auth)).json()["data"]
     vault_id = vaults[0]["id"]
 

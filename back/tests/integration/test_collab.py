@@ -168,9 +168,7 @@ async def test_room_churn_does_not_leak_redis_connections(workspace: dict, runni
         await asyncio.sleep(0.02)
         await collab_server.delete_room(name=name)
 
-    assert len(pool._in_use_connections) - baseline <= 1, (
-        "pubsub connections are not being returned to the pool"
-    )
+    assert len(pool._in_use_connections) - baseline <= 1, "pubsub connections are not being returned to the pool"
     # And the plane is still usable, which is what the leak actually broke.
     await redis_binary.publish(f"collab:{name}", b"\x00" * 33)
 
