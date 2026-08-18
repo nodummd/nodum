@@ -8,9 +8,12 @@ from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
 from app.schemas.auth import (
     ChangePasswordRequest,
+    DeleteAccountRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     RefreshRequest,
     ResendVerificationRequest,
+    ResetPasswordRequest,
     SignupRequest,
     TokenPairOut,
     UpdateProfileRequest,
@@ -18,7 +21,7 @@ from app.schemas.auth import (
     VerificationRequiredOut,
     VerifyEmailRequest,
 )
-from app.services import auth_service, email_verification_service
+from app.services import account_service, auth_service, email_verification_service
 from app.settings import get_settings
 from app.utils.cookie_utils import clear_refresh_cookie, read_refresh_cookie, set_refresh_cookie
 
@@ -120,6 +123,68 @@ async def resend_verification(body: ResendVerificationRequest, db: SessionDep) -
     (await email_verification_service.issue_code(db, user)).unwrap()
     await db.commit()
     return sent
+
+
+# ── Password reset ───────────────────────────────────────────────────────────
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, db: SessionDep) -> dict[str, Any]:
+    """Mail a reset code.
+
+    Answers the same way for an address with no account: unauthenticated, so a
+    truthful answer would say which addresses are worth attacking.
+    """
+    (await account_service.request_password_reset(db, email=body.email)).unwrap()
+    return {"data": {"message": "If that address has an account, a reset code is on its way."}}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    body: ResetPasswordRequest, request: Request, response: Response, db: SessionDep
+) -> dict[str, Any]:
+    """Set a new password from a mailed code and sign in with it.
+
+    Every session that existed before this call is already dead — see
+    account_service.reset_password.
+    """
+    user = (
+        await account_service.reset_password(db, email=body.email, code=body.code, new_password=body.new_password)
+    ).unwrap()
+    bundle = await auth_service.mint_session(
+        db,
+        user,
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+    )
+    set_refresh_cookie(response, bundle.refresh_token)
+    return {"data": _token_payload(bundle).model_dump()}
+
+
+# ── Account deletion ─────────────────────────────────────────────────────────
+
+
+@router.post("/delete-account/request")
+async def request_account_deletion(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Mail the code that authorises deleting this account."""
+    (await account_service.request_account_deletion(db, user_id)).unwrap()
+    settings = get_settings()
+    return {
+        "data": {
+            "message": "Check your email for the confirmation code.",
+            "expires_in_minutes": settings.EMAIL_OTP_TTL_MINUTES,
+        }
+    }
+
+
+@router.post("/delete-account")
+async def delete_account(
+    body: DeleteAccountRequest, user_id: CurrentUserId, response: Response, db: SessionDep
+) -> dict[str, Any]:
+    """Delete the account, its vaults, and the files behind them. Irreversible."""
+    (await account_service.delete_account(db, user_id, code=body.code)).unwrap()
+    clear_refresh_cookie(response)
+    return {"data": {"message": "Your account and everything in it has been deleted."}}
 
 
 @router.post("/refresh")

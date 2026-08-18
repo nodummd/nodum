@@ -28,6 +28,10 @@ class EmailVerification(UUIDMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    # What the code authorises: "signup", "password_reset" or "account_delete".
+    # Scoping every lookup by it is what stops one flow's code from being
+    # spent on another — a reset code must not delete an account.
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="signup", server_default="signup")
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -37,4 +41,4 @@ class EmailVerification(UUIDMixin, TimestampMixin, Base):
     delivered_via: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
 
     def __repr__(self) -> str:
-        return f"<EmailVerification user={self.user_id} expires={self.expires_at}>"
+        return f"<EmailVerification {self.purpose} user={self.user_id} expires={self.expires_at}>"

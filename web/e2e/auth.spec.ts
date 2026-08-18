@@ -113,3 +113,90 @@ test.describe("email verification", () => {
     await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
   });
 });
+
+/** Forgotten password: code + new password in one step, old sessions dropped. */
+test.describe("password reset", () => {
+  test("a reset code sets a new password and signs in", async ({ page }) => {
+    const email = await signupFreshUser(page, "reset-e2e");
+    await page.getByRole("button", { name: "Log out" }).click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 10_000 });
+
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByRole("button", { name: "Forgot password?" }).click();
+
+    await expect(page.getByRole("heading", { name: "Set a new password" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.getByLabel("Reset code").fill("000000");
+    await page.getByLabel("New password").fill("a-Brand-New-Pass1");
+    await page.getByRole("button", { name: "Set password and sign in" }).click();
+    await expect(page.getByText(/not correct/i)).toBeVisible({ timeout: 10_000 });
+
+    await page.getByLabel("Reset code").fill(DEV_OTP);
+    await page.getByLabel("New password").fill("a-Brand-New-Pass1");
+    await page.getByRole("button", { name: "Set password and sign in" }).click();
+    await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+
+    // The new password is the one that works now.
+    await page.getByRole("button", { name: "Log out" }).click();
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page.getByText(/invalid email or password/i)).toBeVisible({ timeout: 10_000 });
+
+    await page.getByLabel("Password").fill("a-Brand-New-Pass1");
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+  });
+});
+
+/** Account settings: changing the password, and closing the account for good. */
+test.describe("account settings", () => {
+  test("the password can be changed from settings", async ({ page }) => {
+    const email = await signupFreshUser(page, "changepw-e2e");
+
+    await page.keyboard.press("ControlOrMeta+Comma");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+    await dialog.getByLabel("Current").fill(PASSWORD);
+    await dialog.getByLabel("New (min 8)").fill("changed-Password-9");
+    await dialog.getByRole("button", { name: "Change password" }).click();
+    await expect(page.getByText(/password changed/i)).toBeVisible({ timeout: 10_000 });
+
+    // Changing it logs every session out, so the app returns to the login page.
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill("changed-Password-9");
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+  });
+
+  test("deleting the account needs the emailed code, then takes everything", async ({ page }) => {
+    const email = await signupFreshUser(page, "delete-e2e");
+
+    await page.keyboard.press("ControlOrMeta+Comma");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
+
+    await dialog.getByRole("button", { name: "Delete account" }).click();
+    await dialog.getByRole("button", { name: "Email me a code" }).click();
+    await expect(dialog.getByLabel("Confirmation code")).toBeVisible({ timeout: 10_000 });
+
+    await dialog.getByLabel("Confirmation code").fill("000000");
+    await dialog.getByRole("button", { name: "Delete my account permanently" }).click();
+    await expect(page.getByText(/not correct/i)).toBeVisible({ timeout: 10_000 });
+
+    await dialog.getByLabel("Confirmation code").fill(DEV_OTP);
+    await dialog.getByRole("button", { name: "Delete my account permanently" }).click();
+
+    // Back to the landing page, and the account no longer exists.
+    await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page.getByText(/invalid email or password/i)).toBeVisible({ timeout: 10_000 });
+  });
+});

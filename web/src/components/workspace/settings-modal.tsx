@@ -10,6 +10,7 @@ import { useRef, useState } from "react";
 
 import { AiSettingsTab } from "./ai-settings-tab";
 import { ClipperTab } from "./clipper-tab";
+import { DeleteAccountSection } from "./delete-account";
 import { PluginsTab } from "./plugins-tab";
 import { VaultsSection } from "./vaults-section";
 import { Button } from "@/components/ui/button";
@@ -367,6 +368,8 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                     Change password
                   </Button>
                 </section>
+
+                <DeleteAccountSection email={user?.email} />
               </>
             )}
 

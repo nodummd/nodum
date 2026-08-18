@@ -82,8 +82,12 @@ else
   elif [ "$(printf '%s' "$signup" | json_field status)" = "verification_required" ]; then
     # Not a failure: the account exists, the code row was written, and a
     # provider accepted the message — signup 502s when none of them do.
-    ok "signup through /api (verification required, code emailed)"
-    echo "      ↳ a real email went to $EMAIL; set SMOKE_EMAIL to stop bouncing mail at a dead domain"
+    ok "signup through /api (verification required, code issued)"
+    case "$SMOKE_ENV" in
+      prod|staging)
+        echo "      ↳ that mailed a real code to $EMAIL, a domain that does not exist."
+        echo "        Every run is another hard bounce — use SMOKE_EMAIL for anything but a one-off." ;;
+    esac
     if verify_in_db "$EMAIL"; then
       TOKEN=$(login "$EMAIL" "$PASSWORD")
       [ -n "$TOKEN" ] && ok "verified in the database, logged in" || bad "login after verifying failed"

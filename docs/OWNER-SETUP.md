@@ -46,6 +46,10 @@ can do:
 
 ## 3. Email delivery (required in production — signup sends a code)
 
+Three flows mail a six-digit code: confirming a new signup, resetting a
+forgotten password, and deleting an account. They share one provider chain,
+so configuring it once covers all three.
+
 Production requires new accounts to confirm their address, so the API
 **refuses to boot** with `EMAIL_VERIFICATION_REQUIRED=true` and no provider
 configured. Outside production nothing is mailed and the code is always
