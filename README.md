@@ -117,6 +117,11 @@ zip back whenever you want to leave.
   provider chain (Brevo → Mailjet → Resend → Mailgun → any SMTP relay), which both
   survives one provider's bad hour and stacks their free tiers. Outside production
   nothing is mailed and the code is always `123456`.
+- **Account recovery and closure** — forgotten-password reset by mailed code (which
+  drops every existing session, since that is what a reset is *for*), password change
+  from settings, and account deletion behind its own emailed code, taking the vaults,
+  notes and stored files with it. Codes are scoped by purpose, so a reset code cannot
+  delete an account.
 - **Built to scale** — async I/O end to end, Redis caching with targeted invalidation,
   Celery for import/export and background scans, WebGL rendering, CDN-friendly frontend.
 - **Operationally honest** — structured logging, request-id middleware, security headers,

@@ -41,6 +41,14 @@ export const authApi = {
     apiJson<TokenPair>("/auth/verify-email", "POST", body),
   resendVerification: (body: { email: string }) =>
     apiJson<{ message: string }>("/auth/resend-verification", "POST", body),
+  forgotPassword: (body: { email: string }) =>
+    apiJson<{ message: string }>("/auth/forgot-password", "POST", body),
+  resetPassword: (body: { email: string; code: string; new_password: string }) =>
+    apiJson<TokenPair>("/auth/reset-password", "POST", body),
+  requestAccountDeletion: () =>
+    apiJson<{ message: string; expires_in_minutes: number }>("/auth/delete-account/request", "POST"),
+  deleteAccount: (body: { code: string }) =>
+    apiJson<{ message: string }>("/auth/delete-account", "POST", body),
   refresh: () => apiJson<TokenPair>("/auth/refresh", "POST"),
   logout: () => apiJson<{ message: string }>("/auth/logout", "POST"),
   me: () => api<User>("/auth/me"),

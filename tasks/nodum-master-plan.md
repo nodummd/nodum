@@ -223,6 +223,30 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-19 (account recovery and closure)** — Three flows now hang off the
+  signup OTP work: forgotten-password reset, password change from settings
+  (the endpoint and UI already existed — it needed coverage, not code), and
+  account deletion behind its own emailed code.
+  `email_verifications` gained a `purpose` column, and every lookup is scoped
+  by it, so the code sitting in an inbox from signing up cannot be spent on a
+  password reset — the purpose is mixed into the HMAC too, belt and braces.
+  Reset drops every session that existed before it: a reset is what someone
+  does when they suspect they have lost control of the account, so leaving the
+  intruder's refresh token alive would defeat the exercise. It also marks the
+  address verified, since reaching a mailed code proves the mailbox as surely
+  as signup does.
+  Deletion is *not* gated on the password as well as the code: accounts made
+  through Google sign-in carry a random password their owner has never seen
+  (oauth_service mints one), so requiring it would lock exactly those people
+  out of closing their own account. It purges each vault's S3 prefix before
+  the row goes, because a DB cascade cannot reach into the bucket and orphaned
+  attachments are precisely what someone closing an account expects to be
+  gone; the purge is best-effort so a sulking bucket cannot strand a
+  half-deleted account.
+  9 new backend tests + 3 new e2e; 171 backend and the full e2e suite green.
+  Note for later: the one-shot backend failure seen mid-run was Redis still
+  coming up with Docker, not a regression — two clean runs after.
+
 - **2026-08-19 (smoke.sh caught up with verification)** — The first production
   deploy reported `✗ signup failed: {"status":"verification_required"…}`. The
   deploy was healthy: that 201 proves the API answered, the user and code rows

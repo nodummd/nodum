@@ -12,6 +12,7 @@ import { authApi } from "@/lib/api/endpoints";
 import { isVerificationRequired } from "@/lib/api/types";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
+import { ResetStep } from "./reset-step";
 import { VerifyStep } from "./verify-step";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
@@ -29,6 +30,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     ttlMinutes: number;
     justSent: boolean;
   } | null>(null);
+  // Set once a reset code has been requested for this address.
+  const [resetting, setResetting] = useState<{ email: string; ttlMinutes: number } | null>(null);
   const { data: providers } = useQuery({
     queryKey: ["auth-providers"],
     queryFn: authApi.providers,
@@ -66,6 +69,42 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
       setPending(false);
     }
   };
+
+  /** "Forgot password?" — send the code, then show the reset screen. The
+   *  server answers the same way for an address with no account, so this can
+   *  proceed without confirming anything about it. */
+  const startReset = async () => {
+    // Checked here because the button is outside the form's own validation,
+    // and the server's answer to a malformed address is a bare 422.
+    if (!/.+@.+\..+/.test(email.trim())) {
+      setError("Enter your email address first, then we can send you a reset code.");
+      return;
+    }
+    setError(null);
+    setPending(true);
+    try {
+      await authApi.forgotPassword({ email });
+      setResetting({ email, ttlMinutes: 15 });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send a reset code.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  if (resetting) {
+    return (
+      <ResetStep
+        email={resetting.email}
+        ttlMinutes={resetting.ttlMinutes}
+        onReset={(pair) => {
+          applyTokens(pair);
+          router.replace("/vault");
+        }}
+        onBack={() => setResetting(null)}
+      />
+    );
+  }
 
   if (awaitingCode) {
     return (
@@ -156,8 +195,16 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
               {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
           </div>
-          {mode === "signup" && (
+          {mode === "signup" ? (
             <p className="mt-2 text-[0.75rem] text-[var(--mk-faint)]">At least 8 characters.</p>
+          ) : (
+            <button
+              type="button"
+              onClick={startReset}
+              className="mt-2 text-[0.75rem] text-[var(--mk-faint)] underline-offset-4 hover:text-[var(--mk-violet)] hover:underline"
+            >
+              Forgot password?
+            </button>
           )}
         </div>
 
