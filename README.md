@@ -215,8 +215,14 @@ live-preview math, and trash/restore.
 
 ## Contributing
 
-- **Branch model** — `main` (production) ← `dev` (integration) ← `feature/*`, merged back
-  with `--no-ff`. [Conventional commits](https://www.conventionalcommits.org/).
+- **Branch model** — `main` (production) ← `dev` (integration) ← work branches, merged
+  back with `--no-ff`. Branches are named
+  `<kind>/<N>.<slug>_<contributor>_<DDMMYYYYHHMM>` — `<kind>` is `feature`, `hotfix`,
+  `chore` or `bug`; `<N>` numbers the branch in its chain; the timestamp is 24-hour —
+  and are cut **as a chain**: the first from `dev`, each next from the previous one
+  (`dev → feature/1.demo-workspace_maqbool_190820260150 →
+  feature/2.onboarding_maqbool_190820260430`).
+  [Conventional commits](https://www.conventionalcommits.org/).
 - **Green before commit** — `uv run pytest tests/unit` and `uv run ruff check .` for the
   backend; `npm run build` and `npm run lint` for the web app.
 - **Never commit secrets.** `.env` is gitignored; only `.env.example` with placeholders
