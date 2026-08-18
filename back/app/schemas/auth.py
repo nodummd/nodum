@@ -24,6 +24,24 @@ class RefreshRequest(BaseModel):
     refresh_token: str | None = None
 
 
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=12)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class VerificationRequiredOut(BaseModel):
+    """Signup's answer when the address has to be confirmed first — no tokens
+    are issued until it is."""
+
+    status: str = "verification_required"
+    email: EmailStr
+    expires_in_minutes: int
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

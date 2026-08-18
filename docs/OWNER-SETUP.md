@@ -44,7 +44,52 @@ can do:
 5. Schedule the two backup scripts from [backup.md](backup.md) (cron) and
    run the restore drill once.
 
-## 3. Sentry error tracking (optional)
+## 3. Email delivery (required in production — signup sends a code)
+
+Production requires new accounts to confirm their address, so the API
+**refuses to boot** with `EMAIL_VERIFICATION_REQUIRED=true` and no provider
+configured. Outside production nothing is mailed and the code is always
+`123456`, so local development needs none of this.
+
+Providers are tried in the order listed in `EMAIL_PROVIDERS`. Configure more
+than one and you get two things: delivery survives a provider having a bad
+hour, and the free tiers add up — a quota rejection is just another error, so
+the message moves down the chain.
+
+Free tiers as of 2026-08 (check before relying on them; they move):
+
+| Provider | Free tier | Get a key |
+|---|---|---|
+| **Brevo** (start here) | **300/day (~9,000/month), no expiry** | app.brevo.com → SMTP & API → API keys |
+| Mailjet | 6,000/month, 200/day cap | app.mailjet.com/account/apikeys |
+| Resend | 3,000/month (~100/day) | resend.com/api-keys |
+| Mailgun | 100/day | app.mailgun.com → Sending → Domain settings |
+| SMTP | whatever you point it at (Amazon SES, Postmark, your own relay) | — |
+
+Mailchimp Transactional (Mandrill) is deliberately absent: it has no free
+tier at all, only paid blocks.
+
+1. Sign up with at least Brevo, and add the sender domain it asks for.
+2. **Add the SPF and DKIM records each provider gives you.** An
+   unauthenticated `From:` lands in spam, which arrives as a support ticket
+   saying "the email never came".
+3. In `deploy/.env`:
+   ```
+   EMAIL_VERIFICATION_REQUIRED=true
+   EMAIL_FROM_ADDRESS=no-reply@nodum.md
+   EMAIL_PROVIDERS=brevo,mailjet,resend,mailgun,smtp
+   BREVO_API_KEY=xkeysib-…
+   MAILJET_API_KEY=…
+   MAILJET_API_SECRET=…
+   ```
+4. Restart the API and sign up with a real address to confirm the round trip.
+   `email_sent` in the logs names the provider that took it; the
+   `email_verifications.delivered_via` column records it per code.
+
+Running a private instance where anyone with the URL is trusted? Set
+`EMAIL_VERIFICATION_REQUIRED=false` and skip all of the above.
+
+## 4. Sentry error tracking (optional)
 
 1. Create a project at https://sentry.io (or self-hosted) → copy the DSN.
 2. In `deploy/.env`:
@@ -55,7 +100,7 @@ can do:
 3. Rebuild web (`./compose.sh prod up -d --build web`) — the browser DSN is
    baked in at build time. Leave both empty to run without Sentry.
 
-## 4. Better semantic search (optional)
+## 5. Better semantic search (optional)
 
 "Related notes" ships with a local hash embedder (zero setup, modest
 quality). To upgrade, set an embedding provider in `deploy/.env`:
@@ -66,13 +111,13 @@ OPENAI_API_KEY=sk-…
 Existing notes re-embed on their next save; a bulk re-embed script can be
 added on request.
 
-## 5. Dedicated control-plane Redis (recommended at real scale)
+## 6. Dedicated control-plane Redis (recommended at real scale)
 
 Run a second Redis with `--maxmemory-policy noeviction` and point
 `REDIS_CONTROL_URL` at it so auth/rate-limit state can never be evicted by
 cache pressure. See the comments in `deploy/docker-compose.yml`.
 
-## 6. PWA install icons (S7.2 ships defaults)
+## 7. PWA install icons (S7.2 ships defaults)
 
 The PWA ships with generated placeholder icons. If you want branded ones,
 drop `icon-192.png` and `icon-512.png` into `web/public/` (square PNGs,
@@ -86,6 +131,7 @@ those exact names) — no code changes needed.
 |---|---|---|
 | Google login | OAuth client ID + secret | `deploy/.env` |
 | Production site | DNS + server + filled `.env` | `deploy/.env`, Caddy |
+| Signup emails | one provider key (Brevo first) + SPF/DKIM | `deploy/.env`, DNS |
 | Error tracking | Sentry DSN(s) | `deploy/.env` |
 | Better related-notes | OpenAI API key | `deploy/.env` |
 | Bulletproof auth state | second Redis URL | `deploy/.env` |

@@ -62,4 +62,25 @@ class ProductionSettings(CommonSettings):
                 "AI_ENCRYPTION_KEY is a placeholder or too short. Generate one: "
                 'python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
+
+        # Requiring verification with nowhere to send the code would lock every
+        # new signup out of its own account, silently. Fail at boot instead.
+        if self.EMAIL_VERIFICATION_REQUIRED:
+            from app.services.email_service import KNOWN_PROVIDERS
+
+            listed = [p.strip().lower() for p in self.EMAIL_PROVIDERS.split(",") if p.strip()]
+            credentials = {
+                "brevo": bool(self.BREVO_API_KEY),
+                "mailjet": bool(self.MAILJET_API_KEY and self.MAILJET_API_SECRET),
+                "resend": bool(self.RESEND_API_KEY),
+                "mailgun": bool(self.MAILGUN_API_KEY and self.MAILGUN_DOMAIN),
+                "smtp": bool(self.SMTP_HOST),
+            }
+            if not any(credentials.get(p) for p in listed if p in KNOWN_PROVIDERS):
+                raise ValueError(
+                    "EMAIL_VERIFICATION_REQUIRED is on but no email provider is configured. "
+                    f"Set credentials for one of EMAIL_PROVIDERS ({', '.join(KNOWN_PROVIDERS)}) — "
+                    "BREVO_API_KEY is the largest free tier — or set "
+                    "EMAIL_VERIFICATION_REQUIRED=false to accept unverified signups."
+                )
         return self

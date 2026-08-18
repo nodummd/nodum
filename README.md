@@ -112,6 +112,11 @@ zip back whenever you want to leave.
 - **Multi-tenant auth** — argon2id hashing, JWT access + refresh rotation with reuse
   defence (and a grace window so racing tabs don't log you out), httpOnly first-party
   refresh cookie, rate-limited auth endpoints.
+- **Email verification** — six-digit code on signup, stored as an HMAC and never in
+  the clear, with attempt limits and a resend cooldown. Delivery walks an ordered
+  provider chain (Brevo → Mailjet → Resend → Mailgun → any SMTP relay), which both
+  survives one provider's bad hour and stacks their free tiers. Outside production
+  nothing is mailed and the code is always `123456`.
 - **Built to scale** — async I/O end to end, Redis caching with targeted invalidation,
   Celery for import/export and background scans, WebGL rendering, CDN-friendly frontend.
 - **Operationally honest** — structured logging, request-id middleware, security headers,

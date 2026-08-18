@@ -13,9 +13,14 @@ class NodumError(Exception):
     status_code: int = 500
     code: str = "internal_error"
 
-    def __init__(self, message: str = "", *, details: dict[str, Any] | None = None) -> None:
+    def __init__(self, message: str = "", *, details: dict[str, Any] | None = None, code: str | None = None) -> None:
         self.message = message or self.__class__.__doc__ or "Error"
         self.details = details or {}
+        # A family of related failures can share a status (and a class) while
+        # keeping distinct codes in the envelope — "code_expired" and
+        # "invalid_code" are both 422, but a client may want to tell them apart.
+        if code:
+            self.code = code
         super().__init__(self.message)
 
 
@@ -66,3 +71,24 @@ class ConflictError(NodumError):
 
     status_code = 409
     code = "conflict"
+
+
+class EmailNotVerifiedError(NodumError):
+    """The account exists but its email address has not been confirmed."""
+
+    status_code = 403
+    code = "email_not_verified"
+
+
+class VerificationCodeError(NodumError):
+    """The submitted verification code was wrong, expired, or exhausted."""
+
+    status_code = 422
+    code = "invalid_code"
+
+
+class EmailDeliveryError(NodumError):
+    """Every configured email provider refused the message."""
+
+    status_code = 502
+    code = "email_delivery_failed"

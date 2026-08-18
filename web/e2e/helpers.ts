@@ -6,6 +6,23 @@ export function uniqueEmail(prefix: string): string {
 
 export const PASSWORD = "e2e-Password-123!";
 
+/** Outside production the verification code is fixed (EMAIL_OTP_DEV_CODE). */
+export const DEV_OTP = "123456";
+
+/**
+ * Fill the verification code if the deployment asks for one. Signup lands on
+ * the code step whenever EMAIL_VERIFICATION_REQUIRED is on — the default —
+ * and goes straight to the vault when it is off, so this handles both.
+ */
+export async function passEmailVerification(page: Page): Promise<void> {
+  const field = page.getByLabel("Verification code");
+  const shown = await field
+    .waitFor({ state: "visible", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) await field.fill(DEV_OTP); // six digits submits on its own
+}
+
 /** Sign up a fresh user and wait for the workspace to load the welcome vault. */
 export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<string> {
   const email = uniqueEmail(prefix);
@@ -14,6 +31,7 @@ export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<strin
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Sign up" }).click();
+  await passEmailVerification(page);
   await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
   // Welcome vault is seeded — explorer shows the notes (desktop) or the
   // mobile top bar renders (drawer explorer starts closed)

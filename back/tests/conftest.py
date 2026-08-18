@@ -8,6 +8,10 @@ expect the compose test environment.
 import os
 
 os.environ.setdefault("ENVIRONMENT", "test")
+# Every suite except the verification one signs up to get a token; making all
+# of them walk the OTP step would add a dance to fifteen files and cover
+# nothing new. tests/integration/test_email_verification.py turns it back on.
+os.environ.setdefault("EMAIL_VERIFICATION_REQUIRED", "false")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

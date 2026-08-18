@@ -9,6 +9,7 @@
 *.key
 *.crt
 secrets/
+marketing/
 
 # ── Python ─────────────────────────────────────────────────
 __pycache__/

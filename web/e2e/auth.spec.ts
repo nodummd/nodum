@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { PASSWORD, signupFreshUser, uniqueEmail } from "./helpers";
+import { DEV_OTP, PASSWORD, passEmailVerification, signupFreshUser, uniqueEmail } from "./helpers";
 
 test.describe("auth", () => {
   test("signup lands in a seeded welcome vault", async ({ page }) => {
@@ -52,6 +52,7 @@ test.describe("auth", () => {
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign up" }).click();
+    await passEmailVerification(page);
     await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
 
     await page.getByRole("button", { name: "Log out" }).click();
@@ -61,5 +62,54 @@ test.describe("auth", () => {
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Sign up" }).click();
     await expect(page.getByText(/already exists/i)).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+/** Signup asks for a code (dev: always 123456; production mails a random one). */
+test.describe("email verification", () => {
+  test("a wrong code is rejected, the right one lands in the vault", async ({ page }) => {
+    const email = uniqueEmail("verify-e2e");
+    await page.goto("/signup");
+    await page.getByLabel("Name").fill("Verify Tester");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Sign up" }).click();
+
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(email)).toBeVisible();
+
+    // Six digits submit on their own, so a wrong code needs no button press.
+    await page.getByLabel("Verification code").fill("000000");
+    await expect(page.getByText(/not correct/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/signup/);
+
+    await page.getByLabel("Verification code").fill(DEV_OTP);
+    await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+  });
+
+  test("logging in before verifying routes to the code step, not a dead end", async ({ page }) => {
+    const email = uniqueEmail("verify-login");
+    await page.goto("/signup");
+    await page.getByLabel("Name").fill("Half Done");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Sign up" }).click();
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Walk away mid-signup, then come back through the login form.
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Log in" }).click();
+
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await passEmailVerification(page);
+    await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
   });
 });

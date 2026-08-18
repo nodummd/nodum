@@ -17,6 +17,13 @@ _CODE_TO_EXC: dict[str, type[exc.NodumError]] = {
     "unauthorized": exc.UnauthorizedError,
     "forbidden": exc.ForbiddenError,
     "conflict": exc.ConflictError,
+    "rate_limited": exc.RateLimitedError,
+    "email_not_verified": exc.EmailNotVerifiedError,
+    # One status, three codes the client can tell apart.
+    "invalid_code": exc.VerificationCodeError,
+    "code_expired": exc.VerificationCodeError,
+    "too_many_attempts": exc.VerificationCodeError,
+    "email_delivery_failed": exc.EmailDeliveryError,
 }
 
 
@@ -43,4 +50,6 @@ class ServiceResponse[T]:
         if self.success:
             return self.data  # type: ignore[return-value]
         exc_cls = _CODE_TO_EXC.get(self.error_code, exc.NodumError)
-        raise exc_cls(self.message, details=self.details or None)
+        # Pass the service's own code through: for mapped codes it matches the
+        # class's, and for families sharing a class it keeps them distinct.
+        raise exc_cls(self.message, details=self.details or None, code=self.error_code)

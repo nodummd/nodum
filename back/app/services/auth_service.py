@@ -62,6 +62,15 @@ async def login(
     if not user.is_active:
         return ServiceResponse.fail("forbidden", "This account is disabled.")
 
+    # Checked only after the password, so this never reveals whether an
+    # address has an account.
+    from app.services.email_verification_service import verification_required
+
+    if verification_required() and not user.email_verified:
+        return ServiceResponse.fail(
+            "email_not_verified", "Confirm your email address to finish setting up your account."
+        )
+
     return ServiceResponse.ok(await mint_session(db, user, user_agent=user_agent, ip_address=ip_address))
 
 

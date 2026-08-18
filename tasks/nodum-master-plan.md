@@ -223,6 +223,42 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-17 (email verification, and the auth panel's three left edges)** —
+  Signups now prove the mailbox: a six-digit code, stored as an HMAC of itself
+  (six digits is a 10^6 space, so a bare digest is a lookup table — the app
+  secret is what makes a dump useless), five attempts per code, one pending
+  code per user, 60-second resend cooldown. Login refuses an unverified
+  account with `email_not_verified`, which the web client turns into the code
+  screen rather than a dead end. Google OAuth already trusted Google's own
+  `email_verified`, so it is unaffected.
+  Delivery walks an ordered provider chain — Brevo → Mailjet → Resend →
+  Mailgun → any SMTP relay. The chain is the point: a quota rejection is
+  indistinguishable from an outage (both are just an error response), so
+  listing several providers survives one having a bad hour *and* stacks their
+  free tiers. Researched 2026-08: Brevo 300/day with no expiry is the largest
+  sustained free tier, Mailjet 6k/month (200/day), Resend 3k/month, Mailgun
+  100/day; SendGrid retired its free plan and Mailchimp Transactional never
+  had one, which is why neither is wired up.
+  Environment split, as asked: production issues a random code and must mail
+  it; everywhere else issues the fixed `EMAIL_OTP_DEV_CODE` (123456) and mails
+  nothing, so the flow has the same shape in dev and is exercisable without a
+  mailbox. `EMAIL_VERIFICATION_REQUIRED` defaults on; production *refuses to
+  boot* with it on and no provider configured, since the alternative is
+  silently locking every new signup out of its own account. Migration 0016
+  also marks pre-existing users verified — otherwise switching this on logs
+  out everyone who signed up before it existed.
+  The pytest suite runs with the flag off (fifteen files sign up for a token
+  and would gain an OTP dance covering nothing); `test_email_verification.py`
+  turns it back on for its six cases, and `test_email_providers.py` covers the
+  chain's order, skipping and total-failure behaviour without a network.
+  Also fixed the auth brand panel: the wordmark sat at the panel padding, the
+  knot centred itself, and the footnotes sat at the padding again — three left
+  edges, which is what made the mark look adrift. One shared measure now holds
+  all three.
+  162 backend tests, `make verify`, and the full e2e suite green (the shared
+  `signupFreshUser` helper types 123456 when the code step appears, so every
+  spec exercises the new flow).
+
 - **2026-08-16 (public face: landing + auth)** — nodum.md was a shadcn card
   stack with a hand-drawn SVG placeholder for a mark; the actual logo (a 3D
   torus knot, magenta→violet→azure on black) only ever appeared 48px tall on

@@ -26,14 +26,21 @@ import type {
   User,
   Vault,
   VaultTree,
+  VerificationRequired,
 } from "./types";
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 export const authApi = {
+  /** Returns a token pair, or — when the deployment verifies addresses — a
+   *  `verification_required` marker and no tokens until the code comes back. */
   signup: (body: { email: string; password: string; name: string }) =>
-    apiJson<TokenPair>("/auth/signup", "POST", body),
+    apiJson<TokenPair | VerificationRequired>("/auth/signup", "POST", body),
   login: (body: { email: string; password: string }) => apiJson<TokenPair>("/auth/login", "POST", body),
+  verifyEmail: (body: { email: string; code: string }) =>
+    apiJson<TokenPair>("/auth/verify-email", "POST", body),
+  resendVerification: (body: { email: string }) =>
+    apiJson<{ message: string }>("/auth/resend-verification", "POST", body),
   refresh: () => apiJson<TokenPair>("/auth/refresh", "POST"),
   logout: () => apiJson<{ message: string }>("/auth/logout", "POST"),
   me: () => api<User>("/auth/me"),

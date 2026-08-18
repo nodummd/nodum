@@ -9,26 +9,32 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
       {/* Brand panel */}
-      <aside className="relative hidden overflow-hidden border-r border-[var(--mk-line)] bg-[var(--mk-ink-raised)] lg:flex lg:flex-col lg:justify-between lg:p-12">
-        <Link href="/" aria-label="Nodum home" className="relative z-10 w-fit">
-          <Wordmark />
-        </Link>
+      <aside className="relative hidden overflow-hidden border-r border-[var(--mk-line)] bg-[var(--mk-ink-raised)] lg:block lg:p-12">
+        {/* One measure for the whole panel. The wordmark, the knot and the
+            footnotes share a left edge and a width — pin the wordmark to the
+            panel padding while the knot centres itself and the three land on
+            three different edges, which is what made the mark look adrift. */}
+        <div className="relative z-10 mx-auto flex h-full w-full max-w-[27rem] flex-col justify-between">
+          <Link href="/" aria-label="Nodum home" className="w-fit">
+            <Wordmark />
+          </Link>
 
-        <div className="relative z-10">
-          <Knot className="mk-in-scale w-[min(26vw,19rem)]" priority alt="" />
-          <h2 className="mk-display mt-12 max-w-sm text-[clamp(1.9rem,2.6vw,2.75rem)]">
-            Notes are the <span className="mk-strand-text">knots</span>.
-          </h2>
-          <p className="mt-4 max-w-sm leading-relaxed text-[var(--mk-muted)]">
-            The value is the rope between them.
-          </p>
+          <div>
+            <Knot className="mk-in-scale w-full" priority alt="" />
+            <h2 className="mk-display mt-10 text-[clamp(1.9rem,2.6vw,2.75rem)]">
+              Notes are the <span className="mk-strand-text">knots</span>.
+            </h2>
+            <p className="mt-4 leading-relaxed text-[var(--mk-muted)]">
+              The value is the rope between them.
+            </p>
+          </div>
+
+          <ul className="mk-mono space-y-2 text-[0.75rem] text-[var(--mk-faint)]">
+            <li>markdown that stays markdown</li>
+            <li>backlinks that point both ways</li>
+            <li>a graph of everything you know</li>
+          </ul>
         </div>
-
-        <ul className="mk-mono relative z-10 space-y-2 text-[0.75rem] text-[var(--mk-faint)]">
-          <li>markdown that stays markdown</li>
-          <li>backlinks that point both ways</li>
-          <li>a graph of everything you know</li>
-        </ul>
       </aside>
 
       {/* Form side */}

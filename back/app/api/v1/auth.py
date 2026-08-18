@@ -10,12 +10,15 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     LoginRequest,
     RefreshRequest,
+    ResendVerificationRequest,
     SignupRequest,
     TokenPairOut,
     UpdateProfileRequest,
     UserOut,
+    VerificationRequiredOut,
+    VerifyEmailRequest,
 )
-from app.services import auth_service
+from app.services import auth_service, email_verification_service
 from app.settings import get_settings
 from app.utils.cookie_utils import clear_refresh_cookie, read_refresh_cookie, set_refresh_cookie
 
@@ -34,8 +37,23 @@ def _token_payload(bundle: auth_service.TokenBundle) -> TokenPairOut:
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(body: SignupRequest, request: Request, response: Response, db: SessionDep) -> dict[str, Any]:
-    """Create an account with its onboarding vault (atomic), then log straight in."""
-    (await auth_service.signup(db, email=body.email, password=body.password, name=body.name)).unwrap()
+    """Create an account with its onboarding vault (atomic).
+
+    Logs straight in unless the deployment requires email verification, in
+    which case a code goes out and no tokens are issued until it comes back.
+    """
+    user = (await auth_service.signup(db, email=body.email, password=body.password, name=body.name)).unwrap()
+
+    if email_verification_service.verification_required():
+        (await email_verification_service.issue_code(db, user, force=True)).unwrap()
+        await db.commit()
+        settings = get_settings()
+        return {
+            "data": VerificationRequiredOut(
+                email=user.email, expires_in_minutes=settings.EMAIL_OTP_TTL_MINUTES
+            ).model_dump()
+        }
+
     bundle = (
         await auth_service.login(
             db,
@@ -63,6 +81,45 @@ async def login(body: LoginRequest, request: Request, response: Response, db: Se
     ).unwrap()
     set_refresh_cookie(response, bundle.refresh_token)
     return {"data": _token_payload(bundle).model_dump()}
+
+
+@router.post("/verify-email")
+async def verify_email(
+    body: VerifyEmailRequest, request: Request, response: Response, db: SessionDep
+) -> dict[str, Any]:
+    """Confirm an address with its one-time code and log the account in."""
+    user = (await email_verification_service.verify(db, email=body.email, code=body.code)).unwrap()
+    bundle = await auth_service.mint_session(
+        db,
+        user,
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+    )
+    set_refresh_cookie(response, bundle.refresh_token)
+    return {"data": _token_payload(bundle).model_dump()}
+
+
+@router.post("/resend-verification")
+async def resend_verification(body: ResendVerificationRequest, db: SessionDep) -> dict[str, Any]:
+    """Send a fresh code.
+
+    Answers the same way whether or not the address has an unverified account:
+    this endpoint is unauthenticated, so a truthful "no such user" would turn it
+    into an account-existence oracle. A real cooldown breach still reports back,
+    since the caller already knows they just asked.
+    """
+    from sqlalchemy import select
+
+    from app.models.auth import User as UserModel
+
+    sent = {"data": {"message": "If that address needs confirming, a new code is on its way."}}
+    user = await db.scalar(select(UserModel).where(UserModel.email == body.email.strip().lower()))
+    if user is None or user.email_verified or not user.is_active:
+        return sent
+
+    (await email_verification_service.issue_code(db, user)).unwrap()
+    await db.commit()
+    return sent
 
 
 @router.post("/refresh")

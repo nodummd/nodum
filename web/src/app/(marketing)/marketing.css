@@ -171,6 +171,15 @@ body:has([data-marketing]) {
   outline-offset: 3px;
 }
 
+.mk-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mk-btn:disabled:hover {
+  transform: none;
+}
+
 .mk-btn--primary {
   color: #ffffff;
   background: var(--mk-strand-deep);

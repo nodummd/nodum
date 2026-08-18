@@ -9,7 +9,10 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { ApiError } from "@/lib/api/client";
 import { authApi } from "@/lib/api/endpoints";
+import { isVerificationRequired } from "@/lib/api/types";
 import { useAuthStore } from "@/lib/stores/auth-store";
+
+import { VerifyStep } from "./verify-step";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -19,6 +22,13 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the server says this address still has to be confirmed — from a
+  // fresh signup, or from logging in to an account that never finished one.
+  const [awaitingCode, setAwaitingCode] = useState<{
+    email: string;
+    ttlMinutes: number;
+    justSent: boolean;
+  } | null>(null);
   const { data: providers } = useQuery({
     queryKey: ["auth-providers"],
     queryFn: authApi.providers,
@@ -32,17 +42,45 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     setError(null);
     setPending(true);
     try {
-      const pair =
-        mode === "signup"
-          ? await authApi.signup({ email, password, name })
-          : await authApi.login({ email, password });
-      applyTokens(pair);
+      if (mode === "signup") {
+        const result = await authApi.signup({ email, password, name });
+        if (isVerificationRequired(result)) {
+          setAwaitingCode({ email: result.email, ttlMinutes: result.expires_in_minutes, justSent: true });
+          setPending(false);
+          return;
+        }
+        applyTokens(result);
+      } else {
+        applyTokens(await authApi.login({ email, password }));
+      }
       router.replace("/vault");
     } catch (err) {
+      // An unverified account trying to log in gets the code screen, not a
+      // dead end: the address is known, so a new code is one click away.
+      if (err instanceof ApiError && err.code === "email_not_verified") {
+        setAwaitingCode({ email, ttlMinutes: 15, justSent: false });
+        setPending(false);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
       setPending(false);
     }
   };
+
+  if (awaitingCode) {
+    return (
+      <VerifyStep
+        email={awaitingCode.email}
+        ttlMinutes={awaitingCode.ttlMinutes}
+        justSent={awaitingCode.justSent}
+        onVerified={(pair) => {
+          applyTokens(pair);
+          router.replace("/vault");
+        }}
+        onBack={() => setAwaitingCode(null)}
+      />
+    );
+  }
 
   return (
     <div className="mk-in">

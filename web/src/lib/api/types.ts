@@ -18,6 +18,20 @@ export interface TokenPair {
   user: User;
 }
 
+/** Signup's other answer: the address has to be confirmed before any token
+ *  is issued. */
+export interface VerificationRequired {
+  status: "verification_required";
+  email: string;
+  expires_in_minutes: number;
+}
+
+export function isVerificationRequired(
+  result: TokenPair | VerificationRequired,
+): result is VerificationRequired {
+  return (result as VerificationRequired).status === "verification_required";
+}
+
 export interface Vault {
   id: string;
   name: string;

@@ -14,6 +14,9 @@ _GOOD = {
     "JWT_SECRET_KEY": "b" * 40,
     "POSTGRES_PASSWORD": "a-real-postgres-password",
     "S3_SECRET_KEY": "a-real-minio-password",
+    # Valid self-hosted shape: unverified signups accepted, so no mail provider
+    # is needed. The verification guard is exercised on its own below.
+    "EMAIL_VERIFICATION_REQUIRED": False,
 }
 
 
@@ -43,3 +46,21 @@ def test_the_error_names_the_env_var_the_operator_edits() -> None:
     would send them to a line that does not exist in their .env."""
     with pytest.raises(ValueError, match="MINIO_ROOT_PASSWORD"):
         ProductionSettings(**{**_GOOD, "S3_SECRET_KEY": "minioadmin"})
+
+
+def test_verification_without_a_mail_provider_is_refused() -> None:
+    """Requiring a code with nowhere to send it locks out every new signup —
+    catch it at boot, not in the first user's inbox."""
+    with pytest.raises(ValueError, match="no email provider is configured"):
+        ProductionSettings(**{**_GOOD, "EMAIL_VERIFICATION_REQUIRED": True})
+
+
+def test_verification_accepts_any_one_configured_provider() -> None:
+    settings = ProductionSettings(**{**_GOOD, "EMAIL_VERIFICATION_REQUIRED": True, "BREVO_API_KEY": "xkeysib-test"})
+    assert settings.EMAIL_VERIFICATION_REQUIRED is True
+
+
+def test_a_listed_provider_without_credentials_does_not_count() -> None:
+    """EMAIL_PROVIDERS naming mailgun proves nothing without its key."""
+    with pytest.raises(ValueError, match="no email provider is configured"):
+        ProductionSettings(**{**_GOOD, "EMAIL_VERIFICATION_REQUIRED": True, "EMAIL_PROVIDERS": "mailgun"})

@@ -78,6 +78,26 @@ x-backend-env: &backend-env
   AI_ALLOW_PRIVATE_BASE_URLS: ${AI_ALLOW_PRIVATE_BASE_URLS:-false}
   SENTRY_DSN: ${SENTRY_DSN:-}
   SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+  # ── Email verification ──────────────────────────────────
+  # On in production; the API refuses to boot with it on and no provider
+  # configured, so set at least one key below or turn it off explicitly.
+  EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
+  EMAIL_PROVIDERS: ${EMAIL_PROVIDERS:-brevo,mailjet,resend,mailgun,smtp}
+  EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@nodum.md}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Nodum}
+  BREVO_API_KEY: ${BREVO_API_KEY:-}
+  MAILJET_API_KEY: ${MAILJET_API_KEY:-}
+  MAILJET_API_SECRET: ${MAILJET_API_SECRET:-}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  MAILGUN_API_KEY: ${MAILGUN_API_KEY:-}
+  MAILGUN_DOMAIN: ${MAILGUN_DOMAIN:-}
+  MAILGUN_REGION: ${MAILGUN_REGION:-us}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+  SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
   # The one-shot migrate service owns schema changes; see back/scripts/pre-start.sh.
   RUN_MIGRATIONS: "false"
 

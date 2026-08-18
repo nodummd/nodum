@@ -170,6 +170,45 @@ class CommonSettings(BaseSettings):
     # you add a CDN in front, or the CDN's address becomes the client.
     TRUSTED_PROXY_HOPS: int = 1
 
+    # ── Email delivery ────────────────────────────────────────────────────────
+    # Ordered failover chain (see services/email_service.py). Each name is tried
+    # in turn, so listing several both survives an outage and stacks the free
+    # tiers: the request that trips Brevo's daily cap goes to Mailjet, and so on.
+    # Providers without credentials are skipped.
+    EMAIL_PROVIDERS: str = "brevo,mailjet,resend,mailgun,smtp"
+    EMAIL_FROM_ADDRESS: str = "no-reply@nodum.md"
+    EMAIL_FROM_NAME: str = "Nodum"
+    EMAIL_TIMEOUT_SECONDS: float = 10.0
+
+    BREVO_API_KEY: str = ""
+    MAILJET_API_KEY: str = ""
+    MAILJET_API_SECRET: str = ""
+    RESEND_API_KEY: str = ""
+    MAILGUN_API_KEY: str = ""
+    MAILGUN_DOMAIN: str = ""
+    MAILGUN_REGION: str = "us"  # "eu" for EU-hosted Mailgun domains
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_STARTTLS: bool = True
+    SMTP_USE_SSL: bool = False
+
+    # ── Email verification ────────────────────────────────────────────────────
+    # On everywhere by default, so the signup flow is the same shape in dev as
+    # in production. Outside production no mail is sent and the code is fixed
+    # (below), so this costs a local developer one extra keystroke. Production
+    # refuses to boot with this on and no email provider configured; a
+    # self-hoster who wants unverified signups sets it to false.
+    EMAIL_VERIFICATION_REQUIRED: bool = True
+    # Outside production no mail is sent and the code is always this one, so the
+    # flow stays exercisable (and testable) without a mailbox. Production
+    # ignores it entirely and issues a random code.
+    EMAIL_OTP_DEV_CODE: str = "123456"
+    EMAIL_OTP_TTL_MINUTES: int = 15
+    EMAIL_OTP_MAX_ATTEMPTS: int = 5
+    EMAIL_OTP_RESEND_COOLDOWN_SECONDS: int = 60
+
     # ── Monitoring ────────────────────────────────────────────────────────────
     # Empty disables error reporting entirely (the default, and what every
     # dev/test run uses). Set it and app.main wires up sentry-sdk.
