@@ -18,8 +18,16 @@ truth for project state, architecture, and what to build next. Update it
 
 ## Rules
 
-- **Git flow**: `main` = prod, `dev` = integration; every feature on `feature/<name>`
-  branched from `dev`, merged back with `--no-ff`. Conventional commits.
+- **Git flow**: `main` = prod, `dev` = integration. Work happens on branches
+  named `<kind>/<N>.<slug>_<contributor>_<DDMMYYYYHHMM>` — `<kind>` is
+  `feature` | `hotfix` | `chore` | `bug`, `<N>` numbers the branch in its
+  chain, `<slug>` is a short lowercase what-it-is, `<contributor>` the person's
+  handle, and the timestamp is 24-hour (`190820260134` = 19 Aug 2026 01:34).
+  Branches form a **chain**: the first is cut from `dev`, each next one from
+  the tip of the previous, e.g. `dev → feature/1.demo-workspace_maqbool_…
+  → feature/2.onboarding_maqbool_… → hotfix/3.graph-fit_maqbool_…`. Every
+  branch merges into `dev` with `--no-ff` when done. Conventional commits,
+  authored as the contributor's own git identity.
 - **Never commit secrets** — `.env` is gitignored; only `.env.example` with
   placeholders. This repo is public.
 - Backend: routers thin / services fat (`ServiceResponse.unwrap()` pattern);
