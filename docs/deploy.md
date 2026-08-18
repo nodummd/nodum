@@ -119,10 +119,23 @@ takes no lock — having every replica migrate on boot is a race.
 ## 4. Verify
 
 ```bash
+# Best against production: an account you already made, so nothing is created
+# and no verification email is sent.
+SMOKE_EMAIL=you@example.com SMOKE_PASSWORD=… ./deploy/smoke.sh https://nodum.example.com
+
+# Or, run on the deploy host, and it creates and verifies a throwaway account:
 ./deploy/smoke.sh https://nodum.example.com
 ```
 
-Signs up a throwaway account and exercises the app end to end — including an
+With `EMAIL_VERIFICATION_REQUIRED=true` (production's default) signup returns
+`verification_required` and no token — that is the API working, not failing.
+Without `SMOKE_EMAIL` the script finishes verification directly in the stack's
+database, which is why that form has to run on the deploy host. It also means a
+real verification email is sent to a `nodumtest.dev` address that does not
+exist, and every run is another hard bounce against your sending reputation —
+so use `SMOKE_EMAIL` for anything but a one-off.
+
+The script signs up a throwaway account and exercises the app end to end — including an
 attachment upload and download, which is the one path a rendered
 `compose config` cannot check. Attachments are served from MinIO over
 presigned SigV4 URLs whose signature covers both the path and the `Host`

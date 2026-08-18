@@ -13,8 +13,23 @@
 # thing to get subtly wrong — and it fails as a 403, which reads like a
 # permissions bug rather than a routing one.
 #
-# Creates one throwaway account. Safe against staging; against production it
-# leaves a signup behind.
+# Authenticating, in order of preference:
+#
+#   SMOKE_EMAIL=… SMOKE_PASSWORD=… ./smoke.sh https://nodum.md
+#       Logs in as an account that already exists. Best against production:
+#       nothing is created and no verification email is sent. Make the account
+#       once through the UI and reuse it.
+#
+#   ./smoke.sh https://nodum.md
+#       Creates one throwaway account. Where EMAIL_VERIFICATION_REQUIRED is on
+#       (production's default) signup deliberately returns no token, so the
+#       script finishes verification straight in the stack's database — which
+#       needs to run on the deploy host, beside compose.sh. It also means a real
+#       verification email goes to SMOKE_EMAIL_DOMAIN (default nodumtest.dev,
+#       which does not exist), and every run is another hard bounce against
+#       your sending reputation. Use SMOKE_EMAIL for anything but a one-off.
+#
+# Leaves the throwaway signup behind either way.
 # ============================================================
 set -uo pipefail
 BASE="${1:?usage: smoke.sh http://localhost:8080}"
@@ -25,11 +40,63 @@ bad()  { echo "  ✗ $*"; fail=1; }
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")
 [ "$code" = 200 ] && ok "web served through the proxy (200)" || bad "web root returned $code"
 
-EMAIL="smoke-$RANDOM$RANDOM@nodumtest.dev"
-signup=$(curl -s -X POST "$BASE/api/v1/auth/signup" -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"s3cure-Password!\",\"name\":\"Smoke\"}")
-TOKEN=$(printf '%s' "$signup" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["access_token"])' 2>/dev/null)
-[ -n "$TOKEN" ] && ok "signup through /api (token issued)" || { bad "signup failed: ${signup:0:200}"; exit 1; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SMOKE_ENV="${SMOKE_ENV:-prod}"
+PASSWORD="${SMOKE_PASSWORD:-s3cure-Password!}"
+
+json_field() { python3 -c "import json,sys; d=json.load(sys.stdin)['data']; print(d.get('$1',''))" 2>/dev/null; }
+
+login() {
+  curl -s -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$1\",\"password\":\"$2\"}" | json_field access_token
+}
+
+# Finish verification the way a mailbox would, without a mailbox: flip the flag
+# in the stack's own database. Only possible beside compose.sh on the deploy
+# host — the code itself is stored as an HMAC and is not recoverable.
+verify_in_db() {
+  local email="$1" env_file="$SCRIPT_DIR/.env.$SMOKE_ENV" pg_user=nodum pg_db=nodum
+  [ -x "$SCRIPT_DIR/compose.sh" ] || return 1
+  if [ -f "$env_file" ]; then
+    pg_user=$(grep -E '^POSTGRES_USER=' "$env_file" | tail -1 | cut -d= -f2-)
+    pg_db=$(grep -E '^POSTGRES_DB=' "$env_file" | tail -1 | cut -d= -f2-)
+  fi
+  "$SCRIPT_DIR/compose.sh" "$SMOKE_ENV" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U "${pg_user:-nodum}" -d "${pg_db:-nodum}" \
+    -c "UPDATE users SET email_verified = true WHERE email = '$email';" >/dev/null 2>&1
+}
+
+if [ -n "${SMOKE_EMAIL:-}" ]; then
+  EMAIL="$SMOKE_EMAIL"
+  TOKEN=$(login "$EMAIL" "$PASSWORD")
+  [ -n "$TOKEN" ] && ok "logged in as $EMAIL (no account created)" \
+    || { bad "login failed for $EMAIL — check SMOKE_EMAIL/SMOKE_PASSWORD"; exit 1; }
+else
+  EMAIL="smoke-$RANDOM$RANDOM@${SMOKE_EMAIL_DOMAIN:-nodumtest.dev}"
+  signup=$(curl -s -X POST "$BASE/api/v1/auth/signup" -H 'Content-Type: application/json' \
+    -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"name\":\"Smoke\"}")
+  TOKEN=$(printf '%s' "$signup" | json_field access_token)
+
+  if [ -n "$TOKEN" ]; then
+    ok "signup through /api (token issued)"
+  elif [ "$(printf '%s' "$signup" | json_field status)" = "verification_required" ]; then
+    # Not a failure: the account exists, the code row was written, and a
+    # provider accepted the message — signup 502s when none of them do.
+    ok "signup through /api (verification required, code emailed)"
+    echo "      ↳ a real email went to $EMAIL; set SMOKE_EMAIL to stop bouncing mail at a dead domain"
+    if verify_in_db "$EMAIL"; then
+      TOKEN=$(login "$EMAIL" "$PASSWORD")
+      [ -n "$TOKEN" ] && ok "verified in the database, logged in" || bad "login after verifying failed"
+    else
+      bad "cannot finish verification from here (no compose stack on this host)."
+      echo "      Run this on the deploy host, or: SMOKE_EMAIL=you@example.com SMOKE_PASSWORD=… $0 $BASE"
+      exit 1
+    fi
+  else
+    bad "signup failed: ${signup:0:200}"; exit 1
+  fi
+fi
+[ -n "$TOKEN" ] || exit 1
 AUTH="Authorization: Bearer $TOKEN"
 
 VAULT=$(curl -s "$BASE/api/v1/vaults" -H "$AUTH" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')

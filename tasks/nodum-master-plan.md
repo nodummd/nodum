@@ -223,6 +223,24 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-19 (smoke.sh caught up with verification)** — The first production
+  deploy reported `✗ signup failed: {"status":"verification_required"…}`. The
+  deploy was healthy: that 201 proves the API answered, the user and code rows
+  were written, and a provider *accepted the message* (signup 502s when the
+  whole chain refuses). What was stale was `smoke.sh`, which read
+  `data.access_token` straight out of the signup response — a contract the
+  verification work changed and I did not follow through to this script.
+  It now authenticates three ways: `SMOKE_EMAIL`/`SMOKE_PASSWORD` logs in to an
+  existing account (the right choice for production — creates nothing, sends
+  nothing); otherwise it signs up, and if verification is required it finishes
+  the step in the stack's own Postgres, since the code is stored as an HMAC and
+  cannot be read back. Run away from the deploy host that last path cannot
+  work, so it says so and names the fix instead of failing obscurely.
+  Worth remembering: the throwaway signup mails a real code to
+  `smoke-*@nodumtest.dev`, a domain that does not exist, so every unattended
+  run is a hard bounce charged against the sending reputation the feature
+  depends on. The script and docs/deploy.md now say so at the point of use.
+
 - **2026-08-17 (email verification, and the auth panel's three left edges)** —
   Signups now prove the mailbox: a six-digit code, stored as an HMAC of itself
   (six digits is a 10^6 space, so a bare digest is a lookup table — the app
