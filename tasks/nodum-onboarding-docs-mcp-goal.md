@@ -299,5 +299,5 @@ the last found nothing outside its own predecessor's diff.
   plus `mcp-remote` covers Claude Desktop; revisit if a client cannot send headers.
 - Streaming (SSE) MCP responses — stateless JSON is enough for tool calls and
   proxies cleanly; add if a client needs server-initiated messages.
-- Docs search across article bodies (titles + headings + summaries today).
+- ~~Docs search across article bodies~~ — done 2026-08-19 (`feature/6.docs-search`).
 

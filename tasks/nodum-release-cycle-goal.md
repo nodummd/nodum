@@ -14,7 +14,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ✅ `feature/3.explorer-tab-heading` |
 | 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ✅ `feature/4.ai-streaming` |
 | 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ✅ `feature/5.ai-vault-keys` |
-| 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ☐ |
+| 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ✅ `feature/6.docs-search` |
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ☐ |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ☐ |
 | 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ☐ |
@@ -74,3 +74,7 @@ never a secret in the repo; branches
   in this vault uses. Tests: precedence + isolation + cascade (integration),
   e2e saves a vault-only key through the UI and proves the stub receives it in
   that vault and the account key in another.
+- **2026-08-19 — #6 docs full-text search.** The loader strips each article to
+  plain text at build time; the rail ranks title › heading › summary › body and
+  shows the sentence a body-only match was found in. e2e: a phrase that only
+  appears in the MCP article's body finds it with a snippet.

@@ -14,12 +14,13 @@ export const metadata: Metadata = {
  *  static — a person should be able to read this before they have an account. */
 export default async function DocsLayout({ children }: { children: React.ReactNode }) {
   const docs = await loadDocs();
-  const items = docs.map(({ slug, title, section, summary, headings }) => ({
+  const items = docs.map(({ slug, title, section, summary, headings, text }) => ({
     slug,
     title,
     section,
     summary,
     headings,
+    text,
   }));
   return (
     <>
