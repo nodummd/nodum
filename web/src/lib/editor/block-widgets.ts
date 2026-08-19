@@ -16,7 +16,7 @@ import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 import { renderMathHTML } from "./math";
-import { EditableTableWidget } from "./table-widget";
+import { EditableTableWidget, tableFocusPlugin } from "./table-widget";
 import { renderMermaidSvg } from "./mermaid";
 import { cachedHighlight, highlightToHtml } from "./shiki";
 
@@ -394,5 +394,5 @@ const blockWidgetField = StateField.define<DecorationSet>({
 });
 
 export function blockWidgets(): Extension {
-  return blockWidgetField;
+  return [blockWidgetField, tableFocusPlugin];
 }

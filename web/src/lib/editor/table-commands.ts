@@ -183,6 +183,19 @@ export const tableInsertRowBelow = tableCommand((t) => {
   return { rows, aligns: t.aligns, caret: { row: t.row + 1, col: t.col } };
 });
 
+/** Swap the caret's row with its neighbour. The header never moves. */
+function moveRow(delta: -1 | 1): StateCommand {
+  return tableCommand((t) => {
+    const target = t.row + delta;
+    if (t.row === 0 || target === 0 || target >= t.rows.length) return null;
+    const rows = [...t.rows];
+    [rows[t.row], rows[target]] = [rows[target], rows[t.row]];
+    return { rows, aligns: t.aligns, caret: { row: target, col: t.col } };
+  });
+}
+export const tableMoveRowUp = moveRow(-1);
+export const tableMoveRowDown = moveRow(1);
+
 export const tableDeleteRow = tableCommand((t) => {
   if (t.rows.length <= 1 || t.row === 0) return null; // keep the header
   const rows = t.rows.filter((_, i) => i !== t.row);

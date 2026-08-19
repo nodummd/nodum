@@ -91,6 +91,8 @@ import {
   tableInsertColumnRight,
   tableInsertRowAbove,
   tableInsertRowBelow,
+  tableMoveRowDown,
+  tableMoveRowUp,
   tableSortByColumn,
 } from "@/lib/editor/table-commands";
 
@@ -478,6 +480,8 @@ export function EditorContextMenu({
             <ContextMenuSeparator />
             <Item label="Insert row above" disabled={!ctx.inTable} onSelect={run(tableInsertRowAbove)} />
             <Item label="Insert row below" disabled={!ctx.inTable} onSelect={run(tableInsertRowBelow)} />
+            <Item label="Move row up" disabled={!ctx.inTable} onSelect={run(tableMoveRowUp)} shortcut="⌥↑" />
+            <Item label="Move row down" disabled={!ctx.inTable} onSelect={run(tableMoveRowDown)} shortcut="⌥↓" />
             <Item label="Delete row" disabled={!ctx.inTable} onSelect={run(tableDeleteRow)} />
             <ContextMenuSeparator />
             <Item label="Insert column left" disabled={!ctx.inTable} onSelect={run(tableInsertColumnLeft)} />

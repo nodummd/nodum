@@ -81,4 +81,54 @@ test.describe("live collaboration", () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test("inside a table, a peer's cell is tinted with their colour", async ({ browser }) => {
+    const ctxA = await browser.newContext();
+    const pageA = await ctxA.newPage();
+    const email = await signupFreshUser(pageA, "collab-table");
+    await pageA.evaluate(async () => {
+      const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+      const token = (await refresh.json()).data.access_token;
+      const vaults = await (
+        await fetch("/api/v1/vaults", { headers: { Authorization: `Bearer ${token}` } })
+      ).json();
+      await fetch(`/api/v1/vaults/${vaults.data[0].id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ settings: { collabEnabled: true } }),
+      });
+    });
+    await createNoteViaApi(pageA, "Table live", "| Name | Role |\n| --- | --- |\n| Ada | Maths |\n");
+    await pageA.reload();
+    await openNoteFromExplorer(pageA, "Table live");
+    await expect(pageA.locator("[data-nodum-table]")).toBeVisible({ timeout: 15_000 });
+
+    const ctxB = await browser.newContext();
+    const pageB = await ctxB.newPage();
+    await pageB.goto("/login");
+    await pageB.getByLabel("Email").fill(email);
+    await pageB.getByLabel("Password").fill(PASSWORD);
+    await pageB.getByRole("button", { name: "Log in" }).click();
+    await expect(pageB).toHaveURL(/\/vault\//, { timeout: 15_000 });
+    await openNoteFromExplorer(pageB, "Table live");
+    await expect(pageB.locator("[data-nodum-table]")).toBeVisible({ timeout: 15_000 });
+
+    // A types in the "Ada" cell: its caret is inside that cell, and B sees the cell tinted.
+    const cellA = pageA.locator('[data-table-cell][data-table-row="1"][data-table-col="0"]');
+    await cellA.click();
+    await pageA.keyboard.type("!");
+    const cellB = pageB.locator('[data-table-cell][data-table-row="1"][data-table-col="0"]');
+    await expect(cellB).toContainText("!", { timeout: 10_000 });
+    await expect(cellB).toHaveAttribute("data-peer", /.*/, { timeout: 10_000 });
+    const shadow = await cellB.evaluate((el) => (el as HTMLElement).style.boxShadow);
+    expect(shadow).toContain("inset");
+    // The other cells are not.
+    await expect(pageB.locator('[data-table-cell][data-table-row="1"][data-table-col="1"]')).not.toHaveAttribute(
+      "data-peer",
+      /.*/,
+    );
+
+    await ctxA.close();
+    await ctxB.close();
+  });
 });

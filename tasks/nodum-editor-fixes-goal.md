@@ -341,10 +341,9 @@ added a row, added a column, deleted a row, each confirmed in postgres) and
 covered by 9 e2e; the canary reads "Mathse" instead of "Mathsematics" when
 widget DOM reuse is broken.
 
-Deferred from the spec, none of them blocking: per-cell undo isolation
-(`isolateHistory`), grid paste of tab-separated text, arrow-key navigation
-between cells, a Move-row command, and remote-caret tints inside a table under
-collab.
+~~Deferred from the spec~~ — per-cell undo isolation, grid paste, arrow-key
+navigation, Move row and collab cell tints all landed 2026-08-19
+(`feature/7.table-steps`, see `tasks/nodum-release-cycle-goal.md`).
 
 The maintainer's requirement: "once you insert the table, the user should see
 the real table structure and edit inside, and if possible user should be able to
