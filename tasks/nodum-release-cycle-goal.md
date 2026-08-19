@@ -124,3 +124,12 @@ never a secret in the repo; branches
   still creates when the search request failed. Heading links: time-budgeted,
   re-armed when the collab editor mounts, fences skipped, `## C#` kept,
   setext found. Bridge exits on stdin EOF. Tests for each.
+- **2026-08-19 — release prep.** `make prod-verify` (prod compose from the
+  built images, migrations to 0019, smoke incl. attachment round trip) passes;
+  MCP over Caddy across the 4 workers, the AI stream route, per-vault status
+  and the collab upgrade path probed on the prod stack. Found on the way: the
+  **web Docker image had failed to build on every dev push since the docs work**
+  (`scripts/docs-screenshots.spec.ts` imports `../e2e/helpers`, which the
+  image leaves out) — never seen locally because no local gate builds the
+  image. `scripts/` is now `.dockerignore`d and `make verify` runs a build-
+  context import check that would have caught it. Versions bumped to 3.3.0.
