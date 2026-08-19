@@ -21,6 +21,7 @@ import { createPortal } from "react-dom";
 
 import { DemoWorkspaceCard, useRememberFirstRun } from "./demo-workspace-offer";
 import { Button } from "@/components/ui/button";
+import { DOCS_URL } from "@/lib/app-meta";
 import { useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -138,7 +139,16 @@ const STEPS: Step[] = [
     body: (
       <>
         Settings are <span className={KBD}>⌘,</span>. Help lives behind the{" "}
-        <span className={KBD}>?</span> in the ribbon — including this tour, any time.
+        <span className={KBD}>?</span> in the ribbon — this tour, the shortcuts, and the{" "}
+        <a
+          href={DOCS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-ob-accent underline underline-offset-2"
+        >
+          documentation
+        </a>
+        , which explains every button with a picture.
       </>
     ),
   },

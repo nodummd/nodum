@@ -24,7 +24,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
-import { APP_VERSION, HELP_URL } from "@/lib/app-meta";
+import { APP_VERSION, DOCS_URL, HELP_URL } from "@/lib/app-meta";
 import { filterHotkeys, HOTKEY_SECTIONS } from "@/lib/hotkeys";
 import {
   FONT_CHOICES,
@@ -314,12 +314,20 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                         Show the tour again
                       </button>
                       <a
+                        href={DOCS_URL}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                      >
+                        Documentation
+                      </a>
+                      <a
                         href={HELP_URL}
                         target="_blank"
                         rel="noreferrer noopener"
                         className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
                       >
-                        Help
+                        GitHub
                       </a>
                     </div>
                   </div>

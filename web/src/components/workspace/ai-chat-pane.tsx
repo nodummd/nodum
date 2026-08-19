@@ -259,6 +259,9 @@ export function AiChatPane({
                 "rounded-md px-2 py-1.5 text-[13px]",
                 message.role === "user" ? "bg-ob-active text-ob-text" : "bg-ob-bg text-ob-muted",
               )}
+              // The reading view sizes itself from the editor's font setting;
+              // in a side panel it should match the panel.
+              style={{ "--editor-font-size": "13px" } as React.CSSProperties}
             >
               {message.role === "assistant" ? (
                 <ReadingView

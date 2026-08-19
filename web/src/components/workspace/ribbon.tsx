@@ -3,6 +3,7 @@
 /** Left ribbon — Obsidian's narrow vertical icon strip. */
 
 import {
+  BookOpen,
   CalendarDays,
   CircleHelp,
   Command,
@@ -24,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DOCS_URL } from "@/lib/app-meta";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -79,6 +81,12 @@ function HelpMenu() {
         <TooltipContent side="right">Help</TooltipContent>
       </Tooltip>
       <DropdownMenuContent side="right" align="end" className="w-52">
+        <DropdownMenuItem asChild>
+          <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">
+            <BookOpen className="mr-2 size-3.5" strokeWidth={2} />
+            Documentation
+          </a>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => setTourOpen(true)}>
           <Route className="mr-2 size-3.5" strokeWidth={2} />
           Show the tour again

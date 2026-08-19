@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docs:shots": "playwright test --config scripts/playwright.docs.config.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
