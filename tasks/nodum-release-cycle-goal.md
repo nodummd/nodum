@@ -13,7 +13,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 2 | **P1-3 undo/redo** — Compartment reconfiguration (no remount on mode/pref change), per-(pane,note) history snapshots with an LRU, Windows redo chord, ⌘U decision | editor-fixes P1-3 | ✅ `feature/2.undo-history` |
 | 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ✅ `feature/3.explorer-tab-heading` |
 | 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ✅ `feature/4.ai-streaming` |
-| 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ☐ |
+| 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ✅ `feature/5.ai-vault-keys` |
 | 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ☐ |
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ☐ |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ☐ |
@@ -65,3 +65,12 @@ never a secret in the repo; branches
   4 unit (parsing per provider, error mapping), 3 integration (framing, tool
   status + persistence, error → nothing stored, JSON path), e2e stub streams
   and asserts a partial reply is visible before the whole.
+- **2026-08-19 — #5 per-vault AI keys.** `ai_credentials.vault_id` (migration
+  0019; two partial unique indexes: one key per provider per account, one per
+  provider per vault); the vault's active provider lives in `vault.settings.aiProvider`;
+  `resolve(vault_id=…)` prefers the vault's own keys and falls through to the
+  account's; status reports both scopes and the effective one. Settings → AI
+  has a *Keys for* switch (account / only this vault) and says which key chat
+  in this vault uses. Tests: precedence + isolation + cascade (integration),
+  e2e saves a vault-only key through the UI and proves the stub receives it in
+  that vault and the account key in another.

@@ -205,3 +205,109 @@ async def test_public_base_url_is_still_allowed(client: AsyncClient, account: di
         json={"provider": "openai", "api_key": SECRET_KEY_VALUE, "base_url": "https://api.openai.com/v1"},
     )
     assert resp.status_code == 200, resp.text
+
+
+# ── Per-vault keys ──────────────────────────────────────────────────────────
+
+
+async def _vaults(client: AsyncClient, headers: dict) -> list[dict]:
+    return (await client.get("/api/v1/vaults", headers=headers)).json()["data"]
+
+
+async def test_a_vault_can_bring_its_own_key_which_wins_there_only(client: AsyncClient, account: dict) -> None:
+    headers = _auth(account)
+    vault_id = (await _vaults(client, headers))[0]["id"]
+    other = (await client.post("/api/v1/vaults", json={"name": "Other"}, headers=headers)).json()["data"]["id"]
+    # Account key: openai. Vault key for `vault_id`: anthropic.
+    assert (
+        await client.put(
+            "/api/v1/ai/credentials",
+            json={"provider": "openai", "api_key": SECRET_KEY_VALUE, "model": "gpt-4.1"},
+            headers=headers,
+        )
+    ).status_code == 200
+    saved = await client.put(
+        "/api/v1/ai/credentials",
+        json={
+            "provider": "anthropic",
+            "api_key": "fake-vault-key-0000-9e1d",
+            "model": "claude-haiku-4-5",
+            "vault_id": vault_id,
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["data"]["scope"] == "vault"
+
+    # Status for that vault: the vault's key is what chat uses; the account's
+    # is still listed as the account's.
+    st = (await client.get(f"/api/v1/ai/status?vault_id={vault_id}", headers=headers)).json()["data"]
+    assert st["effective_scope"] == "vault"
+    assert st["active_provider"] == "anthropic" and st["active_model"] == "claude-haiku-4-5"
+    assert st["account"]["active_provider"] == "openai"
+    assert [c["provider"] for c in st["vault"]["credentials"]] == ["anthropic"]
+    assert "fake-vault-key" not in (await client.get(f"/api/v1/ai/status?vault_id={vault_id}", headers=headers)).text
+
+    # The other vault has none of its own → the account's.
+    st2 = (await client.get(f"/api/v1/ai/status?vault_id={other}", headers=headers)).json()["data"]
+    assert st2["effective_scope"] == "account" and st2["active_provider"] == "openai"
+    assert st2["vault"]["configured"] is False
+    # And without a vault: the account view, unchanged in shape.
+    st3 = (await client.get("/api/v1/ai/status", headers=headers)).json()["data"]
+    assert st3["active_provider"] == "openai" and st3["vault"] is None
+
+    # What resolve() hands the chat: the vault's key in that vault, the
+    # account's elsewhere.
+    from uuid import UUID
+
+    from app.core.db import async_session_factory
+    from app.services import ai_service
+
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()["data"]
+    async with async_session_factory() as session:
+        in_vault = (await ai_service.resolve(session, UUID(me["id"]), vault_id=UUID(vault_id))).unwrap()
+        elsewhere = (await ai_service.resolve(session, UUID(me["id"]), vault_id=UUID(other))).unwrap()
+    assert in_vault[0].provider == "anthropic" and in_vault[1] == "fake-vault-key-0000-9e1d"
+    assert elsewhere[0].provider == "openai" and elsewhere[1] == SECRET_KEY_VALUE
+
+    # Removing the vault's key: back to the account's; the account key stays.
+    gone = await client.delete(f"/api/v1/ai/credentials/anthropic?vault_id={vault_id}", headers=headers)
+    assert gone.status_code == 200
+    st4 = (await client.get(f"/api/v1/ai/status?vault_id={vault_id}", headers=headers)).json()["data"]
+    assert st4["effective_scope"] == "account" and st4["active_provider"] == "openai"
+
+
+async def test_a_vault_key_cannot_be_set_on_someone_elses_vault(client: AsyncClient, account: dict) -> None:
+    headers = _auth(account)
+    stranger = _auth(await _signup(client, "ai-stranger"))
+    theirs = (await _vaults(client, stranger))[0]["id"]
+    resp = await client.put(
+        "/api/v1/ai/credentials",
+        json={"provider": "openai", "api_key": SECRET_KEY_VALUE, "model": "m", "vault_id": theirs},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+    assert (await client.get(f"/api/v1/ai/status?vault_id={theirs}", headers=headers)).status_code == 404
+
+
+async def test_deleting_a_vault_takes_its_keys_with_it(client: AsyncClient, account: dict) -> None:
+    headers = _auth(account)
+    vault_id = (await client.post("/api/v1/vaults", json={"name": "Disposable"}, headers=headers)).json()["data"]["id"]
+    assert (
+        await client.put(
+            "/api/v1/ai/credentials",
+            json={
+                "provider": "gemini",
+                "api_key": "fake-disposable-key-77aa",
+                "model": "gemini-2.5-flash",
+                "vault_id": vault_id,
+            },
+            headers=headers,
+        )
+    ).status_code == 200
+    assert (await client.delete(f"/api/v1/vaults/{vault_id}", headers=headers)).status_code == 200
+    async with async_session_factory() as session:
+        rows = (
+            (await session.execute(select(AICredential).where(AICredential.key_hint.endswith("77aa")))).scalars().all()
+        )
+    assert rows == []

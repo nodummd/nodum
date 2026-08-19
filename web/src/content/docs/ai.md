@@ -8,7 +8,7 @@ where: Right sidebar → the sparkles icon; Settings → AI to set it up
 
 ## Your key
 
-Nodum has no AI of its own. Settings → AI: pick a provider (Claude, OpenAI, Gemini or Qwen), paste an API key from your account with them, choose a model. The key is encrypted before it is stored, is never sent back to your browser, and is used only for requests you make. Usage is billed by the provider to you.
+Nodum has no AI of its own. Settings → AI: pick a provider (Claude, OpenAI, Gemini or Qwen), paste an API key from your account with them, choose a model. *Keys for* decides the scope: **your account** (every vault) or **only this vault** — a vault with a key of its own uses it instead of the account's, so one vault can run on a different provider, model or bill. The key is encrypted before it is stored, is never sent back to your browser, and is used only for requests you make. Usage is billed by the provider to you.
 
 ![Settings → AI.](/docs/settings-ai.png)
 

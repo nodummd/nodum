@@ -28,6 +28,8 @@ class CredentialRequest(BaseModel):
     model: str = Field(default="", max_length=128)
     # Self-hosted / regional endpoints.
     base_url: str | None = Field(default=None, max_length=500)
+    # Omitted = the account's key (every vault); set = this vault's own key.
+    vault_id: UUID | None = None
 
 
 class ChatMessage(BaseModel):
@@ -56,13 +58,16 @@ class RenameConversationRequest(BaseModel):
 
 
 @router.get("/status")
-async def ai_status(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
-    """Which providers this user has configured — never the keys themselves."""
-    return {"data": (await ai_service.get_status(db, user_id)).unwrap()}
+async def ai_status(user_id: CurrentUserId, db: SessionDep, vault_id: UUID | None = None) -> dict[str, Any]:
+    """Which providers this user has configured — never the keys themselves.
+    With `vault_id`, also that vault's own keys and which scope chat there uses."""
+    return {"data": (await ai_service.get_status(db, user_id, vault_id)).unwrap()}
 
 
 @router.put("/credentials")
 async def save_credential(body: CredentialRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Store a key for the account, or — with `vault_id` — for one vault, whose
+    own key then wins for chat in that vault."""
     data = (
         await ai_service.save_credential(
             db,
@@ -71,21 +76,26 @@ async def save_credential(body: CredentialRequest, user_id: CurrentUserId, db: S
             api_key=body.api_key,
             model=body.model,
             base_url=body.base_url,
+            vault_id=body.vault_id,
         )
     ).unwrap()
     return {"data": data}
 
 
 @router.delete("/credentials/{provider}")
-async def delete_credential(provider: str, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
-    (await ai_service.delete_credential(db, user_id, provider)).unwrap()
+async def delete_credential(
+    provider: str, user_id: CurrentUserId, db: SessionDep, vault_id: UUID | None = None
+) -> dict[str, Any]:
+    (await ai_service.delete_credential(db, user_id, provider, vault_id)).unwrap()
     return {"data": {"message": "Removed."}}
 
 
 @router.post("/test/{provider}")
-async def test_credential(provider: str, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+async def test_credential(
+    provider: str, user_id: CurrentUserId, db: SessionDep, vault_id: UUID | None = None
+) -> dict[str, Any]:
     """Ask the provider for one word, so a bad key fails where it was pasted."""
-    return {"data": (await ai_service.test_credential(db, user_id, provider)).unwrap()}
+    return {"data": (await ai_service.test_credential(db, user_id, provider, vault_id)).unwrap()}
 
 
 @router.get("/vaults/{vault_id}/conversations")

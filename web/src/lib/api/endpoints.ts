@@ -272,17 +272,32 @@ export const attachmentApi = {
 // ── AI (bring your own key) ──────────────────────────────────────────────────
 
 export const aiApi = {
-  status: () => api<AIStatus>("/ai/status"),
+  /** With a vault id: that vault's own keys too, and which scope chat there uses. */
+  status: (vaultId?: string) =>
+    api<AIStatus>(vaultId ? `/ai/status?vault_id=${vaultId}` : "/ai/status"),
   saveCredential: (body: {
     provider: string;
     api_key?: string;
     model?: string;
     base_url?: string;
-  }) => apiJson<{ provider: string; model: string; key_hint: string }>("/ai/credentials", "PUT", body),
-  removeCredential: (provider: string) =>
-    apiJson<{ message: string }>(`/ai/credentials/${provider}`, "DELETE"),
-  test: (provider: string) =>
-    apiJson<{ provider: string; model: string; reply: string }>(`/ai/test/${provider}`, "POST"),
+    /** Set = a key for this vault only (it wins there); omitted = the account's. */
+    vault_id?: string;
+  }) =>
+    apiJson<{ provider: string; model: string; key_hint: string; scope: "vault" | "account" }>(
+      "/ai/credentials",
+      "PUT",
+      body,
+    ),
+  removeCredential: (provider: string, vaultId?: string) =>
+    apiJson<{ message: string }>(
+      `/ai/credentials/${provider}${vaultId ? `?vault_id=${vaultId}` : ""}`,
+      "DELETE",
+    ),
+  test: (provider: string, vaultId?: string) =>
+    apiJson<{ provider: string; model: string; reply: string }>(
+      `/ai/test/${provider}${vaultId ? `?vault_id=${vaultId}` : ""}`,
+      "POST",
+    ),
   chat: (body: { messages: { role: string; content: string }[]; context?: string }) =>
     apiJson<AIChatReply>("/ai/chat", "POST", body),
   /** Chat that can search, read, create and extend notes in this vault.

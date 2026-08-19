@@ -271,6 +271,65 @@ test.describe("AI chat panel", () => {
     await expect(page.getByText("Disposable question")).toHaveCount(0);
   });
 
+  test("a vault can bring its own key — chat there uses it, other vaults keep the account's", async ({
+    page,
+  }) => {
+    await signupFreshUser(page, "ai-vault-key");
+    await configureStubProvider(page, stubUrl); // the account key
+    await page.reload();
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+
+    // Settings → AI → "Only this vault": a second key, same stub endpoint.
+    await page.keyboard.press("ControlOrMeta+,");
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    await page.getByRole("radio", { name: /Only this vault/ }).click();
+    // The account's provider (OpenAI, the stub's dialect) is preselected.
+    await expect(page.getByRole("button", { name: "OpenAI", pressed: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Test connection" })).toBeDisabled();
+    await page.getByLabel(/API key/).fill("fake-vault-only-key-4242");
+    await page.getByLabel("Endpoint", { exact: false }).fill(stubUrl);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByTestId("ai-effective")).toContainText("this vault's own key", {
+      timeout: 10_000,
+    });
+    // The account scope still shows the account key's hint, untouched.
+    await page.getByRole("radio", { name: /Your account/ }).click();
+    await expect(page.getByText(new RegExp(`stored: .*${STUB_API_KEY.slice(-4)}`))).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // Chat in this vault goes out with the vault's key …
+    await openAiPanel(page);
+    stubReplies = [chatMessage("Answered with the vault key.")];
+    await page.getByLabel("Message the assistant").fill("Which key?");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Answered with the vault key.")).toBeVisible({ timeout: 15_000 });
+    const sent = stubRequests.at(-1) as { headers: Record<string, string> };
+    expect(sent.headers.authorization).toBe("Bearer fake-vault-only-key-4242");
+
+    // … and a different vault, with no key of its own, still uses the account's.
+    const otherId = await page.evaluate(async () => {
+      const token = (await (await fetch("/api/v1/auth/refresh", { method: "POST" })).json()).data
+        .access_token;
+      const created = await fetch("/api/v1/vaults", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: "Plain vault" }),
+      });
+      return (await created.json()).data.id as string;
+    });
+    await page.goto(`/vault/${otherId}`);
+    await expect(page.getByRole("button", { name: /Switch vault/ })).toContainText("Plain vault", {
+      timeout: 15_000,
+    });
+    await openAiPanel(page);
+    stubReplies = [chatMessage("Answered with the account key.")];
+    await page.getByLabel("Message the assistant").fill("Which key now?");
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText("Answered with the account key.")).toBeVisible({ timeout: 15_000 });
+    const sent2 = stubRequests.at(-1) as { headers: Record<string, string> };
+    expect(sent2.headers.authorization).toBe(`Bearer ${STUB_API_KEY}`);
+  });
+
   test("a provider failure is reported and the question is not lost", async ({ page }) => {
     await signupFreshUser(page, "ai-fail");
     // A base_url nothing is listening on: the request cannot succeed.

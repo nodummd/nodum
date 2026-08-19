@@ -19,10 +19,10 @@ where: Ribbon → gear, or ⌘,
 | **Vault** | Your vaults (open, rename, delete, demo workspace); daily-note format, folder and template; templates folder. |
 | **Canvas** | Board background. |
 | **Plugins** | Installed plugins and their permissions. |
-| **AI** | Provider, key, model, endpoint. |
+| **AI** | Provider, key, model, endpoint — for the account or for this vault only. |
 | **MCP** | Token and client setup for driving Nodum from an AI tool. |
 | **Web Clipper** | The clipper token. |
 | **Publish** | Publish the vault as a site. |
 | **Collab** | Live editing on or off. |
 
-Account settings (General, Editor, Appearance, Interface, Hotkeys, AI, MCP, Web Clipper — and, on Files & links, *Confirm before deleting* and *Page preview requires ⌘/Ctrl*) follow you across vaults and devices; the rest are per vault.
+Account settings (General, Editor, Appearance, Interface, Hotkeys, AI, MCP, Web Clipper — and, on Files & links, *Confirm before deleting* and *Page preview requires ⌘/Ctrl*) follow you across vaults and devices; the rest are per vault. (AI keys can be either: the tab's *Keys for* switch picks the account or this vault.)
