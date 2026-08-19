@@ -201,3 +201,175 @@ async def test_collab_rejects_foreign_note(client: AsyncClient, workspace: dict,
         with pytest.raises((WebSocketUpgradeError, Exception)):
             async with aconnect_ws(url, ws_client) as ws:
                 await asyncio.wait_for(ws.receive_bytes(), timeout=2)
+
+
+# ── Multi-worker ─────────────────────────────────────────────────────────────
+
+
+async def _text(server, name: str) -> str:
+    return str(server.rooms[name].ydoc.get("content", type=Text))
+
+
+async def _eventually(fn, want, *, timeout: float = 3.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        got = await fn()
+        if got == want:
+            return
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError(f"expected {want!r}, got {got!r}")
+        await asyncio.sleep(0.05)
+
+
+@pytest.fixture
+async def second_worker():
+    """A second CollabServer in this process stands in for another uvicorn
+    worker: its own worker id, its own rooms and ydocs, the same Redis."""
+    from app.core.collab import CollabServer
+
+    other = CollabServer(worker_id=b"B" * 32)
+    await other.startup()
+    yield other
+    await other.shutdown()
+
+
+async def test_two_workers_converge_on_a_non_empty_note(
+    client: AsyncClient, workspace: dict, running_collab, second_worker
+) -> None:
+    """The bug: each worker seeded its own CRDT items for the same text, so an
+    update from one referenced items the other never had and sat in the pending
+    store forever — two people on different workers never saw each other and
+    the persist loops flip-flopped the row. With one shared seed they converge."""
+    from uuid import UUID
+
+    from app.core.collab import room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a = running_collab
+    b = second_worker
+    await a.get_room(name)
+    await b.get_room(name)
+    assert await _text(a, name) == await _text(b, name) == "Hello collab."
+    # Both must have the SAME items, not merely the same string: an edit made
+    # on A must land on B, and vice versa.
+    a.rooms[name].ydoc.get("content", type=Text).insert(0, "A says: ")
+    await _eventually(lambda: _text(b, name), "A says: Hello collab.")
+    b.rooms[name].ydoc.get("content", type=Text).insert(len("A says: Hello collab."), " B agrees.")
+    await _eventually(lambda: _text(a, name), "A says: Hello collab. B agrees.")
+
+    # One persist owner: whoever holds the lock writes; the other skips and
+    # keeps its dirty flag. Either way the row ends up with the merged text.
+    owners = [await a._own_persist(name), await b._own_persist(name)]
+    assert owners.count(True) == 1, owners
+    await a._persist(name, a.states[name], a.rooms[name])
+    await b._persist(name, b.states[name], b.rooms[name])
+    note = (
+        await client.get(
+            f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}", headers=workspace["headers"]
+        )
+    ).json()["data"]
+    assert note["content"] == "A says: Hello collab. B agrees."
+
+    await a.delete_room(name=name)
+    await b.delete_room(name=name)
+
+
+async def test_late_joining_worker_catches_up(workspace: dict, running_collab, second_worker) -> None:
+    """B opens the room after A has already taken edits: B must receive A's
+    state, not just the original seed — otherwise B's clients would see an old
+    body and B could persist it over A's work."""
+    from uuid import UUID
+
+    from app.core.collab import room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a, b = running_collab, second_worker
+    await a.get_room(name)
+    a.rooms[name].ydoc.get("content", type=Text).insert(0, "Edited before B arrived. ")
+    await asyncio.sleep(0.05)
+    await b.get_room(name)
+    await _eventually(lambda: _text(b, name), "Edited before B arrived. Hello collab.")
+    # And fanout works both ways from here on.
+    b.rooms[name].ydoc.get("content", type=Text).insert(0, "[B] ")
+    await _eventually(lambda: _text(a, name), "[B] Edited before B arrived. Hello collab.")
+    await a.delete_room(name=name)
+    await b.delete_room(name=name)
+
+
+async def test_stale_seed_from_a_crashed_worker_yields_to_the_database(
+    client: AsyncClient, workspace: dict, running_collab
+) -> None:
+    """A worker died holding the room: its seed and holder count linger in
+    Redis. The next opener must end up with the DB text, not the stale seed."""
+    from uuid import UUID
+
+    from app.core.collab import room_name
+    from app.core.redis import redis_binary
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a = running_collab
+    await a.get_room(name)
+    stale = await redis_binary.get(f"collab-seed:{name}")
+    await a.delete_room(name=name)  # holder count → 0, seed gone
+    # Simulate the crash: the stale seed is back, a phantom holder is counted,
+    # and meanwhile the note was saved over REST with new text.
+    await redis_binary.set(f"collab-seed:{name}", stale, ex=600)
+    await redis_binary.set(f"collab-holders:{name}", 1, ex=600)
+    saved = await client.put(
+        f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}/content",
+        json={"content": "Saved while nobody was home."},
+        headers=workspace["headers"],
+    )
+    assert saved.status_code == 200
+    await a.get_room(name)
+    assert await _text(a, name) == "Saved while nobody was home."
+    await a.delete_room(name=name)
+    await redis_binary.delete(f"collab-holders:{name}", f"collab-seed:{name}")
+
+
+async def test_rest_save_with_two_workers_is_applied_once(
+    client: AsyncClient, workspace: dict, running_collab, second_worker
+) -> None:
+    """Both workers hold the room and a REST save lands: exactly one turns it
+    into a CRDT edit and the other receives that edit — applying it on both
+    would leave the text twice."""
+    from uuid import UUID
+
+    from app.core.collab import room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a, b = running_collab, second_worker
+    await a.get_room(name)
+    await b.get_room(name)
+    saved = await client.put(
+        f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}/content",
+        json={"content": "Saved over REST."},
+        headers=workspace["headers"],
+    )
+    assert saved.status_code == 200
+    await _eventually(lambda: _text(a, name), "Saved over REST.")
+    await _eventually(lambda: _text(b, name), "Saved over REST.")
+    await asyncio.sleep(0.3)  # any duplicate would have arrived by now
+    assert await _text(a, name) == await _text(b, name) == "Saved over REST."
+    await a.delete_room(name=name)
+    await b.delete_room(name=name)
+
+
+async def test_join_during_teardown_gets_a_fresh_room(workspace: dict, running_collab) -> None:
+    """A client joining while the last one leaves must not be handed the room
+    being torn down (its session would never be persisted)."""
+    from uuid import UUID
+
+    from app.core.collab import room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a = running_collab
+    first = await a.get_room(name)
+    a.rooms[name].ydoc.get("content", type=Text).insert(0, "dirty ")
+    closing = asyncio.create_task(a.delete_room(name=name))
+    await asyncio.sleep(0)  # let delete_room register the closing gate
+    second = await a.get_room(name)
+    await closing
+    assert second is not first, "joined the room that was being deleted"
+    assert name in a.states and name in a.rooms
+    await a.delete_room(name=name)
