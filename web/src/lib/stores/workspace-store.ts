@@ -315,6 +315,9 @@ interface WorkspaceState {
   /** Same, for a folder. */
   revealFolder: (folderId: string) => void;
   setSplitOrientation: (orientation: "row" | "column") => void;
+  /** Sign-out hygiene: forget which vault was open and close every transient
+   *  overlay, so the next account (same browser) starts clean. */
+  resetForSignOut: () => void;
   /** Reorder a tab within its pane. */
   reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
   /** Move a tab to another existing pane (falls back to reorder if same pane). */
@@ -639,6 +642,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       revealFolder: (folderId) =>
         set({ revealTarget: { kind: "folder", id: folderId, nonce: (get().revealTarget?.nonce ?? 0) + 1 } }),
       setSplitOrientation: (orientation) => set({ splitOrientation: orientation }),
+      resetForSignOut: () =>
+        set({
+          activeVaultId: null,
+          panes: [emptyPane()],
+          activePane: 0,
+          settingsOpen: false,
+          settingsTab: null,
+          paletteOpen: false,
+          switcherOpen: false,
+          versionsOpen: false,
+          tourOpen: false,
+          searchSeed: null,
+          graphFocusNoteId: null,
+          revealTarget: null,
+        }),
 
       reorderTab: (tabId, paneIndex, toIndex) => {
         set({

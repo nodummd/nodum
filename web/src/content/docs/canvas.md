@@ -21,4 +21,4 @@ A canvas is an infinite board. Cards on it hold text; lines between cards show r
 - **Edit** — double-click a text card and type; `Esc` finishes.
 - **Delete** — select a card and press `⌫` (its lines go with it).
 
-Canvases save as they change and open in a tab like a note. Settings → Canvas chooses the background (dots, grid or plain).
+Canvases save as they change and open in a tab like a note. Settings → Canvas chooses the background (dots, grid or blank).

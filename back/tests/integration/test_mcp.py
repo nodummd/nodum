@@ -448,3 +448,39 @@ async def test_prepend_keeps_frontmatter_link_notes_is_idempotent_and_attachment
     # A missing note as a resource: a sentence, not a bare "Error creating resource".
     res = await rpc(client, h, "resources/read", {"uri": f"nodum://vault/{vid}/note/Nope"})
     assert "No note called" in res["error"]["message"], res
+
+
+async def test_token_cap_holds_under_concurrent_creates(client: AsyncClient, account: dict) -> None:
+    from app.services.api_token_service import MAX_TOKENS_PER_USER
+
+    results = await asyncio.gather(
+        *[client.post("/api/v1/mcp-tokens", json={"name": f"t{i}"}, headers=account["session"]) for i in range(20)]
+    )
+    codes = sorted(r.status_code for r in results)
+    live = [
+        t
+        for t in (await client.get("/api/v1/mcp-tokens", headers=account["session"])).json()["data"]["tokens"]
+        if not t["revoked_at"]
+    ]
+    assert len(live) == MAX_TOKENS_PER_USER, (len(live), codes)
+    assert codes.count(201) == MAX_TOKENS_PER_USER - 1  # the fixture minted one already
+
+
+async def test_a_deactivated_accounts_tokens_stop_working(client: AsyncClient, account: dict) -> None:
+    from sqlalchemy import select, update
+
+    from app.core.db import async_session_factory
+    from app.models.auth import ApiToken, User
+
+    assert (await rpc(client, account["mcp"], "tools/list"))["result"]["tools"]
+    async with async_session_factory() as db:
+        owner = await db.scalar(select(ApiToken.user_id).where(ApiToken.id == account["token_id"]))
+        await db.execute(update(User).where(User.id == owner).values(is_active=False))
+        await db.commit()
+    try:
+        resp = await client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=account["mcp"])
+        assert resp.status_code == 401
+    finally:
+        async with async_session_factory() as db:
+            await db.execute(update(User).where(User.id == owner).values(is_active=True))
+            await db.commit()

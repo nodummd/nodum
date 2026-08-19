@@ -296,7 +296,9 @@ async def change_password(
     if user is None:
         return ServiceResponse.fail("unauthorized", "Account is not available.")
     if not await verify_password_async(current_password, user.password_hash):
-        return ServiceResponse.fail("unauthorized", "Current password is incorrect.")
+        # 403, not 401: the session is fine, the answer is wrong. A 401 would
+        # make the client refresh its token and retry with the same password.
+        return ServiceResponse.fail("forbidden", "Current password is incorrect.")
 
     user.password_hash = await hash_password_async(new_password)
     result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))

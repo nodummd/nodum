@@ -779,3 +779,7 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     rate-limit bucket), MCP tokens surviving password reset/change (revoked
     now), `list_attachments` crash, prepend-above-frontmatter, ⌘E double
     binding, and eight more doc claims. Details in the goal doc.
+  - *Third review pass* — 13 more on `bug/10.review-fixes-3_…`, headline: a
+    pre-existing cross-account leak in one browser (query cache + persisted
+    vault survived logout) — fixed and e2e-covered; Claude Desktop config via
+    env; token cap lock; demo-creation race; daily notes on the user's clock.

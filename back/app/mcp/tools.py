@@ -5,6 +5,7 @@ the service the app itself uses."""
 
 import base64
 import mimetypes
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -765,11 +766,26 @@ async def bookmark_note(ctx: Context, vault_id: VaultId, note: str, bookmarked: 
 
 
 @tool()
-async def daily_note(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
+async def daily_note(
+    ctx: Context,
+    vault_id: VaultId,
+    local_time: Annotated[
+        str,
+        Field(
+            description='The user\'s local date-time, ISO 8601 (e.g. "2026-08-19T09:30"), if you know it; the server clock is UTC'
+        ),
+    ] = "",
+) -> dict[str, Any]:
     """Today's daily note — created from the vault's template if it does not exist yet."""
     user_id = user_id_from(ctx)
+    now = None
+    if local_time.strip():
+        try:
+            now = datetime.fromisoformat(local_time.strip()).replace(tzinfo=None)
+        except ValueError as exc:
+            raise ToolError("local_time must be ISO 8601, e.g. 2026-08-19T09:30.") from exc
     async with async_session_factory() as db:
-        n = unwrap(await daily_note_service.open_daily_note(db, as_uuid(vault_id, "vault_id"), user_id))
+        n = unwrap(await daily_note_service.open_daily_note(db, as_uuid(vault_id, "vault_id"), user_id, now=now))
         return {**_note_meta(n), "content": n.content}
 
 

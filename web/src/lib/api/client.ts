@@ -107,7 +107,8 @@ const CREDENTIAL_PATHS = [
   "/auth/resend-verification",
   "/auth/forgot-password",
   "/auth/reset-password",
-  "/auth/change-password", // its 401 is "current password is wrong"
+  // not /auth/change-password: a wrong current password is a 403 there, so an
+  // expired token is the only 401 it can return — and that must refresh.
 ];
 function isCredentialPath(path: string): boolean {
   return CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(`${p}?`));

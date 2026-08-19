@@ -98,3 +98,29 @@ async def test_templates_listing_and_insert(client: AsyncClient, workspace: dict
     body = inserted.json()["data"]["content"]
     assert body.startswith("## Meeting ")
     assert "{{date}}" not in body
+
+
+async def test_daily_note_uses_the_callers_clock(client: AsyncClient, workspace: dict) -> None:
+    """The server runs in UTC; "today" is the person's. A local timestamp in the
+    body decides the title and {{time}}."""
+    h = workspace["headers"]
+    tpl_folder = await client.post(f"{workspace['base']}/folders", json={"name": "Templates"}, headers=h)
+    tpl = await client.post(
+        f"{workspace['base']}/notes",
+        json={"title": "Daily", "folder_id": tpl_folder.json()["data"]["id"], "content": "at {{time}} on {{date}}"},
+        headers=h,
+    )
+    assert tpl.status_code == 201
+    patched = await client.patch(
+        f"{workspace['base']}",
+        json={"settings": {"dailyNoteTemplate": "Templates/Daily"}},
+        headers=h,
+    )
+    assert patched.status_code == 200
+    resp = await client.post(f"{workspace['base']}/daily-note", json={"now": "2031-02-03T02:15:00"}, headers=h)
+    assert resp.status_code == 200, resp.text
+    note = resp.json()["data"]
+    assert note["title"] == "2031-02-03" and note["content"] == "at 02:15 on 2031-02-03"
+    # An aware timestamp is taken as the wall clock it shows, not converted.
+    resp = await client.post(f"{workspace['base']}/daily-note", json={"now": "2031-02-04T23:59:00+05:30"}, headers=h)
+    assert resp.json()["data"]["title"] == "2031-02-04"

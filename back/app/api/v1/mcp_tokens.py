@@ -8,12 +8,13 @@ itself is mounted separately (app/mcp) and never touches the session.
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
 
 from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
 from app.services import api_token_service
+from app.settings import get_settings
 
 router = APIRouter()
 
@@ -23,16 +24,15 @@ class TokenCreateRequest(BaseModel):
 
 
 @router.get("")
-async def list_tokens(user_id: CurrentUserId, db: SessionDep, request: Request) -> dict[str, Any]:
+async def list_tokens(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Your MCP tokens (never the token values) plus the endpoint URL to configure."""
     tokens = (await api_token_service.list_tokens(db, user_id)).unwrap()
-    # The MCP endpoint lives beside the API this request came through, so the
-    # URL the client should use is this origin plus the mount path — right on
-    # every deployment without configuration.
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    scheme = forwarded_proto or request.url.scheme
-    origin = f"{scheme}://{forwarded_host}" if forwarded_host else str(request.base_url).rstrip("/")
+    # The MCP endpoint lives beside the API on the site's public origin — the
+    # one the app itself is served from (FRONTEND_BASE_URL, required in every
+    # deployment; in dev it is the Next origin, whose rewrite proxies /api).
+    # Not the request's headers: X-Forwarded-Proto is whatever the last hop
+    # says, which behind an upstream TLS terminator is "http".
+    origin = get_settings().FRONTEND_BASE_URL.rstrip("/")
     return {"data": {"tokens": tokens, "endpoint": f"{origin}/api/v1/mcp"}}
 
 

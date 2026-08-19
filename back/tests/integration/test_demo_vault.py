@@ -78,3 +78,37 @@ async def test_a_second_demo_gets_a_numbered_name(client: AsyncClient, account: 
 
 async def test_requires_authentication(client: AsyncClient) -> None:
     assert (await client.post("/api/v1/vaults/demo")).status_code == 401
+
+
+async def test_two_demos_at_once_both_succeed(client: AsyncClient, account: dict) -> None:
+    """Two tabs, one click each: the loser of the name race takes the next
+    number instead of a 500."""
+    import asyncio
+
+    a, b = await asyncio.gather(
+        client.post("/api/v1/vaults/demo", headers=account["headers"]),
+        client.post("/api/v1/vaults/demo", headers=account["headers"]),
+    )
+    assert {a.status_code, b.status_code} == {201}, (a.text[:200], b.text[:200])
+    names = {a.json()["data"]["vault"]["name"], b.json()["data"]["vault"]["name"]}
+    assert names == {"Demo Workspace", "Demo Workspace 2"}, names
+
+
+async def test_demo_daily_note_lands_beside_the_others(client: AsyncClient, account: dict) -> None:
+    created = (await client.post("/api/v1/vaults/demo", headers=account["headers"])).json()["data"]
+    vid = created["vault"]["id"]
+    resp = await client.post(
+        f"/api/v1/vaults/{vid}/daily-note", json={"now": "2026-08-19T09:30:00"}, headers=account["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    note = resp.json()["data"]
+    assert note["path"] == "Daily/2026-08-19"
+    assert "Wednesday, 19 August 2026" in note["content"] and "09:30" in note["content"]
+    assert "{{" not in note["content"]
+    # The fixture's own daily notes are its siblings, not in a month subfolder.
+    tree = (await client.get(f"/api/v1/vaults/{vid}/tree", headers=account["headers"])).json()["data"]
+    daily = next(i for i in tree["items"] if i["type"] == "folder" and i["name"] == "Daily")
+    assert all(c["type"] == "note" for c in daily["children"]), [
+        c.get("name") for c in daily["children"] if c["type"] == "folder"
+    ]
+    assert any(c["title"] == "2026-08-01" for c in daily["children"])

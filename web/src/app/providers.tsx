@@ -22,6 +22,20 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   const bootstrap = useAuthStore((s) => s.bootstrap);
+  // The query cache belongs to one identity. When it changes — logout, expiry,
+  // or a different account logging in — everything cached (vault list, notes,
+  // trees) is that person's and must go, or the next account lands in the
+  // previous one's vault with their notes still on screen.
+  useEffect(() => {
+    let lastUserId = useAuthStore.getState().user?.id ?? null;
+    return useAuthStore.subscribe((s) => {
+      const id = s.status === "authenticated" ? (s.user?.id ?? null) : null;
+      if (id !== lastUserId) {
+        lastUserId = id;
+        queryClient.clear();
+      }
+    });
+  }, [queryClient]);
   useEffect(() => {
     void bootstrap();
     // PWA app-shell service worker — production only (caching fights next dev)

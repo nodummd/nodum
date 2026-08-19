@@ -47,12 +47,16 @@ function snippets(endpoint: string, token: string) {
       id: "claude-desktop",
       label: "Claude Desktop",
       hint: "Claude Desktop speaks stdio; mcp-remote bridges it to this URL. In claude_desktop_config.json:",
+      // The header value goes through env: Claude Desktop on Windows (and
+      // Cursor) split an args entry at its first space, so "Bearer <token>"
+      // must not appear inside args. mcp-remote expands ${AUTH_HEADER}.
       code: JSON.stringify(
         {
           mcpServers: {
             nodum: {
               command: "npx",
-              args: ["-y", "mcp-remote", endpoint, "--header", `Authorization:${bearer}`],
+              args: ["-y", "mcp-remote", endpoint, "--header", "Authorization:${AUTH_HEADER}"],
+              env: { AUTH_HEADER: bearer },
             },
           },
         },

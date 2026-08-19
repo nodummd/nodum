@@ -180,12 +180,22 @@ export const bookmarkApi = {
 
 // ── Daily notes & templates ──────────────────────────────────────────────────
 
+/** The browser's wall clock as a naive local ISO string — "today" and
+ *  {{time}} are the person's, not the server's (which runs in UTC). */
+export function localNowIso(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 export const dailyApi = {
-  openDailyNote: (vaultId: string) => apiJson<Note>(`/vaults/${vaultId}/daily-note`, "POST"),
+  openDailyNote: (vaultId: string) =>
+    apiJson<Note>(`/vaults/${vaultId}/daily-note`, "POST", { now: localNowIso() }),
   listTemplates: (vaultId: string) =>
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/templates`),
   insertTemplate: (vaultId: string, noteId: string, templateId: string) =>
-    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST"),
+    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST", {
+      now: localNowIso(),
+    }),
 };
 
 // ── Canvases ─────────────────────────────────────────────────────────────────
