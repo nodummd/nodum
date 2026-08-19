@@ -18,7 +18,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ✅ `feature/7.table-steps` |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ✅ `feature/8.mcp-sse-stdio` |
 | 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ✅ `feature/8.mcp-sse-stdio` (root cause in the switcher) |
-| 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ☐ |
+| 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ⏳ `chore/10.release-v3.3.0` |
 
 ## Working rules (unchanged)
 
@@ -124,3 +124,12 @@ never a secret in the repo; branches
   still creates when the search request failed. Heading links: time-budgeted,
   re-armed when the collab editor mounts, fences skipped, `## C#` kept,
   setext found. Bridge exits on stdin EOF. Tests for each.
+- **2026-08-19 — release prep.** `make prod-verify` (prod compose from the
+  built images, migrations to 0019, smoke incl. attachment round trip) passes;
+  MCP over Caddy across the 4 workers, the AI stream route, per-vault status
+  and the collab upgrade path probed on the prod stack. Found on the way: the
+  **web Docker image had failed to build on every dev push since the docs work**
+  (`scripts/docs-screenshots.spec.ts` imports `../e2e/helpers`, which the
+  image leaves out) — never seen locally because no local gate builds the
+  image. `scripts/` is now `.dockerignore`d and `make verify` runs a build-
+  context import check that would have caught it. Versions bumped to 3.3.0.

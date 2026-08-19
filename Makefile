@@ -75,6 +75,9 @@ web-lint:        ## Lint web
 web-typecheck:   ## Typecheck web (tsc --noEmit)
 	cd web && npm run typecheck
 
+web-image-check: ## Nothing that ships in the web image imports a .dockerignored path
+	cd web && node scripts/check-docker-context.mjs
+
 e2e:             ## Run Playwright e2e suite (needs test stack up)
 	cd web && npx playwright test
 
@@ -83,6 +86,7 @@ verify:          ## Everything CI runs, minus e2e — run before you push
 	$(MAKE) back-lint
 	$(MAKE) back-test
 	$(MAKE) web-typecheck
+	$(MAKE) web-image-check
 	$(MAKE) web-lint
 	$(MAKE) web-build
 

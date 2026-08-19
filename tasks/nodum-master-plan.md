@@ -786,3 +786,28 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
   - *Fourth pass (regressions only)* — backend dry; two web follow-ups from the
     sign-out change (boot-time cache clear vs. public pages; keep the open
     vault across sign-out) on `bug/11.review-fixes-4_…`. Loop closed.
+
+- **2026-08-19: the backlog-and-release cycle → v3.3.0** (`tasks/nodum-release-cycle-goal.md`).
+  Ten chained branches off `dev`, each gated and merged `--no-ff`:
+  - *Collab under `--workers 4`* — shared seed (atomic Lua), heartbeat
+    liveness, late-join catch-up that never resets over a live holder, single
+    persist owner, per-save reset lock, presence relay across workers, local
+    undo. Verified 6× against a real 4-worker API.
+  - *Undo/redo* survives tab and mode switches (Compartments + per-pane/note
+    history snapshots); Windows redo chord.
+  - *Explorer click opens in the current tab*; `[[Note#Heading]]` lands on
+    the heading (both views).
+  - *AI*: streamed replies with live tool status; per-vault keys.
+  - *Docs* full-text search with snippets.
+  - *Tables*: per-cell undo, grid paste, arrow navigation, move row, focus
+    follow-through, collab cell tints; unescape/escape made inverse.
+  - *MCP*: SSE responses with progress on long tools; `packages/nodum-mcp`
+    stdio bridge (not on npm yet).
+  - The two long-standing e2e flakes had one cause (the switcher acting on
+    stale results) — fixed in the product.
+  - A 19-agent review of the cycle found 14 real defects (incl. a collab
+    duplication on a slow holder and backslash doubling in tables) — fixed.
+  - Prod image: bounded graceful shutdown (8 s) — open SSE streams kept
+    workers alive on SIGTERM.
+  - Gates at the release point: `make verify`, 155 backend integration,
+    211 Playwright, all green.
