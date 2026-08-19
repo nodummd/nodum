@@ -295,9 +295,7 @@ the last found nothing outside its own predecessor's diff.
 
 ## Deliberately not done
 
-- MCP over stdio as an installable package (`npx nodum-mcp`) — Streamable HTTP
-  plus `mcp-remote` covers Claude Desktop; revisit if a client cannot send headers.
-- Streaming (SSE) MCP responses — stateless JSON is enough for tool calls and
-  proxies cleanly; add if a client needs server-initiated messages.
+- ~~MCP over stdio as an installable package~~ — `packages/nodum-mcp` bridge landed 2026-08-19 (`feature/8.mcp-sse-stdio`); npm publish is a release decision.
+- ~~Streaming (SSE) MCP responses~~ — done 2026-08-19: SSE per request with progress notifications on long tools.
 - ~~Docs search across article bodies~~ — done 2026-08-19 (`feature/6.docs-search`).
 

@@ -4,6 +4,7 @@ notes and templates. Every write is a real write in the user's vault, through
 the service the app itself uses."""
 
 import base64
+import contextlib
 import mimetypes
 from datetime import datetime
 from typing import Annotated, Any
@@ -595,7 +596,8 @@ async def import_markdown(
     ],
 ) -> dict[str, Any]:
     """Import markdown files into the vault. Wikilinks between them resolve in one pass.
-    One call may carry up to ~30 MB of JSON; split a large vault into batches."""
+    One call may carry up to ~30 MB of JSON; split a large vault into batches.
+    Progress is reported while it runs."""
     user_id = user_id_from(ctx)
     import io
     import zipfile
@@ -611,12 +613,25 @@ async def import_markdown(
             if not path.lower().endswith((".md", ".markdown", ".txt")):
                 path += ".md"
             zf.writestr(path, str(f.get("content", "")))
+
+    async def progress(done: int, total: int, message: str) -> None:
+        with contextlib.suppress(Exception):  # a client without a progress token is not an error
+            await ctx.report_progress(done, total, message)
+
     async with async_session_factory() as db:
-        return unwrap(
+        await progress(0, len(files), f"Importing {len(files)} files…")
+        result = unwrap(
             await vault_io_service.import_zip(
-                db, as_uuid(vault_id, "vault_id"), user_id, archive=buffer.getvalue(), unwrap_root=False
+                db,
+                as_uuid(vault_id, "vault_id"),
+                user_id,
+                archive=buffer.getvalue(),
+                unwrap_root=False,
+                progress=progress,
             )
         )
+        await progress(len(files), len(files), "Done.")
+        return result
 
 
 @tool()

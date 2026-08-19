@@ -12,6 +12,7 @@ import contextlib
 import io
 import posixpath
 import zipfile
+from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import UUID
 
@@ -85,8 +86,17 @@ def _sanitize_segment(name: str) -> str:
     return cleaned or "Untitled"
 
 
+ProgressHook = Callable[[int, int, str], Awaitable[None]]
+
+
 async def import_zip(
-    db: AsyncSession, vault_id: UUID, user_id: UUID, *, archive: bytes, unwrap_root: bool = True
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    *,
+    archive: bytes,
+    unwrap_root: bool = True,
+    progress: ProgressHook | None = None,
 ) -> ServiceResponse[dict[str, Any]]:
     """Import all ``.md`` files from a zip archive into the vault.
 
@@ -94,6 +104,10 @@ async def import_zip(
     every entry, and that wrapper is stripped (see below). Callers that built
     the archive themselves from explicit paths — the MCP import — pass False,
     or a batch that happens to live in one folder would lose the folder.
+
+    ``progress(done, total, message)`` is awaited now and then through a long
+    import (every few notes, then at the link pass and the attachments) so a
+    caller with a live channel — the MCP server — can relay it.
     """
     if await get_owned_vault(db, vault_id, user_id) is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
@@ -136,6 +150,7 @@ async def import_zip(
     skipped_too_large = 0
     created_notes: list[Note] = []
     folder_cache: dict[str, UUID | None] = {"": None}
+    total_entries = sum(1 for e in zf.infolist() if not e.is_dir())
 
     for entry in zf.infolist():
         if entry.is_dir():
@@ -218,8 +233,12 @@ async def import_zip(
         db.add(note)
         created_notes.append(note)
         imported += 1
+        if progress is not None and imported % 10 == 0:
+            await progress(imported, total_entries, f"Imported {imported} notes…")
 
     await db.flush()
+    if progress is not None:
+        await progress(imported, total_entries, "Resolving links and tags…")
 
     # Second pass: extract links + tags, then claim unresolved links batch-wide
     from app.services.tag_service import sync_note_tags
@@ -238,6 +257,8 @@ async def import_zip(
     from app.services import attachment_service
 
     stored_names: dict[str, str] = {}
+    if progress is not None and attachment_entries:
+        await progress(imported, total_entries, f"Uploading {len(attachment_entries)} attachments…")
     for base, entry in attachment_entries:
         # Best-effort per file: one unreadable image must not abort the import.
         # But it is LOGGED — a silent skip reports "0 attachments" with no way

@@ -8,6 +8,7 @@ between users.
 
 import asyncio
 import base64
+import json
 import uuid
 from typing import Any
 
@@ -46,13 +47,36 @@ async def account(client: AsyncClient) -> dict:
     }
 
 
-async def rpc(client: AsyncClient, headers: dict, method: str, params: dict | None = None, id_: int = 1) -> Any:
+def sse_messages(text: str) -> list[dict]:
+    """Every JSON-RPC message in an SSE body (the server answers each POST as a
+    short event stream: notifications first, the response last)."""
+    out: list[dict] = []
+    for block in text.replace("\r\n", "\n").split("\n\n"):
+        data = "\n".join(line[5:].lstrip() for line in block.split("\n") if line.startswith("data:"))
+        if data:
+            out.append(json.loads(data))
+    return out
+
+
+async def rpc_all(
+    client: AsyncClient, headers: dict, method: str, params: dict | None = None, id_: int = 1
+) -> list[dict]:
+    """The response AND any notifications that came before it."""
     body: dict[str, Any] = {"jsonrpc": "2.0", "id": id_, "method": method}
     if params is not None:
         body["params"] = params
     resp = await client.post(MCP, json=body, headers=headers)
     assert resp.status_code == 200, f"{method}: {resp.status_code} {resp.text[:300]}"
-    return resp.json()
+    if resp.headers.get("content-type", "").startswith("text/event-stream"):
+        return sse_messages(resp.text)
+    return [resp.json()]
+
+
+async def rpc(client: AsyncClient, headers: dict, method: str, params: dict | None = None, id_: int = 1) -> Any:
+    messages = await rpc_all(client, headers, method, params, id_)
+    replies = [m for m in messages if m.get("id") == id_]
+    assert replies, f"{method}: no response in {messages!r}"
+    return replies[-1]
 
 
 async def call(client: AsyncClient, headers: dict, tool: str, **arguments: Any) -> Any:
@@ -484,3 +508,38 @@ async def test_a_deactivated_accounts_tokens_stop_working(client: AsyncClient, a
         async with async_session_factory() as db:
             await db.execute(update(User).where(User.id == owner).values(is_active=True))
             await db.commit()
+
+
+async def test_each_call_is_an_event_stream_and_a_long_import_reports_progress(
+    client: AsyncClient, account: dict
+) -> None:
+    """Streamable HTTP: the answer arrives as SSE, and a client that sent a
+    progress token sees the import's progress notifications before the result."""
+    h = account["mcp"]
+    vid = account["vault_id"]
+    resp = await client.post(MCP, json={"jsonrpc": "2.0", "id": 7, "method": "tools/list"}, headers=h)
+    assert resp.headers["content-type"].startswith("text/event-stream"), resp.headers
+    files = [{"path": f"Bulk/Note {i}.md", "content": f"Note {i} links [[Note {(i + 1) % 25}]]."} for i in range(25)]
+    messages = await rpc_all(
+        client,
+        h,
+        "tools/call",
+        {"name": "import_markdown", "arguments": {"vault_id": vid, "files": files}, "_meta": {"progressToken": "p1"}},
+        id_=8,
+    )
+    progress = [m for m in messages if m.get("method") == "notifications/progress"]
+    assert progress, messages
+    assert all(m["params"]["progressToken"] == "p1" for m in progress)
+    assert progress[0]["params"]["progress"] == 0 and "Importing 25" in progress[0]["params"].get("message", "")
+    assert progress[-1]["params"]["progress"] == 25 and progress[-1]["params"]["total"] == 25
+    assert any("Resolving links" in (m["params"].get("message") or "") for m in progress)
+    final = [m for m in messages if m.get("id") == 8][-1]
+    assert final["result"]["structuredContent"]["imported"] == 25
+    # The protocol requires clients to accept both JSON and SSE; one that
+    # only accepts JSON is told so rather than served a stream it cannot read.
+    plain = await client.post(
+        MCP,
+        json={"jsonrpc": "2.0", "id": 9, "method": "tools/list"},
+        headers={**h, "Accept": "application/json"},
+    )
+    assert plain.status_code == 406

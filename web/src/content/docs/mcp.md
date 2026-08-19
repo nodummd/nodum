@@ -42,7 +42,9 @@ claude mcp add --transport http nodum https://your-nodum/api/v1/mcp --header "Au
 { "mcpServers": { "nodum": { "command": "npx", "args": ["-y", "mcp-remote", "https://your-nodum/api/v1/mcp", "--header", "Authorization:${AUTH_HEADER}"], "env": { "AUTH_HEADER": "Bearer nodum_mcp_…" } } } }
 ```
 
-Anything else that supports Streamable HTTP with a bearer header works the same way.
+Anything else that supports Streamable HTTP with a bearer header works the same way. For a client that can only launch a **stdio** server, the repository ships a small bridge, `packages/nodum-mcp` (`node packages/nodum-mcp/bin/nodum-mcp.js` with `NODUM_URL` and `NODUM_TOKEN` in the environment) — it mirrors every tool and forwards each call to the HTTP endpoint, so the token never appears in an argument list.
+
+Long tools report **progress**: an import of many files shows *Imported 10 notes…*, *Resolving links and tags…* in clients that display it (Claude Code does).
 
 ## What the tools are
 
