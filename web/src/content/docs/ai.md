@@ -23,3 +23,5 @@ Chats are saved per vault: the clock icon lists them, `+` starts a new one, and 
 ## Not set up yet
 
 Opening the panel without a key explains what is missing and takes you to Settings → AI.
+
+Prefer to drive Nodum from your own AI tool instead? See [MCP — use Nodum from any AI client](/docs/mcp).

@@ -51,6 +51,7 @@ dependencies = [
     "pycrdt>=0.14.2",
     "pycrdt-websocket>=0.16.4",
     "pypdf>=6.16.1",
+    "mcp>=2.0.0",
 ]
 
 [dependency-groups]

@@ -2,7 +2,7 @@
 title: Settings
 section: Account
 order: 1
-summary: Where every preference lives, tab by tab — account, editor, appearance, files, hotkeys, vault, canvas, plugins, AI, clipper, publish, collab.
+summary: Where every preference lives, tab by tab — account, editor, appearance, files, hotkeys, vault, canvas, plugins, AI, MCP, clipper, publish, collab.
 where: Ribbon → gear, or ⌘,
 ---
 
@@ -20,8 +20,9 @@ where: Ribbon → gear, or ⌘,
 | **Canvas** | Board background. |
 | **Plugins** | Installed plugins and their permissions. |
 | **AI** | Provider, key, model, endpoint. |
+| **MCP** | Token and client setup for driving Nodum from an AI tool. |
 | **Web Clipper** | The clipper token. |
 | **Publish** | Publish the vault as a site. |
 | **Collab** | Live editing on or off. |
 
-Account settings (General, Editor, Appearance, Interface, Hotkeys, AI, Web Clipper) follow you across vaults and devices; the rest are per vault.
+Account settings (General, Editor, Appearance, Interface, Hotkeys, AI, MCP, Web Clipper) follow you across vaults and devices; the rest are per vault.

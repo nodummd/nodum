@@ -86,9 +86,15 @@ def _sanitize_segment(name: str) -> str:
 
 
 async def import_zip(
-    db: AsyncSession, vault_id: UUID, user_id: UUID, *, archive: bytes
+    db: AsyncSession, vault_id: UUID, user_id: UUID, *, archive: bytes, unwrap_root: bool = True
 ) -> ServiceResponse[dict[str, Any]]:
-    """Import all ``.md`` files from a zip archive into the vault."""
+    """Import all ``.md`` files from a zip archive into the vault.
+
+    ``unwrap_root``: a vault zipped WITH its own folder shares one root across
+    every entry, and that wrapper is stripped (see below). Callers that built
+    the archive themselves from explicit paths — the MCP import — pass False,
+    or a batch that happens to live in one folder would lose the folder.
+    """
     if await get_owned_vault(db, vault_id, user_id) is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
     if len(archive) > MAX_IMPORT_ZIP_SIZE_BYTES:
@@ -117,7 +123,7 @@ async def import_zip(
                 return ""
         return roots.pop() if len(roots) == 1 else ""
 
-    root_prefix = _archive_root([e.filename for e in zf.infolist() if not e.is_dir()])
+    root_prefix = _archive_root([e.filename for e in zf.infolist() if not e.is_dir()]) if unwrap_root else ""
 
     imported = 0
     renamed = 0

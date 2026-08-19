@@ -6,7 +6,7 @@ the full schema. Add new model modules here as features land.
 
 from app.models.ai import AIConversation, AICredential, AIMessage
 from app.models.attachments import Attachment
-from app.models.auth import EmailVerification, OAuthConnection, Session, User
+from app.models.auth import ApiToken, EmailVerification, OAuthConnection, Session, User
 from app.models.base import Base
 from app.models.bookmarks import Bookmark
 from app.models.links import Link
@@ -18,6 +18,7 @@ __all__ = [
     "AIConversation",
     "AICredential",
     "AIMessage",
+    "ApiToken",
     "Attachment",
     "Base",
     "Bookmark",

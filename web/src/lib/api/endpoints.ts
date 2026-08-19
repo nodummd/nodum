@@ -13,6 +13,8 @@ import type {
   CanvasMeta,
   FolderInfo,
   Graph,
+  McpToken,
+  McpTokenList,
   Note,
   NoteMeta,
   OutgoingLink,
@@ -290,4 +292,13 @@ export const aiApi = {
     ),
   deleteConversation: (vaultId: string, id: string) =>
     apiJson<{ message: string }>(`/ai/vaults/${vaultId}/conversations/${id}`, "DELETE"),
+};
+
+// ── MCP tokens ───────────────────────────────────────────────────────────────
+
+export const mcpApi = {
+  tokens: () => api<McpTokenList>("/mcp-tokens"),
+  /** The token is in THIS response only — show it once. */
+  createToken: (name: string) => apiJson<McpToken & { token: string }>("/mcp-tokens", "POST", { name }),
+  revokeToken: (id: string) => apiJson<McpToken>(`/mcp-tokens/${id}`, "DELETE"),
 };

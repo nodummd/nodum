@@ -348,5 +348,15 @@ test("capture the documentation screenshots", async ({ page }) => {
     await page.waitForTimeout(500);
     await shot(page, name, settings, 12);
   }
+  // MCP, with a freshly minted token so the configs are filled in.
+  await settings.getByRole("button", { name: "MCP", exact: true }).click();
+  await settings.getByPlaceholder("Claude Desktop on my laptop").fill("Claude Desktop on my laptop");
+  await settings.getByRole("button", { name: "Create token" }).click();
+  await expect(page.getByTestId("mcp-fresh-token")).toBeVisible();
+  await page.waitForTimeout(400);
+  await shot(page, "settings-mcp", settings, 12);
+  // The picture shows a token; revoke it so what is in the image is dead.
+  await settings.getByRole("button", { name: "Revoke token Claude Desktop on my laptop" }).click();
+  await expect(settings.getByRole("button", { name: "Revoke token Claude Desktop on my laptop" })).toHaveCount(0);
   await page.keyboard.press("Escape");
 });

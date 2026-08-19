@@ -38,13 +38,20 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 
 export function VaultSwitcher({ vaultId, vaultName }: { vaultId: string; vaultName: string }) {
+  const queryClient = useQueryClient();
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
   const openSettings = useWorkspaceStore((s) => s.openSettings);
   const [creating, setCreating] = useState(false);
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu
+        // Vaults can be created outside this tab — another browser tab, or an
+        // MCP client — so the list is refreshed every time it is opened.
+        onOpenChange={(open) => {
+          if (open) void queryClient.invalidateQueries({ queryKey: ["vaults"] });
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <button
             type="button"
