@@ -163,6 +163,50 @@ token never appears in any GET.
   (MCP, another tab) — it refetches on open.
 - **A Starlette Mount 307s the exact path** — the MCP endpoint is a Route.
 
+## After the adversarial review (2026-08-19, `bug/7.review-fixes_…`)
+
+A 39-agent review over the merged work (five lenses: MCP security, MCP
+correctness, onboarding, workspace store, docs and demo) confirmed 34 findings;
+all fixed and covered:
+
+- **MCP cross-tenant read** — `_resolve_note`'s title fallback (and `_find_folder`,
+  `bookmark_note`, `list_item_colors`, the note resource) queried by vault id
+  without an ownership check; a user with any token could read another user's
+  note by title, enumerate titles with `%` patterns, and insert bookmarks into a
+  foreign vault. Every lookup now starts with `get_owned_vault`, the title match
+  is exact (no ILIKE patterns), `list_item_colors` scopes ids to the vault, and
+  the error is "Vault not found." for every foreign reference. Test:
+  `test_tools_never_cross_users` (title / id / path / pattern / resource / nine
+  write tools) + `test_item_colors_only_resolve_ids_in_this_vault`.
+- **Silent misfiling** — `ensure_folder_path` swallowed an invalid segment and
+  returned the last good parent, so `create_note(folder="Bad|Name")` filed the
+  note at the root and `move_note` moved a note *out* of its folder. It returns
+  a `ServiceResponse` now, validated before anything is created; the REST
+  `folder_path`, the AI tool and the clipper all surface the error.
+  `move_folder` no longer creates its destination.
+- MCP body cap raised from the SDK's 4 MiB to 32 MiB (a 3 MB attachment
+  arrives; a 5 MB+ one gets a sentence, not a 413); nested paths in the note
+  resource (`{+path}`); unexpected tool exceptions logged and replaced by a
+  generic ToolError; per-token rate-limit buckets; honest rename/move
+  docstrings (links are not rewritten).
+- **Tour** — × / Esc on the demo question is "not now" (no dialog re-asks);
+  focus lands on the card once per step (not every 400 ms); ⌘-chords are
+  swallowed while the tour is up (⌘O no longer opens the switcher under the
+  veil); Tab is trapped in the card and the rest of the page is `inert`; the
+  veil and card follow a resize on centred steps; the card never exceeds the
+  viewport width; hidden sidebars/ribbon are shown for the tour and restored;
+  focus is not handed back to the Help trigger; one PATCH for "not now".
+- `PATCH /auth/me` is refreshed-and-retried on 401 like every other call (an
+  answer given after the access token expired was silently lost).
+- Deleting the vault open in this tab hops to another vault instead of
+  "Loading vault…" forever.
+- Docs corrected where they promised what the app does not do (drag-to-move,
+  drop-to-import, demo plugin, template-at-cursor, settings tab for page
+  preview, `path:` semantics, related-notes wording, tags menu label, MCP
+  example count); the demo now has a real daily-note folder + template with
+  variables; the importer reads `.obsidian` `attachmentFolderPath`; a
+  "Split down" palette command exists.
+
 ## Deliberately not done
 
 - MCP over stdio as an installable package (`npx nodum-mcp`) — Streamable HTTP

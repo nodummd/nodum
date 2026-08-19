@@ -11,10 +11,10 @@ where: Ribbon → gear, or ⌘,
 | Tab | What is there |
 | --- | --- |
 | **General** | Your name and password, the app version, the tour and the docs. Delete your account from here too — it asks for a code sent to your email. |
-| **Editor** | Default view for new tabs, font size, line numbers, readable line length, spellcheck, page-preview behaviour. |
+| **Editor** | Default view for new tabs, font size, line numbers, readable line length, spellcheck. |
 | **Appearance** | Accent colour; interface, text and monospace fonts. |
 | **Interface** | Show or hide the ribbon and the tab title bar. |
-| **Files & links** | Where new notes go, attachment folder, wikilinks vs. markdown links, excluded paths, confirm before delete. |
+| **Files & links** | Where new notes go, attachment folder, wikilinks vs. markdown links, excluded paths, confirm before delete, whether page preview needs `⌘`/`Ctrl`. |
 | **Hotkeys** | Every shortcut, searchable. |
 | **Vault** | Your vaults (open, rename, delete, demo workspace); daily-note format, folder and template; templates folder. |
 | **Canvas** | Board background. |

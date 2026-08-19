@@ -11,12 +11,13 @@ from uuid import UUID
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from uuid_extensions import uuid7
 
+from app.constants.limits import MAX_ATTACHMENT_SIZE_BYTES
 from app.core.db import async_session_factory
-from app.mcp.server import as_uuid, server, unwrap, user_id_from
+from app.mcp.server import as_uuid, server, tool, unwrap, user_id_from
 from app.models.bookmarks import Bookmark
 from app.models.vaults import Folder, Note
 from app.services import (
@@ -51,11 +52,18 @@ def _note_meta(note: Any) -> dict[str, Any]:
     }
 
 
+async def _owned(db: Any, vault_id: UUID, user_id: UUID) -> None:
+    """Every lookup starts here: a vault you do not own does not exist."""
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        raise ToolError("Vault not found.")
+
+
 async def _resolve_note(db: Any, vault_id: UUID, user_id: UUID, ref: str) -> Any:
     """A note by id, exact path, or exact title (case-insensitive)."""
     ref = (ref or "").strip()
     if not ref:
         raise ToolError('Say which note: its id, its path ("Folder/Name") or its title.')
+    await _owned(db, vault_id, user_id)
     try:
         note = unwrap(await note_service.get_note(db, vault_id, user_id, UUID(ref)))
         return note
@@ -69,7 +77,10 @@ async def _resolve_note(db: Any, vault_id: UUID, user_id: UUID, ref: str) -> Any
     matches = (
         (
             await db.execute(
-                select(Note).where(Note.vault_id == vault_id, Note.title.ilike(ref)).order_by(Note.path).limit(2)
+                select(Note)
+                .where(Note.vault_id == vault_id, func.lower(Note.title) == ref.lower())
+                .order_by(Note.path)
+                .limit(2)
             )
         )
         .scalars()
@@ -83,14 +94,16 @@ async def _resolve_note(db: Any, vault_id: UUID, user_id: UUID, ref: str) -> Any
 
 
 async def _folder_id_for(db: Any, vault_id: UUID, user_id: UUID, folder: str | None) -> UUID | None:
-    """A folder path → id, creating the path if needed. Empty/None = root."""
+    """A folder path → id, creating the path if needed. Empty/None = root.
+    A bad name anywhere in the path is an error, never a silent fallback."""
     path = (folder or "").strip().strip("/")
     if not path:
         return None
-    return await ensure_folder_path(db, vault_id, user_id, path)
+    return unwrap(await ensure_folder_path(db, vault_id, user_id, path))
 
 
-async def _find_folder(db: Any, vault_id: UUID, path: str) -> Any:
+async def _find_folder(db: Any, vault_id: UUID, user_id: UUID, path: str) -> Any:
+    await _owned(db, vault_id, user_id)
     folder = await db.scalar(select(Folder).where(Folder.vault_id == vault_id, Folder.path == path.strip().strip("/")))
     if folder is None:
         raise ToolError(f"No folder at {path!r}. get_tree lists them.")
@@ -100,7 +113,7 @@ async def _find_folder(db: Any, vault_id: UUID, path: str) -> Any:
 # ── Vaults ────────────────────────────────────────────────────────────────────
 
 
-@server.tool()
+@tool()
 async def list_vaults(ctx: Context) -> list[dict[str, Any]]:
     """List the vaults you own. Almost every other tool needs a vault_id from here."""
     user_id = user_id_from(ctx)
@@ -109,7 +122,7 @@ async def list_vaults(ctx: Context) -> list[dict[str, Any]]:
         return [{"id": str(v.id), "name": v.name} for v in vaults]
 
 
-@server.tool()
+@tool()
 async def create_vault(ctx: Context, name: Annotated[str, Field(description="Vault name")]) -> dict[str, Any]:
     """Create a new, empty vault — a separate workspace with its own notes and graph."""
     user_id = user_id_from(ctx)
@@ -117,7 +130,7 @@ async def create_vault(ctx: Context, name: Annotated[str, Field(description="Vau
         return _vault(unwrap(await vault_service.create_vault(db, user_id, name=name)))
 
 
-@server.tool()
+@tool()
 async def rename_vault(ctx: Context, vault_id: VaultId, name: str) -> dict[str, Any]:
     """Rename a vault."""
     user_id = user_id_from(ctx)
@@ -125,7 +138,7 @@ async def rename_vault(ctx: Context, vault_id: VaultId, name: str) -> dict[str, 
         return _vault(unwrap(await vault_service.rename_vault(db, as_uuid(vault_id, "vault_id"), user_id, name=name)))
 
 
-@server.tool()
+@tool()
 async def delete_vault(
     ctx: Context,
     vault_id: VaultId,
@@ -148,7 +161,7 @@ async def delete_vault(
 # ── Folders and the tree ──────────────────────────────────────────────────────
 
 
-@server.tool()
+@tool()
 async def get_tree(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
     """The vault's folder tree with the notes in each folder (titles and ids, no bodies)."""
     user_id = user_id_from(ctx)
@@ -156,7 +169,7 @@ async def get_tree(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
         return unwrap(await vault_service.get_tree(db, as_uuid(vault_id, "vault_id"), user_id))
 
 
-@server.tool()
+@tool()
 async def create_folder(
     ctx: Context,
     vault_id: VaultId,
@@ -166,44 +179,47 @@ async def create_folder(
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
-        if await get_owned_vault(db, vid, user_id) is None:
-            raise ToolError("Vault not found.")
-        folder_id = await ensure_folder_path(db, vid, user_id, path)
+        folder_id = await _folder_id_for(db, vid, user_id, path)
         if folder_id is None:
             raise ToolError("Give a folder path.")
         folder = await db.get(Folder, folder_id)
         return {"id": str(folder.id), "path": folder.path}
 
 
-@server.tool()
+@tool()
 async def rename_folder(ctx: Context, vault_id: VaultId, path: str, new_name: str) -> dict[str, Any]:
-    """Rename a folder (by its path). Notes inside keep working; links update."""
+    """Rename a folder (by its path). Notes inside keep working; links written by
+    path ([[Folder/Note]]) to the old path become unresolved — markdown is never rewritten."""
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
-        folder = await _find_folder(db, vid, path)
+        folder = await _find_folder(db, vid, user_id, path)
         renamed = unwrap(await folder_service.rename_folder(db, vid, user_id, folder.id, name=new_name))
         return {"id": str(renamed.id), "path": renamed.path}
 
 
-@server.tool()
+@tool()
 async def move_folder(
     ctx: Context,
     vault_id: VaultId,
     path: str,
-    new_parent: Annotated[str, Field(description='Destination folder path, or "" for the vault root')] = "",
+    new_parent: Annotated[
+        str, Field(description='Destination folder path (must exist — create_folder first), or "" for the vault root')
+    ] = "",
 ) -> dict[str, Any]:
-    """Move a folder under another folder (or to the root)."""
+    """Move a folder under another folder (or to the root). Links written by
+    path ([[Folder/Note]]) to the old location become unresolved."""
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
-        folder = await _find_folder(db, vid, path)
-        parent_id = await _folder_id_for(db, vid, user_id, new_parent)
+        folder = await _find_folder(db, vid, user_id, path)
+        dest = (new_parent or "").strip().strip("/")
+        parent_id = (await _find_folder(db, vid, user_id, dest)).id if dest else None
         moved = unwrap(await folder_service.move_folder(db, vid, user_id, folder.id, new_parent_id=parent_id))
         return {"id": str(moved.id), "path": moved.path}
 
 
-@server.tool()
+@tool()
 async def delete_folder(
     ctx: Context,
     vault_id: VaultId,
@@ -218,7 +234,7 @@ async def delete_folder(
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
-        folder = await _find_folder(db, vid, path)
+        folder = await _find_folder(db, vid, user_id, path)
         unwrap(await folder_service.delete_folder(db, vid, user_id, folder.id))
         return {"deleted": True}
 
@@ -226,7 +242,7 @@ async def delete_folder(
 # ── Notes ─────────────────────────────────────────────────────────────────────
 
 
-@server.tool()
+@tool()
 async def list_notes(
     ctx: Context,
     vault_id: VaultId,
@@ -247,7 +263,7 @@ async def list_notes(
         return [_note_meta(n) for n in rows]
 
 
-@server.tool()
+@tool()
 async def search_notes(
     ctx: Context,
     vault_id: VaultId,
@@ -266,7 +282,7 @@ async def search_notes(
         ]
 
 
-@server.tool()
+@tool()
 async def read_note(
     ctx: Context, vault_id: VaultId, note: Annotated[str, Field(description="Note id, path or title")]
 ) -> dict[str, Any]:
@@ -278,7 +294,7 @@ async def read_note(
         return {**_note_meta(n), "content": n.content, "properties": n.properties or {}}
 
 
-@server.tool()
+@tool()
 async def create_note(
     ctx: Context,
     vault_id: VaultId,
@@ -295,7 +311,7 @@ async def create_note(
         return _note_meta(n)
 
 
-@server.tool()
+@tool()
 async def update_note(
     ctx: Context,
     vault_id: VaultId,
@@ -320,9 +336,11 @@ async def update_note(
         return _note_meta(updated)
 
 
-@server.tool()
+@tool()
 async def rename_note(ctx: Context, vault_id: VaultId, note: str, new_title: str) -> dict[str, Any]:
-    """Rename a note. Links to it are updated."""
+    """Rename a note. Links written as [[old title]] are NOT rewritten — they become
+    unresolved (search_notes for the old name and update_note to rewrite them);
+    links already written as the new title resolve to it."""
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
@@ -330,14 +348,15 @@ async def rename_note(ctx: Context, vault_id: VaultId, note: str, new_title: str
         return _note_meta(unwrap(await note_service.rename_note(db, vid, user_id, n.id, title=new_title)))
 
 
-@server.tool()
+@tool()
 async def move_note(
     ctx: Context,
     vault_id: VaultId,
     note: str,
     folder: Annotated[str, Field(description='Destination folder path ("" = root). Created if missing.')] = "",
 ) -> dict[str, Any]:
-    """Move a note into a folder (or to the root)."""
+    """Move a note into a folder (or to the root). Links by title keep working;
+    links written by path to the old location become unresolved."""
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
@@ -349,7 +368,7 @@ async def move_note(
         return _note_meta(moved)
 
 
-@server.tool()
+@tool()
 async def delete_note(ctx: Context, vault_id: VaultId, note: str) -> dict[str, Any]:
     """Delete a note. Links to it become unresolved (they stay in the other notes)."""
     user_id = user_id_from(ctx)
@@ -360,7 +379,7 @@ async def delete_note(ctx: Context, vault_id: VaultId, note: str) -> dict[str, A
         return {"deleted": True, "title": n.title}
 
 
-@server.tool()
+@tool()
 async def set_note_tags(
     ctx: Context,
     vault_id: VaultId,
@@ -380,7 +399,7 @@ async def set_note_tags(
 # ── Links and the graph ───────────────────────────────────────────────────────
 
 
-@server.tool()
+@tool()
 async def link_notes(
     ctx: Context,
     vault_id: VaultId,
@@ -404,7 +423,7 @@ async def link_notes(
         return {"from": src.title, "to": dst.title, "inserted": line}
 
 
-@server.tool()
+@tool()
 async def get_backlinks(ctx: Context, vault_id: VaultId, note: str) -> dict[str, Any]:
     """Notes that link TO this note, with the sentence around each link."""
     user_id = user_id_from(ctx)
@@ -414,7 +433,7 @@ async def get_backlinks(ctx: Context, vault_id: VaultId, note: str) -> dict[str,
         return unwrap(await link_service.get_backlinks(db, vid, user_id, n.id))
 
 
-@server.tool()
+@tool()
 async def get_outgoing_links(ctx: Context, vault_id: VaultId, note: str) -> dict[str, Any]:
     """Links FROM this note, resolved and unresolved."""
     user_id = user_id_from(ctx)
@@ -424,7 +443,7 @@ async def get_outgoing_links(ctx: Context, vault_id: VaultId, note: str) -> dict
         return unwrap(await link_service.get_outgoing_links(db, vid, user_id, n.id))
 
 
-@server.tool()
+@tool()
 async def get_graph(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
     """The whole-vault graph: nodes (notes and unresolved ghosts, with degree and tags) and edges as index pairs."""
     user_id = user_id_from(ctx)
@@ -432,7 +451,7 @@ async def get_graph(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
         return unwrap(await link_service.get_graph(db, as_uuid(vault_id, "vault_id"), user_id))
 
 
-@server.tool()
+@tool()
 async def list_tags(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
     """Every tag in the vault with its note count."""
     user_id = user_id_from(ctx)
@@ -443,7 +462,7 @@ async def list_tags(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
 # ── Colours and graph groups ─────────────────────────────────────────────────
 
 
-@server.tool()
+@tool()
 async def set_item_color(
     ctx: Context,
     vault_id: VaultId,
@@ -473,7 +492,7 @@ async def set_item_color(
         return {"item_id": item_id, "kind": "folder" if folder else "note", "color": color or None}
 
 
-@server.tool()
+@tool()
 async def list_item_colors(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
     """Every coloured folder and note in the vault."""
     user_id = user_id_from(ctx)
@@ -485,9 +504,21 @@ async def list_item_colors(ctx: Context, vault_id: VaultId) -> list[dict[str, An
         colors: dict[str, str] = (vault.settings or {}).get("itemColors") or {}
         if not colors:
             return []
-        ids = [UUID(k) for k in colors if len(k) == 36]
-        folders = {str(f.id): f.path for f in (await db.execute(select(Folder).where(Folder.id.in_(ids)))).scalars()}
-        notes = {str(n.id): n.path for n in (await db.execute(select(Note).where(Note.id.in_(ids)))).scalars()}
+        ids: list[UUID] = []
+        for k in colors:
+            try:
+                ids.append(UUID(k))
+            except (ValueError, TypeError):
+                continue
+        folders = {
+            str(f.id): f.path
+            for f in (await db.execute(select(Folder).where(Folder.vault_id == vid, Folder.id.in_(ids)))).scalars()
+        }
+        notes = {
+            str(n.id): n.path
+            for n in (await db.execute(select(Note).where(Note.vault_id == vid, Note.id.in_(ids)))).scalars()
+        }
+        # Only items that exist in this vault; stale or foreign ids are not echoed.
         return [
             {
                 "item_id": k,
@@ -496,10 +527,11 @@ async def list_item_colors(ctx: Context, vault_id: VaultId) -> list[dict[str, An
                 "color": v,
             }
             for k, v in colors.items()
+            if k in folders or k in notes
         ]
 
 
-@server.tool()
+@tool()
 async def set_graph_groups(
     ctx: Context,
     vault_id: VaultId,
@@ -533,7 +565,7 @@ async def set_graph_groups(
 # ── Import, export, attachments ──────────────────────────────────────────────
 
 
-@server.tool()
+@tool()
 async def import_markdown(
     ctx: Context,
     vault_id: VaultId,
@@ -544,7 +576,8 @@ async def import_markdown(
         ),
     ],
 ) -> dict[str, Any]:
-    """Import markdown files into the vault. Wikilinks between them resolve in one pass."""
+    """Import markdown files into the vault. Wikilinks between them resolve in one pass.
+    One call may carry up to ~30 MB of JSON; split a large vault into batches."""
     user_id = user_id_from(ctx)
     import io
     import zipfile
@@ -568,19 +601,22 @@ async def import_markdown(
         )
 
 
-@server.tool()
+@tool()
 async def import_attachment(
     ctx: Context,
     vault_id: VaultId,
     filename: Annotated[str, Field(description="File name with extension, e.g. diagram.png")],
     content_base64: Annotated[str, Field(description="The file's bytes, base64-encoded")],
 ) -> dict[str, Any]:
-    """Upload an image or document (base64) and get the ![[embed]] to paste into a note."""
+    """Upload an image or document (base64, at most 5 MB decoded) and get the ![[embed]]
+    to paste into a note."""
     user_id = user_id_from(ctx)
     try:
         data = base64.b64decode(content_base64, validate=True)
     except Exception as exc:
         raise ToolError("content_base64 is not valid base64.") from exc
+    if len(data) > MAX_ATTACHMENT_SIZE_BYTES:
+        raise ToolError(f"That file is {len(data) // 1024} KB; attachments are limited to 5 MB.")
     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     async with async_session_factory() as db:
         att = unwrap(
@@ -591,7 +627,7 @@ async def import_attachment(
         return {"id": str(att.id), "filename": att.filename, "embed": f"![[{att.filename}]]"}
 
 
-@server.tool()
+@tool()
 async def list_attachments(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
     """Files uploaded to the vault (images, PDFs …) and how to embed each."""
     user_id = user_id_from(ctx)
@@ -609,7 +645,7 @@ async def list_attachments(ctx: Context, vault_id: VaultId) -> list[dict[str, An
         ]
 
 
-@server.tool()
+@tool()
 async def export_vault(
     ctx: Context,
     vault_id: VaultId,
@@ -638,7 +674,7 @@ async def export_vault(
 # ── Canvases, bookmarks, daily notes, templates ──────────────────────────────
 
 
-@server.tool()
+@tool()
 async def list_canvases(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
     """The vault's canvases (free-form boards)."""
     user_id = user_id_from(ctx)
@@ -646,7 +682,7 @@ async def list_canvases(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]
         return unwrap(await canvas_service.list_canvases(db, as_uuid(vault_id, "vault_id"), user_id))
 
 
-@server.tool()
+@tool()
 async def create_canvas(
     ctx: Context,
     vault_id: VaultId,
@@ -668,7 +704,7 @@ async def create_canvas(
         return {"id": str(canvas.id), "name": canvas.name}
 
 
-@server.tool()
+@tool()
 async def list_bookmarks(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
     """Bookmarked notes in the vault."""
     user_id = user_id_from(ctx)
@@ -690,13 +726,13 @@ async def list_bookmarks(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]
         return [_note_meta(n) for n in rows]
 
 
-@server.tool()
+@tool()
 async def bookmark_note(ctx: Context, vault_id: VaultId, note: str, bookmarked: bool = True) -> dict[str, Any]:
     """Bookmark a note (or remove the bookmark with bookmarked=false)."""
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
-        n = await _resolve_note(db, vid, user_id, note)
+        n = await _resolve_note(db, vid, user_id, note)  # ownership-checked
         if bookmarked:
             await db.execute(
                 pg_insert(Bookmark)
@@ -711,7 +747,7 @@ async def bookmark_note(ctx: Context, vault_id: VaultId, note: str, bookmarked: 
         return {"title": n.title, "bookmarked": bookmarked}
 
 
-@server.tool()
+@tool()
 async def daily_note(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
     """Today's daily note — created from the vault's template if it does not exist yet."""
     user_id = user_id_from(ctx)
@@ -720,7 +756,7 @@ async def daily_note(ctx: Context, vault_id: VaultId) -> dict[str, Any]:
         return {**_note_meta(n), "content": n.content}
 
 
-@server.tool()
+@tool()
 async def list_templates(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]]:
     """Notes in the vault's templates folder."""
     user_id = user_id_from(ctx)
@@ -732,7 +768,7 @@ async def list_templates(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]
 
 
 @server.resource(
-    "nodum://vault/{vault_id}/note/{path}",
+    "nodum://vault/{vault_id}/note/{+path}",
     name="Note",
     description="A note's markdown, by vault id and note path.",
 )

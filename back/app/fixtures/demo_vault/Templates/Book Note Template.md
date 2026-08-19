@@ -1,6 +1,16 @@
-Capture author, rating and the ideas worth keeping from a book.
+# {{title}}
 
-## Related
+**Author:** 
+**Read:** {{date}}
+**Rating:** ☆☆☆☆☆
+
+## In one sentence
+
+
+## Ideas worth keeping
+- 
+
+## Where it connects
 - [[Home]]
 
-Tags: #template
+Tags: #book #reading

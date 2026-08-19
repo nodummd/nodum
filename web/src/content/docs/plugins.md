@@ -16,4 +16,4 @@ Plugins run in an isolated frame with no network and no access to the page — a
 
 ## Adding one
 
-Settings → Plugins → paste the code and a small manifest, enable it. The demo workspace ships with a tiny example that registers two commands.
+Settings → Plugins → paste the code and a small manifest, enable it.

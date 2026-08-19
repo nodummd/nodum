@@ -23,17 +23,28 @@ async def _path_taken(db: AsyncSession, vault_id: UUID, path: str, *, exclude_id
     return (await db.scalar(q)) is not None
 
 
-async def ensure_folder_path(db: AsyncSession, vault_id: UUID, user_id: UUID, path: str) -> UUID | None:
-    """Get or create the (possibly nested) folder for a slash path; None = root."""
+async def ensure_folder_path(
+    db: AsyncSession, vault_id: UUID, user_id: UUID, path: str
+) -> ServiceResponse[UUID | None]:
+    """Get or create the (possibly nested) folder for a slash path; ok(None) = root.
+
+    The whole path is validated before anything is created, so a bad segment
+    fails cleanly instead of leaving the caller with the last good parent —
+    which used to file notes silently at the root."""
     path = path.strip().strip("/")
     if not path:
-        return None
+        return ServiceResponse.ok(None)
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    segments = [s.strip() for s in path.split("/") if s.strip()]
+    for segment in segments:
+        if err := validate_segment(segment):
+            return ServiceResponse.fail("validation_failed", f"Folder name {segment!r}: {err}")
+    if err := validate_depth("/".join(segments)):
+        return ServiceResponse.fail("validation_failed", err)
     parent_id: UUID | None = None
     walked = ""
-    for segment in path.split("/"):
-        segment = segment.strip()
-        if not segment:
-            continue
+    for segment in segments:
         walked = f"{walked}/{segment}" if walked else segment
         existing = await db.scalar(select(Folder).where(Folder.vault_id == vault_id, Folder.path == walked))
         if existing:
@@ -41,9 +52,9 @@ async def ensure_folder_path(db: AsyncSession, vault_id: UUID, user_id: UUID, pa
             continue
         created = await create_folder(db, vault_id, user_id, name=segment, parent_id=parent_id)
         if not created.success or created.data is None:
-            return parent_id
+            return ServiceResponse.fail(created.error_code or "validation_failed", created.message or "Folder failed.")
         parent_id = created.data.id
-    return parent_id
+    return ServiceResponse.ok(parent_id)
 
 
 async def create_folder(

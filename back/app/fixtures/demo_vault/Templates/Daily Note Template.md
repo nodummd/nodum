@@ -1,6 +1,14 @@
-A starter for daily notes: log, tasks, and links to what you touched.
+# {{title}}
 
-## Related
+*{{date:dddd, DD MMMM YYYY}} · started {{time}}*
+
+## Log
+- 
+
+## Tasks
+- [ ] 
+
+## Touched today
 - [[Home]]
 
-Tags: #template
+Tags: #daily

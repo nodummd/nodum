@@ -315,8 +315,8 @@ async def import_zip(
         patch["dailyNoteFolder"] = daily["folder"]
     if isinstance(daily.get("template"), str) and daily["template"]:
         patch["dailyNoteTemplate"] = daily["template"]
-    if isinstance(app_cfg.get("attachmentFolderPath"), str):
-        pass  # attachments are flat in nodum; path mapping not needed
+    if isinstance(app_cfg.get("attachmentFolderPath"), str) and app_cfg["attachmentFolderPath"].strip("/. "):
+        patch["attachmentFolder"] = app_cfg["attachmentFolderPath"].strip().strip("/")
     if patch:
         from app.services.vault_service import update_vault_settings
 

@@ -80,7 +80,16 @@ function HelpMenu() {
         </TooltipTrigger>
         <TooltipContent side="right">Help</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent side="right" align="end" className="w-52">
+      <DropdownMenuContent
+        side="right"
+        align="end"
+        className="w-52"
+        // "Show the tour again": the tour has just taken focus — do not hand it
+        // back to this button under the veil.
+        onCloseAutoFocus={(e) => {
+          if (useWorkspaceStore.getState().tourOpen) e.preventDefault();
+        }}
+      >
         <DropdownMenuItem asChild>
           <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">
             <BookOpen className="mr-2 size-3.5" strokeWidth={2} />

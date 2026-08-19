@@ -8,6 +8,8 @@ Uses a fixed-window counter (INCR + EXPIRE) — cheap and O(1) per request.
 Fails open if Redis is unavailable so the API never hard-depends on Redis.
 """
 
+import hashlib
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -16,6 +18,8 @@ from app.core.logging import get_logger
 from app.core.redis import redis_control
 from app.settings import CommonSettings, get_settings
 from app.utils.jwt_utils import decode_token
+
+API_TOKEN_PREFIX = "nodum_"
 
 logger = get_logger("rate_limit")
 
@@ -65,7 +69,13 @@ def _authenticated_user(request: Request) -> str | None:
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer" or not token:
         return None
-    payload = decode_token(token.strip(), "access")
+    token = token.strip()
+    if token.startswith(API_TOKEN_PREFIX):
+        # An MCP/API token: 256 bits of entropy, so a hash of it is as good a
+        # per-user key as the user id would be, without a database round trip.
+        # An invalid token still gets its own bucket — the MCP gate 401s it.
+        return "tok:" + hashlib.sha256(token.encode()).hexdigest()[:24]
+    payload = decode_token(token, "access")
     return str(payload["sub"]) if payload and payload.get("sub") else None
 
 

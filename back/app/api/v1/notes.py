@@ -26,7 +26,7 @@ async def create_note(
 ) -> dict[str, Any]:
     folder_id = body.folder_id
     if folder_id is None and body.folder_path:
-        folder_id = await folder_service.ensure_folder_path(db, vault_id, user_id, body.folder_path)
+        folder_id = (await folder_service.ensure_folder_path(db, vault_id, user_id, body.folder_path)).unwrap()
     note = (
         await note_service.create_note(
             db, vault_id, user_id, title=body.title, folder_id=folder_id, content=body.content

@@ -767,3 +767,10 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     per-user hashed revocable tokens (Settings → MCP with copy-paste configs for
     Claude Code / Claude Desktop / Cursor). Verified with raw JSON-RPC, the
     official client SDK and `claude mcp add` (✔ Connected).
+  - *Review pass* — a 39-agent adversarial review confirmed 34 findings, all
+    fixed on `bug/7.review-fixes_…`: an MCP cross-tenant read by note title
+    (ownership check now precedes every lookup; exact title match), silent
+    misfiling on invalid folder names (`ensure_folder_path` → ServiceResponse),
+    the 4 MiB MCP body cap, tour focus/keyboard/inert/resize defects, lost
+    first-run answers after token expiry, the deleted-vault dead end, and a
+    dozen doc claims the app did not honour. Details in the goal doc.

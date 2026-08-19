@@ -88,6 +88,9 @@ async def create_demo_vault(db: AsyncSession, user_id: UUID) -> ServiceResponse[
         patch["graph"] = manifest["graph"]
     if manifest.get("canvasBackground"):
         patch["canvasBackground"] = manifest["canvasBackground"]
+    # Daily-note folder + template, so the calendar button and "Insert
+    # template" behave the way the notes describe.
+    patch.update(manifest.get("settings") or {})
     updated = await vault_service.update_vault_settings(db, vault.id, user_id, settings_patch=patch)
     if updated.success and updated.data is not None:
         vault = updated.data

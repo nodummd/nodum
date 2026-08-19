@@ -72,6 +72,45 @@ test.describe("onboarding tour", () => {
     await expect(tour).toHaveCount(0);
   });
 
+  test("Esc on the demo question is 'not now' — no second prompt; hotkeys and Tab stay inside", async ({
+    page,
+  }) => {
+    await signupFreshUser(page, "tour-esc2", { keepFirstRun: true });
+    const tour = page.getByTestId("tour");
+    const card = page.getByTestId("tour-card");
+    await expect(tour).toBeVisible({ timeout: 10_000 });
+
+    // Workspace hotkeys do not fire under the veil: ⌘O would open the quick
+    // switcher behind it (and its Escape would then also skip the tour).
+    await page.keyboard.press("ControlOrMeta+o");
+    await page.keyboard.press("ControlOrMeta+p");
+    await expect(page.getByPlaceholder("Find or create a note…")).toHaveCount(0);
+    await expect(page.getByPlaceholder("Select a command...")).toHaveCount(0);
+    await expect(card).toHaveAttribute("data-step", "welcome");
+
+    // Tab cycles inside the card: from the last button back to the first.
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    const focusedInCard = await page.evaluate(() =>
+      document.querySelector('[data-testid="tour-card"]')?.contains(document.activeElement),
+    );
+    expect(focusedInCard).toBe(true);
+
+    // Esc → the demo question; Esc again → gone, and the dialog does NOT re-ask.
+    await page.keyboard.press("Escape");
+    await expect(card).toHaveAttribute("data-step", "demo");
+    await page.keyboard.press("Escape");
+    await expect(tour).toHaveCount(0);
+    await page.waitForTimeout(800);
+    await expect(page.getByTestId("demo-offer")).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByText("Welcome to Nodum").first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(800);
+    await expect(page.getByTestId("tour")).toHaveCount(0);
+    await expect(page.getByTestId("demo-offer")).toHaveCount(0);
+  });
+
   test("the tour never runs on a phone", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const page = await context.newPage();

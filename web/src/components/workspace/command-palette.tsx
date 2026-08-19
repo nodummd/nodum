@@ -254,7 +254,27 @@ export function CommandPalette({
     })),
     { id: "focus-right-pane", label: "Focus on tab group to the right", run: () => focusPane(1), needsTab: true },
     { id: "focus-left-pane", label: "Focus on tab group to the left", run: () => focusPane(-1), needsTab: true },
-    { id: "split-right", label: "Split right", hotkey: "⌘\\", run: () => useWorkspaceStore.getState().splitRight(), needsNote: true },
+    {
+      id: "split-right",
+      label: "Split right",
+      hotkey: "⌘\\",
+      run: () => {
+        const s = useWorkspaceStore.getState();
+        s.setSplitOrientation("row");
+        s.splitRight();
+      },
+      needsNote: true,
+    },
+    {
+      id: "split-down",
+      label: "Split down",
+      run: () => {
+        const s = useWorkspaceStore.getState();
+        s.setSplitOrientation("column");
+        s.splitRight();
+      },
+      needsNote: true,
+    },
     { id: "toggle-pin", label: "Toggle pin on current tab", run: () => activeTabId && useWorkspaceStore.getState().togglePin(activeTabId, activePane), needsTab: true },
     { id: "mode-live", label: "Editor: Live Preview", run: () => setMode("live"), needsNote: true },
     { id: "mode-source", label: "Editor: Source mode", run: () => setMode("source"), needsNote: true },

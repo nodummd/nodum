@@ -10,7 +10,7 @@ where: Type # in a note; the Tags panel is the # icon in the right sidebar
 
 Type `#` and a word anywhere in a note — `#project`, `#reading/2026`. A list of existing tags appears as you type. Tags can also live in a note's frontmatter under `tags:`.
 
-Right-click a note in the explorer → *Add tag* to add one without opening the note.
+Right-click a note in the explorer → *Tags* to pick an existing tag, or type a new one and press Enter, without opening the note.
 
 ## The Tags panel
 
