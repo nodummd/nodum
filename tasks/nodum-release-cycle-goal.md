@@ -18,7 +18,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ✅ `feature/7.table-steps` |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ✅ `feature/8.mcp-sse-stdio` |
 | 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ✅ `feature/8.mcp-sse-stdio` (root cause in the switcher) |
-| 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ⏳ `chore/10.release-v3.3.0` |
+| 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ✅ `v3.3.0` on `main` (`d93fec3`) |
 
 ## Working rules (unchanged)
 
@@ -133,3 +133,10 @@ never a secret in the repo; branches
   image leaves out) — never seen locally because no local gate builds the
   image. `scripts/` is now `.dockerignore`d and `make verify` runs a build-
   context import check that would have caught it. Versions bumped to 3.3.0.
+- **2026-08-19 — v3.3.0 released.** `dev` → `main` (`d93fec3`), tag `v3.3.0`,
+  all seven CI workflows green on the release commit's parent (Docker included,
+  for the first time since the docs work). Deploying the tag to the production
+  host is the operator's step (`docs/deploy.md`); nothing here auto-deploys.
+  **Open for the next cycle:** publish `packages/nodum-mcp` to npm (then
+  advertise `npx nodum-mcp` in Settings → MCP and the docs); a `CHANGELOG.md`
+  if tags alone stop being enough.
