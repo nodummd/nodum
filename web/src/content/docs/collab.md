@@ -12,6 +12,6 @@ Settings → Collab, per vault. Once on, a note open in two places — two brows
 
 ## What to know
 
-Live sessions still save to the vault the ordinary way, so nothing depends on everyone staying connected. If a live session cannot connect, the editor falls back to normal single-user editing after a few seconds rather than blocking you.
+Live sessions still save to the vault the ordinary way, so nothing depends on everyone staying connected. Undo is yours alone: `⌘Z` takes back what you typed, never what someone else did. If a live session cannot connect, the editor falls back to normal single-user editing after a few seconds rather than blocking you.
 
 ![Settings → Collab.](/docs/settings-collab.png)

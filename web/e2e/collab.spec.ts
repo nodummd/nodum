@@ -54,10 +54,27 @@ test.describe("live collaboration", () => {
     // Presence: B renders A's remote caret
     await expect(pageB.locator(".cm-ySelectionCaret").first()).toBeVisible({ timeout: 10_000 });
 
+    // Undo is local: B's ⌘Z must not remove what A typed (B typed nothing yet),
+    // and after B types, B's ⌘Z removes only B's own words.
+    await editorSurface(pageB).click();
+    await pageB.keyboard.press("ControlOrMeta+z");
+    await pageB.waitForTimeout(300);
+    await expect(editorSurface(pageB)).toContainText("From A.");
+    await expect(editorSurface(pageA)).toContainText("From A.");
+    await pageB.keyboard.press("ControlOrMeta+ArrowDown");
+    await pageB.keyboard.type(" From B.");
+    await expect(editorSurface(pageA)).toContainText("From B.", { timeout: 10_000 });
+    await pageB.keyboard.press("ControlOrMeta+z");
+    await expect(editorSurface(pageB)).not.toContainText("From B.", { timeout: 10_000 });
+    await expect(editorSurface(pageB)).toContainText("From A.");
+    await expect(editorSurface(pageA)).not.toContainText("From B.", { timeout: 10_000 });
+    await pageB.keyboard.type(" From B again.");
+    await expect(editorSurface(pageA)).toContainText("From B again.", { timeout: 10_000 });
+
     // Persistence: a refreshed client gets the merged content back
     await pageB.reload();
     await openNoteFromExplorer(pageB, "Live note");
-    await expect(editorSurface(pageB)).toContainText("Shared start. From A.", {
+    await expect(editorSurface(pageB)).toContainText("Shared start. From A. From B again.", {
       timeout: 15_000,
     });
 

@@ -9,7 +9,7 @@ that fails without it; each step reviewed adversarially before the release.
 
 | # | Item | Source | Status |
 |---|------|--------|--------|
-| 1 | **P0-2 collab under `--workers 4`** — deterministic shared seed across workers, late-joiner state sync, single persist owner, join/delete race (R2/R3); remote edits must not enter the local undo stack; `docs/collab.md` honest | editor-fixes P0-2, P1-3 (4) | ☐ |
+| 1 | **P0-2 collab under `--workers 4`** — deterministic shared seed across workers, late-joiner state sync, single persist owner, join/delete race (R2/R3); remote edits must not enter the local undo stack; `docs/collab.md` honest | editor-fixes P0-2, P1-3 (4) | ✅ `feature/1.collab-fanout` |
 | 2 | **P1-3 undo/redo** — Compartment reconfiguration (no remount on mode/pref change), per-(pane,note) history snapshots with an LRU, Windows redo chord, ⌘U decision | editor-fixes P1-3 | ☐ |
 | 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ☐ |
 | 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ☐ |
@@ -28,4 +28,15 @@ never a secret in the repo; branches
 `<kind>/<N>.<slug>_maqbool_<DDMMYYYYHHMM>` as a chain.
 
 ## Progress log
-
+- **2026-08-19 — #1 collab under `--workers 4`.** One shared seed per room
+  (Redis SET NX), late-joiner state sync, stale-seed fallback to the DB, a
+  single persist owner per room, a per-save lock so a REST reset is applied
+  once, a closing gate for the join/teardown race, and **presence fanout**
+  across workers (awareness was never relayed — remote cursors only showed when
+  both people hit the same worker). Client: peers' edits stay out of
+  CodeMirror's history (⌘Z is local); y-codemirror's second undo stack is off.
+  Proof: five new integration tests with a second `CollabServer` in-process
+  (convergence, late join, stale seed, single-apply reset, teardown race), each
+  shown failing on per-worker seeds; the collab e2e run 6× against a real
+  `uvicorn --workers 4` with rooms held by up to three workers — all green.
+  `docs/collab.md` rewritten to match.
