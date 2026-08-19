@@ -16,6 +16,7 @@ export default function WorkspacePage() {
   const router = useRouter();
   const status = useAuthStore((s) => s.status);
   const setActiveVault = useWorkspaceStore((s) => s.setActiveVault);
+  const activeVaultId = useWorkspaceStore((s) => s.activeVaultId);
 
   useEffect(() => {
     if (status === "anonymous") router.replace("/login");
@@ -24,6 +25,11 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (vaultId) setActiveVault(vaultId);
   }, [vaultId, setActiveVault]);
+  // The store must point at THIS vault before the workspace mounts. Child
+  // effects run before a parent's, so a workspace mounted early would write
+  // its first tabs (the ?note= open, the default-mode mirror) under the vault
+  // we just came from — and the layout swap below would then wipe them.
+  const storeReady = activeVaultId === vaultId;
 
   const { data: vaults } = useQuery({
     queryKey: ["vaults"],
@@ -32,7 +38,7 @@ export default function WorkspacePage() {
   });
   const vault = vaults?.find((v) => v.id === vaultId);
 
-  if (status !== "authenticated" || !vault) {
+  if (status !== "authenticated" || !vault || !storeReady) {
     return (
       <main className="flex h-screen items-center justify-center bg-ob-bg">
         <p className="text-[13px] text-ob-faint">Loading vault…</p>

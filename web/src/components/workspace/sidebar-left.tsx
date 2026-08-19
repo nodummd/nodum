@@ -59,6 +59,7 @@ export function SidebarLeft({
 
   return (
     <div
+      data-tour="explorer"
       className="relative flex shrink-0 flex-col bg-ob-sidebar"
       style={drawer ? { width: "100%", height: "100%" } : { width }}
     >

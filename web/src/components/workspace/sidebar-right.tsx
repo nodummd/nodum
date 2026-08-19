@@ -72,6 +72,7 @@ export function SidebarRight({
 
   return (
     <div
+      data-tour="panels"
       className="relative flex shrink-0 flex-col border-l border-ob-border bg-ob-sidebar"
       style={drawer ? { width: "100%", height: "100%" } : { width }}
     >
@@ -83,6 +84,7 @@ export function SidebarRight({
                 type="button"
                 aria-label={p.label}
                 aria-pressed={pane === p.kind}
+                data-tour={p.kind === "ai" ? "ai" : undefined}
                 onClick={() => setPane(p.kind)}
                 className={cn(
                   "flex size-7 items-center justify-center rounded-md transition-colors duration-150",

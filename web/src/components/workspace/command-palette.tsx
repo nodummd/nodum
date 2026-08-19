@@ -270,6 +270,7 @@ export function CommandPalette({
     { id: "show-outline", label: "Outline: Show outline of the current file", run: () => setRightPanel("outline"), needsNote: true },
     { id: "show-tags", label: "Tags view: Show tags", run: () => setRightPanel("tags") },
     { id: "show-ai", label: "AI: Open chat", run: () => setRightPanel("ai") },
+    { id: "help-tour", label: "Help: Show the tour again", run: () => useWorkspaceStore.getState().setTourOpen(true) },
     {
       id: "ai-settings",
       label: "AI: Configure provider and API key",

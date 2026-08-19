@@ -48,6 +48,7 @@ export function VaultSwitcher({ vaultId, vaultName }: { vaultId: string; vaultNa
         <DropdownMenuTrigger asChild>
           <button
             type="button"
+            data-tour="vault"
             aria-label={`Vault: ${vaultName}. Switch vault`}
             className="ml-auto flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] font-medium tracking-wide text-ob-faint uppercase hover:bg-ob-hover hover:text-ob-text"
           >

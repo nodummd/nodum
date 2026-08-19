@@ -266,8 +266,14 @@ async def update_profile(
     avatar_url: str | None = None,
     settings_patch: dict | None = None,
 ) -> ServiceResponse[User]:
-    """Update profile fields; settings are shallow-merged."""
-    user = await db.get(User, user_id)
+    """Update profile fields; settings are shallow-merged.
+
+    The merge is read-modify-write, so the row is locked for it: two PATCHes in
+    flight at once (the first-run tour finishing and the demo answered in the
+    same click) each read the settings before the other wrote, and the last
+    commit silently dropped the other's key.
+    """
+    user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
     if user is None:
         return ServiceResponse.fail("unauthorized", "Account is not available.")
     if name is not None:

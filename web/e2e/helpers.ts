@@ -30,9 +30,23 @@ export async function passEmailVerification(page: Page): Promise<void> {
  * through the real UI, never by poking flags into the database.
  */
 export async function dismissFirstRun(page: Page): Promise<void> {
+  // Desktop: the tour. Skip jumps to the demo question, which "Not now" ends.
+  const tour = page.getByTestId("tour");
+  const tourShown = await tour
+    .waitFor({ state: "visible", timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (tourShown) {
+    await tour.getByRole("button", { name: "Skip" }).click();
+    await tour.getByRole("button", { name: "Not now" }).click();
+    await tour.getByRole("button", { name: "Finish" }).click();
+    await expect(tour).toHaveCount(0, { timeout: 10_000 });
+    return;
+  }
+  // Mobile (no tour): the demo question comes as a dialog.
   const notNow = page.getByRole("button", { name: "Not now" });
   const shown = await notNow
-    .waitFor({ state: "visible", timeout: 4_000 })
+    .waitFor({ state: "visible", timeout: 2_000 })
     .then(() => true)
     .catch(() => false);
   if (shown) {
@@ -61,11 +75,16 @@ export async function signupFreshUser(
   if (!opts.keepFirstRun) await dismissFirstRun(page);
   // Welcome vault is seeded — explorer shows the notes (desktop) or the
   // mobile top bar renders (drawer explorer starts closed)
+  // (…or, when the first-run prompts were kept, the prompt itself — it is
+  // modal and aria-hides the workspace behind it.)
   await expect(
     page
       .getByText("Welcome to Nodum")
       .first()
-      .or(page.getByRole("button", { name: "Open navigation" })),
+      .or(page.getByRole("button", { name: "Open navigation" }))
+      .or(page.getByTestId("tour"))
+      .or(page.getByTestId("demo-offer"))
+      .first(),
   ).toBeVisible({ timeout: 15_000 });
   return email;
 }
