@@ -44,8 +44,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     if settings.COLLAB_ENABLED:
         await collab_server.startup()
 
-    logger.info("app_started")
-    yield
+    # The MCP transport's session manager must be running for the whole life
+    # of the app; a mounted sub-app's own lifespan never fires under FastAPI.
+    from app.mcp.server import server as mcp_server
+
+    async with mcp_server.session_manager.run():
+        logger.info("app_started")
+        yield
 
     if settings.COLLAB_ENABLED:
         await collab_server.shutdown()
@@ -114,6 +119,15 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(api_router, prefix="/api/v1")
+
+    # Nodum as an MCP server — bearer-token gated, Streamable HTTP, JSON
+    # responses. Under /api so the web app's proxy and the production reverse
+    # proxy both carry it without extra routes.
+    from starlette.routing import Route
+
+    from app.mcp.server import MCP_PATH, mcp_app
+
+    app.router.routes.append(Route(MCP_PATH, endpoint=mcp_app, include_in_schema=False))
 
     @app.get("/health", tags=["Health"])
     async def health_check() -> Any:

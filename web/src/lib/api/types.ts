@@ -270,3 +270,22 @@ export interface AIConversationDetail {
   updated_at: string;
   messages: AIConversationMessage[];
 }
+
+// ── MCP tokens ───────────────────────────────────────────────────────────────
+
+/** A minted token, minus the token itself (only the create response has it). */
+export interface McpToken {
+  id: string;
+  kind: string;
+  name: string;
+  hint: string;
+  created_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface McpTokenList {
+  tokens: McpToken[];
+  /** The URL an MCP client should be pointed at. */
+  endpoint: string;
+}
