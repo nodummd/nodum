@@ -251,6 +251,15 @@ export interface AIChatReply {
   title: string;
 }
 
+/** One server-sent event of a streamed vault chat turn. */
+export type AIStreamEvent =
+  | { type: "status"; text: string; tool?: string }
+  | { type: "delta"; text: string }
+  | { type: "action"; action: AIAction }
+  | { type: "reset" }
+  | ({ type: "done" } & AIChatReply)
+  | { type: "error"; code?: string; message: string };
+
 export interface AIConversationMeta {
   id: string;
   title: string;

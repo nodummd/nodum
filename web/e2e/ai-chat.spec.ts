@@ -39,13 +39,57 @@ function toolCall(name: string, args: Record<string, unknown>) {
   };
 }
 
+/** Turn a canned non-streaming reply into the chunks a streaming OpenAI
+ *  endpoint would send: the text in a few pieces (so the panel visibly grows),
+ *  tool calls as one fragment each, then [DONE]. */
+function toStreamChunks(reply: ReturnType<typeof chatMessage> | ReturnType<typeof toolCall>): string[] {
+  const message = reply.choices[0].message as {
+    content: string | null;
+    tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[];
+  };
+  const chunks: string[] = [];
+  const text = message.content ?? "";
+  const step = Math.max(1, Math.ceil(text.length / 4));
+  for (let i = 0; i < text.length; i += step) {
+    chunks.push(JSON.stringify({ choices: [{ delta: { content: text.slice(i, i + step) } }] }));
+  }
+  (message.tool_calls ?? []).forEach((call, index) => {
+    chunks.push(
+      JSON.stringify({ choices: [{ delta: { tool_calls: [{ index, id: call.id, type: "function", function: call.function }] } }] }),
+    );
+  });
+  chunks.push(JSON.stringify({ choices: [{ delta: {}, finish_reason: message.tool_calls?.length ? "tool_calls" : "stop" }] }));
+  chunks.push("[DONE]");
+  return chunks;
+}
+
+/** Gap between streamed chunks — long enough for the panel to paint a partial
+ *  reply that the streaming test can observe, short enough not to slow the rest. */
+const STREAM_CHUNK_GAP_MS = 120;
+
 test.beforeAll(async () => {
   stub = createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      stubRequests.push({ url: req.url, headers: req.headers, body: body ? JSON.parse(body) : null });
-      const reply = stubReplies.shift() ?? chatMessage("(stub ran out of replies)");
+      const parsed = body ? JSON.parse(body) : null;
+      stubRequests.push({ url: req.url, headers: req.headers, body: parsed });
+      const reply = (stubReplies.shift() ?? chatMessage("(stub ran out of replies)")) as ReturnType<
+        typeof chatMessage
+      >;
+      if (parsed?.stream) {
+        // The app streams; answer as an SSE stream, one chunk at a time.
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+        const chunks = toStreamChunks(reply);
+        const tick = () => {
+          const chunk = chunks.shift();
+          if (chunk === undefined) return res.end();
+          res.write(`data: ${chunk}\n\n`);
+          setTimeout(tick, STREAM_CHUNK_GAP_MS);
+        };
+        tick();
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(reply));
     });
@@ -119,7 +163,12 @@ test.describe("AI chat panel", () => {
     await page.getByLabel("Message the assistant").fill("How many notes do I have?");
     await page.getByRole("button", { name: "Send" }).click();
 
+    // The reply streams: a partial answer is on screen before the whole one.
+    const live = page.getByTestId("ai-live");
+    await expect(live).toContainText("Your vault", { timeout: 15_000 });
+    await expect(live).not.toContainText("three notes.");
     await expect(page.getByText("Your vault has three notes.")).toBeVisible({ timeout: 15_000 });
+    await expect(live).toHaveCount(0);
     await expect(page.getByText(/openai · stub-model/)).toBeVisible();
 
     // The open note travelled as context, and the key went to the provider —

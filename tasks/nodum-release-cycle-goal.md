@@ -12,7 +12,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 1 | **P0-2 collab under `--workers 4`** — deterministic shared seed across workers, late-joiner state sync, single persist owner, join/delete race (R2/R3); remote edits must not enter the local undo stack; `docs/collab.md` honest | editor-fixes P0-2, P1-3 (4) | ✅ `feature/1.collab-fanout` |
 | 2 | **P1-3 undo/redo** — Compartment reconfiguration (no remount on mode/pref change), per-(pane,note) history snapshots with an LRU, Windows redo chord, ⌘U decision | editor-fixes P1-3 | ✅ `feature/2.undo-history` |
 | 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ✅ `feature/3.explorer-tab-heading` |
-| 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ☐ |
+| 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ✅ `feature/4.ai-streaming` |
 | 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ☐ |
 | 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ☐ |
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ☐ |
@@ -54,3 +54,14 @@ never a secret in the repo; branches
   on the heading line, scrolled to the top) and in reading view, via a
   `pendingHeading` request the showing pane consumes. e2e for both; the tab-count
   suites now use `openNoteInNewTab` (⌘-click) where they mean "another tab".
+- **2026-08-19 — #4 streaming AI replies.** `ai_providers.stream_turn` parses
+  each provider's streaming format (OpenAI/Qwen chunks with tool-call
+  fragments, Anthropic content-block events, Gemini `streamGenerateContent`);
+  `chat_with_vault_events` runs the tool loop as an event stream (status /
+  delta / action / reset / done / error) and the JSON endpoint consumes the
+  same generator; `POST …/chat/stream` is SSE (`Cache-Control: no-transform` —
+  without it the dev proxy's gzip buffered the whole stream, found by the e2e).
+  Panel shows the reply as it arrives and what the assistant is doing. Tests:
+  4 unit (parsing per provider, error mapping), 3 integration (framing, tool
+  status + persistence, error → nothing stored, JSON path), e2e stub streams
+  and asserts a partial reply is visible before the whole.
