@@ -107,3 +107,20 @@ never a secret in the repo; branches
   opens the wrong note, in the e2e it was ⌘\ and ⌘Enter failing ~1 run in 6.
   Enter now waits for the list that matches what was typed and acts once.
   8/8 and 6/6 on the two specs afterwards.
+- **2026-08-19 — review pass over the cycle (19 agents, 14 confirmed, all
+  fixed on `bug/9.cycle-review`).** Collab: a late joiner that timed out on a
+  merely *slow* live holder reset to the DB text and then merged the holder's
+  answer → duplicated note on every worker (reproduced) — holders are now a
+  heartbeat ZSET, catch-up keeps asking while any holder is live and only a
+  dead holder's seed yields to the DB; seed acquisition and release are atomic
+  Lua (a join during another worker's teardown could orphan the seed and
+  recreate the diverging-seed bug); the REST reset lock is per save, not per
+  text (saving the same body twice within 10 s was silently dropped); the
+  final persist writes even when a dead owner's lock is alive. Tables: the
+  unescape/escape pair doubled backslashes on every rewrite; structural
+  commands get their own undo step; the context menu acts on the right-clicked
+  cell; `<br>` in pasted HTML cells. AI: no empty thread after a failure that
+  followed a tool write; Test connection honours the endpoint. Switcher: Enter
+  still creates when the search request failed. Heading links: time-budgeted,
+  re-armed when the collab editor mounts, fences skipped, `## C#` kept,
+  setext found. Bridge exits on stdin EOF. Tests for each.

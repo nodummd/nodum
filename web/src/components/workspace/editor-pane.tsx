@@ -78,14 +78,25 @@ function normalizeHeading(text: string): string {
     .toLowerCase();
 }
 
-/** The document line of the first ATX heading whose text matches. */
+/** The document line of the first heading whose text matches — ATX or setext,
+ *  never a `#` inside a fenced code block; a closing `#` run only counts when
+ *  a space precedes it (CommonMark), so `## C#` keeps its name. */
 function findHeadingLine(view: EditorView, heading: string): { from: number } | null {
   const want = normalizeHeading(heading);
   const doc = view.state.doc;
+  let inFence = false;
   for (let n = 1; n <= doc.lines; n++) {
     const line = doc.line(n);
-    const m = /^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line.text);
-    if (m && normalizeHeading(m[1]) === want) return { from: line.from };
+    if (/^\s{0,3}(```|~~~)/.test(line.text)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const atx = /^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line.text);
+    if (atx && normalizeHeading(atx[1]) === want) return { from: line.from };
+    if (n < doc.lines && line.text.trim() && /^\s{0,3}(=+|-+)\s*$/.test(doc.line(n + 1).text)) {
+      if (normalizeHeading(line.text) === want) return { from: line.from };
+    }
   }
   return null;
 }
@@ -339,7 +350,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
   useEffect(() => {
     if (!pendingHeading || pendingHeading.noteId !== note.id) return;
     const { heading, nonce } = pendingHeading;
-    let tries = 0;
+    const started = performance.now();
     let frame = 0;
     const attempt = (): boolean => {
       const view = editorViewRef.current;
@@ -365,8 +376,10 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
       }
       return false;
     };
+    // A time budget rather than a frame count: a collab-enabled note shows
+    // "Connecting live session…" for up to 4 s before its editor exists.
     const tick = () => {
-      if (attempt() || tries++ > 30) {
+      if (attempt() || performance.now() - started > 6000) {
         useWorkspaceStore.getState().clearPendingHeading(nonce);
         return;
       }
@@ -374,7 +387,10 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [pendingHeading, note.id]);
+    // activeCollab/waitingForCollab: the effect restarts when the editor that
+    // will actually stay on screen mounts (the local one is replaced by the
+    // collab-keyed one once the session syncs).
+  }, [pendingHeading, note.id, activeCollab, waitingForCollab]);
 
   /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior).
    *  A plain click reads the note in THIS tab; ⌘/Ctrl-click opens another one.

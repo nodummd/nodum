@@ -36,7 +36,7 @@ The whole feature is gated by ``COLLAB_ENABLED``.
 
 import asyncio
 import contextlib
-import hashlib
+import time
 import uuid
 from typing import Any
 from uuid import UUID
@@ -54,7 +54,38 @@ WORKER_ID = uuid.uuid4().hex.encode()  # 32 bytes
 
 SEED_TTL_SECONDS = 600  # refreshed while any worker holds the room
 PERSIST_LOCK_SECONDS = 15  # refreshed by the owner every persist tick
-SYNC_WAIT_SECONDS = 0.6  # how long a late joiner waits for a holder's state
+SYNC_WAIT_SECONDS = 0.6  # one round of waiting for a holder's state
+LIVE_WINDOW_SECONDS = 12  # a holder that has not refreshed for this long is presumed dead
+CATCH_UP_MAX_SECONDS = 8  # how long a late joiner keeps asking live holders before giving up
+
+# One round trip each, so a join during another worker's teardown cannot see
+# half of either step (seed present but no holder, or holder gone but seed
+# present). KEYS[1] = seed, KEYS[2] = holders (a ZSET of worker id → last
+# heartbeat). ARGV = my seed bytes, ttl, my worker id, now, live-threshold.
+_ACQUIRE_LUA = """
+local seed
+if redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) then
+  seed = ARGV[1]
+else
+  seed = redis.call('GET', KEYS[1])
+  if not seed then
+    redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+    seed = ARGV[1]
+  end
+end
+local live = redis.call('ZCOUNT', KEYS[2], ARGV[5], '+inf')
+redis.call('ZADD', KEYS[2], ARGV[4], ARGV[3])
+redis.call('EXPIRE', KEYS[2], ARGV[2])
+return {seed, live}
+"""
+_RELEASE_LUA = """
+redis.call('ZREM', KEYS[2], ARGV[1])
+if redis.call('ZCARD', KEYS[2]) == 0 then
+  redis.call('DEL', KEYS[1], KEYS[2])
+  return 0
+end
+return redis.call('ZCARD', KEYS[2])
+"""
 
 
 def room_name(vault_id: UUID, note_id: UUID) -> str:
@@ -172,19 +203,22 @@ class CollabServer(WebsocketServer):
                 update = room.awareness.encode_awareness_update(ids)
                 asyncio.get_running_loop().create_task(self._publish_awareness(name, update))
 
-        others = await self._seed(name, room, content or "")
+        others, adopted = await self._seed(name, room, content or "")
         state.subscription = room.ydoc.observe(on_update)
         state.aw_subscription = room.awareness.observe(on_awareness)
         state.pubsub_task = asyncio.create_task(self._subscribe(name, room, state))
-        if others:
-            await self._catch_up(name, room, state, content or "")
-        logger.info("collab_room_opened", room=name, other_holders=others)
+        if adopted:
+            # Someone else's seed: catch up with them if they are alive, or —
+            # a seed left behind by a dead worker — let the DB row win.
+            await self._catch_up(name, room, state, content or "", live=others)
+        logger.info("collab_room_opened", room=name, other_holders=others, adopted_seed=adopted)
 
     # ── Deterministic seed + late-joiner sync ───────────────────────────────
 
-    async def _seed(self, name: str, room: YRoom, content: str) -> int:
+    async def _seed(self, name: str, room: YRoom, content: str) -> tuple[int, bool]:
         """Seed the room with the SAME update every worker uses. Returns how
-        many other workers hold the room (0 = this seed is fresh from the DB)."""
+        many other LIVE workers hold the room, and whether the seed applied was
+        someone else's (adopted) rather than the one just built from the DB."""
         seed_doc = Doc()
         if content:
             seed_doc.get("content", type=Text).insert(0, content)
@@ -194,14 +228,21 @@ class CollabServer(WebsocketServer):
         try:
             from app.core.redis import redis_binary
 
-            key = f"collab-seed:{name}"
-            if not await redis_binary.set(key, mine, nx=True, ex=SEED_TTL_SECONDS):
-                stored = await redis_binary.get(key)
-                if stored:
-                    chosen = stored
-            holders = await redis_binary.incr(f"collab-holders:{name}")
-            await redis_binary.expire(f"collab-holders:{name}", SEED_TTL_SECONDS)
-            others = max(int(holders) - 1, 0)
+            now = time.time()
+            stored, live = await redis_binary.eval(
+                _ACQUIRE_LUA,
+                2,
+                f"collab-seed:{name}",
+                f"collab-holders:{name}",
+                mine,
+                SEED_TTL_SECONDS,
+                self.worker_id,
+                now,
+                now - LIVE_WINDOW_SECONDS,
+            )
+            if stored:
+                chosen = stored
+            others = max(int(live), 0)
         except Exception as e:  # Redis down: fanout is dead anyway; seed locally
             logger.warning("collab_seed_redis_failed", room=name, error=str(e))
         self._applying_remote.add(name)  # the seed is not a local edit to publish
@@ -209,26 +250,58 @@ class CollabServer(WebsocketServer):
             room.ydoc.apply_update(chosen)
         finally:
             self._applying_remote.discard(name)
-        return others
+        return others, chosen != mine
 
-    async def _catch_up(self, name: str, room: YRoom, state: _RoomState, db_content: str) -> None:
-        """Ask the workers already holding this room for their state. If none
-        answers — a stale seed left behind by a crashed worker — the DB row is
-        the truth and replaces the seed."""
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(state.subscribed.wait(), timeout=2)
-        try:
-            from app.core.redis import redis_binary
+    async def _live_others(self, name: str) -> int:
+        """Other workers whose heartbeat on this room is recent."""
+        from app.core.redis import redis_binary
 
-            await redis_binary.publish(f"collab-sync:{name}", self.worker_id + b"REQ")
-        except Exception as e:
-            logger.warning("collab_sync_request_failed", room=name, error=str(e))
-        try:
-            await asyncio.wait_for(state.synced.wait(), timeout=SYNC_WAIT_SECONDS)
-        except TimeoutError:
+        members = await redis_binary.zrangebyscore(f"collab-holders:{name}", time.time() - LIVE_WINDOW_SECONDS, "+inf")
+        return sum(1 for m in members if m != self.worker_id)
+
+    async def _catch_up(self, name: str, room: YRoom, state: _RoomState, db_content: str, *, live: int) -> None:
+        """Ask the workers already holding this room for their state, and keep
+        asking while any of them is alive. Only when no live holder remains —
+        a stale seed left behind by a crashed worker — does the DB row replace
+        the seed. Resetting while a live holder is merely slow would put the
+        holder's items next to the reset's and duplicate the text everywhere
+        once its answer arrived, so a silent live holder means: keep the seed
+        and wait for fanout, never reset."""
+        if live == 0:
+            # Nobody alive to ask: the seed is a dead worker's. The DB has the
+            # last persisted text; if the seed disagrees, the DB wins.
             if str(room.ydoc.get("content", type=Text)) != db_content:
                 self._reset_local(name, room, db_content)
                 logger.info("collab_seed_stale_reset", room=name)
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(state.subscribed.wait(), timeout=2)
+        deadline = time.monotonic() + CATCH_UP_MAX_SECONDS
+        while True:
+            try:
+                from app.core.redis import redis_binary
+
+                await redis_binary.publish(f"collab-sync:{name}", self.worker_id + b"REQ")
+            except Exception as e:
+                logger.warning("collab_sync_request_failed", room=name, error=str(e))
+            try:
+                await asyncio.wait_for(state.synced.wait(), timeout=SYNC_WAIT_SECONDS)
+                return
+            except TimeoutError:
+                pass
+            try:
+                live = await self._live_others(name)
+            except Exception as e:
+                logger.warning("collab_liveness_failed", room=name, error=str(e))
+                return  # cannot tell — keep the seed, fanout will reconcile
+            if live == 0:
+                if str(room.ydoc.get("content", type=Text)) != db_content:
+                    self._reset_local(name, room, db_content)
+                    logger.info("collab_seed_stale_reset", room=name)
+                return
+            if time.monotonic() > deadline:
+                logger.warning("collab_catch_up_unanswered", room=name, live_holders=live)
+                return
 
     async def _answer_sync(self, name: str, room: YRoom) -> None:
         """A late joiner asked: hand it everything (idempotent to apply)."""
@@ -265,11 +338,11 @@ class CollabServer(WebsocketServer):
         try:
             from app.core.redis import redis_binary
 
-            left = await redis_binary.decr(f"collab-holders:{name}")
-            if int(left) <= 0:
-                # Nobody holds the room any more: the next opener seeds from
-                # the DB, which has the final persisted text.
-                await redis_binary.delete(f"collab-holders:{name}", f"collab-seed:{name}")
+            # Atomic with the seed: when the last holder leaves, the seed goes
+            # with it in the same step, so a joiner never sees one without the
+            # other. The next opener then seeds from the DB, which has the
+            # final persisted text.
+            await redis_binary.eval(_RELEASE_LUA, 2, f"collab-seed:{name}", f"collab-holders:{name}", self.worker_id)
             await self._drop_persist_lock(name)
         except Exception as e:
             logger.warning("collab_release_failed", room=name, error=str(e))
@@ -342,7 +415,7 @@ class CollabServer(WebsocketServer):
                         # A REST save landed on another worker — adopt its text
                         # or this room would rebroadcast (and re-persist) the
                         # old body. One worker applies it; the rest receive it.
-                        await self._maybe_apply_reset(name, room, data[32:].decode("utf-8"))
+                        await self._maybe_apply_reset(name, room, data[48:].decode("utf-8"), data[32:48])
                         continue
                     self._applying_remote.add(name)
                     try:
@@ -382,17 +455,17 @@ class CollabServer(WebsocketServer):
             state.dirty = False
         logger.info("collab_room_reset", room=name)
 
-    async def _maybe_apply_reset(self, name: str, room: YRoom, content: str) -> None:
+    async def _maybe_apply_reset(self, name: str, room: YRoom, content: str, nonce: bytes) -> None:
         """Apply a REST save to this worker's room — but only if no other worker
-        already did for this exact save. Every holder applying it as its own
-        CRDT edit would leave the text once per worker after fanout."""
+        already did for this exact save (the lock is per save, not per text, so
+        saving the same body twice is two saves). Every holder applying it as
+        its own CRDT edit would leave the text once per worker after fanout."""
         if str(room.ydoc.get("content", type=Text)) == content:
             return
         try:
             from app.core.redis import redis_binary
 
-            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:32]
-            won = await redis_binary.set(f"collab-resetlock:{name}:{digest}", self.worker_id, nx=True, ex=10)
+            won = await redis_binary.set(f"collab-resetlock:{name}:{nonce.hex()}", self.worker_id, nx=True, ex=10)
         except Exception as e:
             logger.warning("collab_reset_lock_failed", room=name, error=str(e))
             won = True  # no Redis → no other worker can hear this anyway
@@ -406,16 +479,17 @@ class CollabServer(WebsocketServer):
         persisting) the pre-save body: the client sees its note revert.
         """
         name = room_name(vault_id, note_id)
+        nonce = uuid.uuid4().bytes  # 16 bytes: this save's identity
         room = self.rooms.get(name)
         if room is not None:
-            await self._maybe_apply_reset(name, room, content)
+            await self._maybe_apply_reset(name, room, content, nonce)
         # The worker that handled the REST call may not be the one holding the
         # room — announce it on the reset channel too (the lock above makes
         # sure exactly one holder turns it into a CRDT edit).
         try:
             from app.core.redis import redis_binary
 
-            await redis_binary.publish(f"collab-reset:{name}", self.worker_id + content.encode("utf-8"))
+            await redis_binary.publish(f"collab-reset:{name}", self.worker_id + nonce + content.encode("utf-8"))
         except Exception as e:
             logger.warning("collab_reset_publish_failed", room=name, error=str(e))
 
@@ -436,7 +510,11 @@ class CollabServer(WebsocketServer):
             if holder == self.worker_id:
                 await redis_binary.expire(key, PERSIST_LOCK_SECONDS)
                 return True
-            return False
+            # Someone else owns the write. On the FINAL write — this room is
+            # being torn down — write anyway: a redundant write of a converged
+            # doc is harmless, and if the owner is dead its lock outliving it
+            # must not cost the last edits.
+            return final
         except Exception as e:
             logger.warning("collab_persist_lock_failed", room=name, error=str(e))
             return True  # Redis down: better a redundant write than none
@@ -482,12 +560,14 @@ class CollabServer(WebsocketServer):
                     await self._persist(name, state, room)
 
     async def _keep_alive(self, name: str) -> None:
-        """The seed and holder count must outlive every room that uses them."""
+        """Heartbeat: this worker still holds the room (liveness for late
+        joiners), and the seed must outlive every room that uses it."""
         try:
             from app.core.redis import redis_binary
 
-            await redis_binary.expire(f"collab-seed:{name}", SEED_TTL_SECONDS)
+            await redis_binary.zadd(f"collab-holders:{name}", {self.worker_id: time.time()})
             await redis_binary.expire(f"collab-holders:{name}", SEED_TTL_SECONDS)
+            await redis_binary.expire(f"collab-seed:{name}", SEED_TTL_SECONDS)
         except Exception as e:
             logger.warning("collab_keepalive_failed", room=name, error=str(e))
 

@@ -42,7 +42,11 @@ export function QuickSwitcher({
   const [chosen, setChosen] = useState("");
   const queryClient = useQueryClient();
 
-  const { data: results, isFetching } = useQuery({
+  const {
+    data: results,
+    isFetching,
+    isError,
+  } = useQuery({
     queryKey: ["quick-switch", vaultId, debouncedQuery],
     queryFn: () => searchApi.quickSwitch(vaultId, debouncedQuery),
     enabled: open,
@@ -52,7 +56,9 @@ export function QuickSwitcher({
   // in that window used to act on the PREVIOUS query's list (type fast, hit
   // Enter, land in the wrong note); now it waits for the list that matches
   // what was typed, then acts once.
-  const stale = query.trim() !== debouncedQuery.trim() || isFetching || results === undefined;
+  // (A failed request is not "still loading": Enter then falls through to
+  // Create, as it did before.)
+  const stale = query.trim() !== debouncedQuery.trim() || isFetching || (results === undefined && !isError);
   const pendingEnter = useRef<null | { background: boolean }>(null);
 
   const trimmed = query.trim();

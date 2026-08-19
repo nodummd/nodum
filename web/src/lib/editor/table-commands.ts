@@ -8,6 +8,7 @@
  */
 
 import type { StateCommand } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, StateEffect, type EditorState } from "@codemirror/state";
 
 import {
@@ -142,6 +143,9 @@ function tableCommand(
         changes: { from: table.from, to: table.to, insert: text },
         selection: EditorSelection.cursor(table.from),
         userEvent: "input.format",
+        // Its own undo step: typing right after Delete row must not be
+        // pulled into the same group as the deletion.
+        annotations: isolateHistory.of("full"),
         effects: next.caret ? [focusTableCell.of(next.caret)] : [],
       }),
     );
