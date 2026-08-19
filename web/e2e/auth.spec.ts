@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-import { DEV_OTP, PASSWORD, passEmailVerification, signupFreshUser, uniqueEmail } from "./helpers";
+import {
+  DEV_OTP,
+  PASSWORD,
+  dismissFirstRun,
+  passEmailVerification,
+  signupFreshUser,
+  uniqueEmail,
+} from "./helpers";
 
 test.describe("auth", () => {
   test("signup lands in a seeded welcome vault", async ({ page }) => {
@@ -54,6 +61,7 @@ test.describe("auth", () => {
     await page.getByRole("button", { name: "Sign up" }).click();
     await passEmailVerification(page);
     await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+    await dismissFirstRun(page);
 
     await page.getByRole("button", { name: "Log out" }).click();
     await page.goto("/signup");

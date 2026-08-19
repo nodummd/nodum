@@ -41,6 +41,7 @@ import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { Menu, PanelRight, Settings as SettingsIcon } from "lucide-react";
 
 import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
+import { DemoWorkspaceOffer } from "./demo-workspace-offer";
 import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
@@ -583,6 +584,7 @@ export function Workspace({ vault }: { vault: Vault }) {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <DemoWorkspaceOffer />
       <ConfirmDialog />
       <input
         ref={importInputRef}

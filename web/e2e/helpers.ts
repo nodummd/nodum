@@ -23,8 +23,31 @@ export async function passEmailVerification(page: Page): Promise<void> {
   if (shown) await field.fill(DEV_OTP); // six digits submits on its own
 }
 
-/** Sign up a fresh user and wait for the workspace to load the welcome vault. */
-export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<string> {
+/**
+ * A brand-new account gets the first-run experience: the Demo Workspace
+ * question (and the onboarding tour). Almost every test wants a plain, quiet
+ * workspace, so this answers them the way a person in a hurry would — but
+ * through the real UI, never by poking flags into the database.
+ */
+export async function dismissFirstRun(page: Page): Promise<void> {
+  const notNow = page.getByRole("button", { name: "Not now" });
+  const shown = await notNow
+    .waitFor({ state: "visible", timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) {
+    await notNow.click();
+    await expect(page.getByTestId("demo-offer")).toHaveCount(0, { timeout: 10_000 });
+  }
+}
+
+/** Sign up a fresh user and wait for the workspace to load the welcome vault.
+ *  Pass `{ keepFirstRun: true }` to leave the first-run prompts up. */
+export async function signupFreshUser(
+  page: Page,
+  prefix = "e2e",
+  opts: { keepFirstRun?: boolean } = {},
+): Promise<string> {
   const email = uniqueEmail(prefix);
   await page.goto("/signup");
   await page.getByLabel("Name").fill("E2E Tester");
@@ -33,6 +56,9 @@ export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<strin
   await page.getByRole("button", { name: "Sign up" }).click();
   await passEmailVerification(page);
   await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+  // First: the first-run prompt is a modal, and while it is up everything
+  // behind it is aria-hidden — the checks below would not find the workspace.
+  if (!opts.keepFirstRun) await dismissFirstRun(page);
   // Welcome vault is seeded — explorer shows the notes (desktop) or the
   // mobile top bar renders (drawer explorer starts closed)
   await expect(

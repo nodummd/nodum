@@ -1,0 +1,72 @@
+{
+  "name": "Demo Workspace",
+  "description": "A populated second-brain vault: topics, people, books, projects, daily notes and recipes, all linked, with folder colours and graph groups already set — so you can explore how Nodum works before writing a word.",
+  "folder_colors": {
+    "Areas/Health": "#8854d0",
+    "Books": "#20bf6b",
+    "Topics": "#4c8dff",
+    "People": "#fa8231",
+    "Projects": "#e056a0",
+    "Recipes": "#fd9644",
+    "Concepts": "#eb3b5a",
+    "Maps": "#a55eea"
+  },
+  "graph": {
+    "groups": [
+      {
+        "color": "#4c8dff",
+        "query": "tag:#cs"
+      },
+      {
+        "color": "#00b8d4",
+        "query": "tag:#math"
+      },
+      {
+        "color": "#0fb9b1",
+        "query": "tag:#science"
+      },
+      {
+        "color": "#8854d0",
+        "query": "tag:#philosophy"
+      },
+      {
+        "color": "#20bf6b",
+        "query": "tag:#productivity"
+      },
+      {
+        "color": "#fa8231",
+        "query": "tag:#person"
+      },
+      {
+        "color": "#f7b731",
+        "query": "tag:#book"
+      },
+      {
+        "color": "#eb3b5a",
+        "query": "tag:#concept"
+      },
+      {
+        "color": "#e056a0",
+        "query": "tag:#project"
+      },
+      {
+        "color": "#a55eea",
+        "query": "tag:#area"
+      },
+      {
+        "color": "#26de81",
+        "query": "tag:#health"
+      },
+      {
+        "color": "#fd9644",
+        "query": "tag:#recipe"
+      },
+      {
+        "color": "#778ca3",
+        "query": "tag:#daily"
+      }
+    ]
+  },
+  "canvasBackground": "dots",
+  "open_note": "Home"
+}
