@@ -29,15 +29,37 @@ test.describe("MCP", () => {
     await expect(page.getByText(`…${token.slice(-4)}`)).toBeVisible();
 
     const headers = { ...RPC, Authorization: `Bearer ${token}` };
-    const call = async (name: string, args: Record<string, unknown> = {}) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = async (name: string, args: Record<string, unknown> = {}): Promise<any> => {
       const res = await request.post(endpoint, {
         headers,
         data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
       });
       expect(res.status(), name).toBe(200);
-      const body = await res.json();
-      expect(body.result.isError, JSON.stringify(body.result.content)).toBeFalsy();
-      const sc = body.result.structuredContent;
+      // Streamable HTTP answers each POST as a short SSE stream: the response
+      // is the last `data:` frame (progress notifications may come before it).
+      const frames = (await res.text())
+        .replace(/\r\n/g, "\n")
+        .split("\n\n")
+        .map((block) =>
+          block
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trim())
+            .join("\n"),
+        )
+        .filter(Boolean)
+        .map(
+          (data) =>
+            JSON.parse(data) as {
+              id?: number;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              result?: { isError?: boolean; content?: unknown; structuredContent?: any };
+            },
+        );
+      const body = frames.filter((f) => f.id === 1).at(-1)!;
+      expect(body.result!.isError, JSON.stringify(body.result!.content)).toBeFalsy();
+      const sc = body.result!.structuredContent;
       return sc?.result ?? sc;
     };
 

@@ -7,9 +7,12 @@ scoped by the same `get_owned_vault` check, so an LLM with a token can do
 exactly what its owner can — and nothing more.
 
 Design notes:
-- Stateless + JSON responses: every POST is independent, no session ids, no
-  SSE. Simplest thing that works through the same `/api` proxy the web app
-  uses, on every deployment.
+- Stateless: every POST is independent, no session ids to keep, so the
+  endpoint sits behind an ordinary reverse proxy and any of the uvicorn
+  workers can answer. Each POST is answered as a short server-sent-event
+  stream (the Streamable HTTP default): the tool's result, preceded by any
+  progress notifications a long tool (an import) sends on the way. Clients
+  that only accept JSON still work — the SDK answers them with JSON.
 - Auth is `BearerTokenGate` in front of the ASGI app; tools read the user id
   it stamped on the request scope. No token, no protocol.
 - Tools return plain dicts (the SDK serialises them as structured content),
@@ -112,7 +115,10 @@ MCP_PATH = "/api/v1/mcp"
 mcp_asgi_app = server.streamable_http_app(
     streamable_http_path=MCP_PATH,
     stateless_http=True,
-    json_response=True,
+    # SSE per request: progress notifications reach the client while a long
+    # tool runs; the response is the last event. (json_response=True would
+    # drop the notifications and answer only once the tool is done.)
+    json_response=False,
     max_request_body_size=MCP_MAX_REQUEST_BODY_BYTES,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )

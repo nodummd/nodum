@@ -1,0 +1,16 @@
+{
+  "name": "nodum-mcp",
+  "version": "0.1.0",
+  "description": "stdio bridge to a Nodum vault's MCP server — for MCP clients that cannot send an HTTP header",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": { "nodum-mcp": "bin/nodum-mcp.js" },
+  "files": ["bin", "README.md"],
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0"
+  },
+  "scripts": {
+    "test": "node test/bridge.test.js"
+  }
+}
