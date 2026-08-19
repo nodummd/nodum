@@ -26,14 +26,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // or a different account logging in — everything cached (vault list, notes,
   // trees) is that person's and must go, or the next account lands in the
   // previous one's vault with their notes still on screen.
+  // The first loading → authenticated step at boot is not a change of
+  // identity — nothing from anyone else can be cached yet — and clearing then
+  // would silently destroy queries already in flight on public pages
+  // (/p/<token>, /login), which never notify their observers.
   useEffect(() => {
-    let lastUserId = useAuthStore.getState().user?.id ?? null;
+    const init = useAuthStore.getState();
+    let last: string | null | undefined =
+      init.status === "loading" ? undefined : (init.user?.id ?? null);
     return useAuthStore.subscribe((s) => {
+      if (s.status === "loading") return;
       const id = s.status === "authenticated" ? (s.user?.id ?? null) : null;
-      if (id !== lastUserId) {
-        lastUserId = id;
-        queryClient.clear();
-      }
+      if (last !== undefined && id !== last) queryClient.clear();
+      last = id;
     });
   }, [queryClient]);
   useEffect(() => {

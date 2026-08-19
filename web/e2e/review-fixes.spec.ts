@@ -124,6 +124,52 @@ test.describe("first-run follow-ups", () => {
     await expect(page.getByTestId("tour-card")).toHaveAttribute("data-step", "explorer");
   });
 
+  test("a signed-in visitor of a public note sees it even when the note loads after the session refresh", async ({
+    page,
+  }) => {
+    await signupFreshUser(page, "pub-race");
+    await openNoteFromExplorer(page, "Welcome to Nodum");
+    await page.getByRole("button", { name: "Share note" }).click();
+    await page.getByRole("button", { name: "Publish note" }).click();
+    await expect(page.getByText("This note is public")).toBeVisible({ timeout: 10_000 });
+    const url = (await page.locator("code").first().textContent()) ?? "";
+    expect(url).toContain("/p/");
+    // The public note answers after the boot-time session refresh: the query
+    // that was already in flight must not be destroyed by the identity check.
+    await page.route("**/api/v1/public/**", async (route) => {
+      await new Promise((r) => setTimeout(r, 600));
+      await route.continue();
+    });
+    await page.goto(url);
+    await expect(page.getByRole("heading", { name: "Welcome to Nodum" }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText("linked knowledge base")).toBeVisible();
+  });
+
+  test("logging out and back in as the same person returns to the vault they were in", async ({
+    page,
+  }) => {
+    const email = await signupFreshUser(page, "same-user");
+    await page.keyboard.press("ControlOrMeta+,");
+    await page.getByRole("button", { name: "Vault", exact: true }).click();
+    await page.getByRole("button", { name: "New vault" }).click();
+    await page.getByLabel("Vault name", { exact: true }).fill("Second");
+    await page.getByRole("button", { name: "Create vault" }).click();
+    const href = await page.getByRole("link", { name: "Open Second" }).getAttribute("href");
+    await page.keyboard.press("Escape");
+    await page.goto(href!);
+    await expect(page.getByRole("button", { name: /Switch vault/ })).toContainText("Second", { timeout: 15_000 });
+    const secondUrl = page.url();
+    await page.getByRole("button", { name: "Log out" }).click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 10_000 });
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Log in" }).click();
+    await expect(page).toHaveURL(secondUrl, { timeout: 15_000 });
+  });
+
   test("deleting the vault open in this tab lands on another vault, not on 'Loading vault…'", async ({
     page,
   }) => {

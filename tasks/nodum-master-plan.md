@@ -783,3 +783,6 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     pre-existing cross-account leak in one browser (query cache + persisted
     vault survived logout) — fixed and e2e-covered; Claude Desktop config via
     env; token cap lock; demo-creation race; daily notes on the user's clock.
+  - *Fourth pass (regressions only)* — backend dry; two web follow-ups from the
+    sign-out change (boot-time cache clear vs. public pages; keep the open
+    vault across sign-out) on `bug/11.review-fixes-4_…`. Loop closed.
