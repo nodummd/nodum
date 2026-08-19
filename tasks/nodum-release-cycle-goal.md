@@ -11,7 +11,7 @@ that fails without it; each step reviewed adversarially before the release.
 |---|------|--------|--------|
 | 1 | **P0-2 collab under `--workers 4`** — deterministic shared seed across workers, late-joiner state sync, single persist owner, join/delete race (R2/R3); remote edits must not enter the local undo stack; `docs/collab.md` honest | editor-fixes P0-2, P1-3 (4) | ✅ `feature/1.collab-fanout` |
 | 2 | **P1-3 undo/redo** — Compartment reconfiguration (no remount on mode/pref change), per-(pane,note) history snapshots with an LRU, Windows redo chord, ⌘U decision | editor-fixes P1-3 | ✅ `feature/2.undo-history` |
-| 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ☐ |
+| 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ✅ `feature/3.explorer-tab-heading` |
 | 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ☐ |
 | 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ☐ |
 | 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ☐ |
@@ -47,3 +47,10 @@ never a secret in the repo; branches
   `Ctrl-Shift-Z` redo for Windows; ⌘U stays underline (documented). e2e covers
   tab switch, mode switch, reading-view round trip and the Windows chord, and
   fails on the old editor.
+- **2026-08-19 — #3 explorer click + heading links.** A click in the explorer
+  reads the note in the current tab (Obsidian; pinned tabs are never taken
+  over); ⌘-click and "Open in new tab" add one; Enter in the explorer reuses
+  the tab too. `[[Note#Heading]]` lands on the heading in live preview (caret
+  on the heading line, scrolled to the top) and in reading view, via a
+  `pendingHeading` request the showing pane consumes. e2e for both; the tab-count
+  suites now use `openNoteInNewTab` (⌘-click) where they mean "another tab".

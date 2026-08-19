@@ -54,7 +54,10 @@ const ROW_HEIGHT_TOUCH = 40;
 interface ExplorerProps {
   vaultId: string;
   activeNoteId: string | null;
-  onOpenNote: (noteId: string, title: string) => void;
+  /** Open a note. A plain click on a row reads it in the current tab
+   *  (Obsidian; a pinned tab is never taken over); ⌘/Ctrl-click and
+   *  "Open in new tab" open another one. */
+  onOpenNote: (noteId: string, title: string, opts?: { inCurrentTab?: boolean }) => void;
 }
 
 type FlatRow =
@@ -871,15 +874,15 @@ export function FileExplorer({ vaultId, activeNoteId, onOpenNote }: ExplorerProp
                           );
                           e.dataTransfer.effectAllowed = "copyLink";
                         }}
-                        onClick={() => {
+                        onClick={(e) => {
                           // new items should land beside the file you just picked
                           const parent = row.path.includes("/")
                             ? (tree ? ancestorsOfNote(tree.items, row.id)?.at(-1) ?? null : null)
                             : null;
                           setSelectedFolderId(parent);
-                          onOpenNote(row.id, row.title);
+                          onOpenNote(row.id, row.title, { inCurrentTab: !(e.metaKey || e.ctrlKey) });
                         }}
-                        onKeyDown={(e) => e.key === "Enter" && onOpenNote(row.id, row.title)}
+                        onKeyDown={(e) => e.key === "Enter" && onOpenNote(row.id, row.title, { inCurrentTab: true })}
                         className={cn(
                           "flex h-[26px] cursor-default items-center rounded px-2 text-[13px]",
                           activeNoteId === row.id

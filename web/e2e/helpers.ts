@@ -89,9 +89,18 @@ export async function signupFreshUser(
   return email;
 }
 
-/** Open a note via the file explorer. */
+/** Open a note via the file explorer — in the current tab, as a plain click
+ *  does (Obsidian; a pinned tab is never taken over). */
 export async function openNoteFromExplorer(page: Page, title: string): Promise<void> {
   await page.getByText(title, { exact: true }).first().click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(title, {
+    timeout: 10_000,
+  });
+}
+
+/** ⌘/Ctrl-click a note in the explorer: a NEW tab beside the current one. */
+export async function openNoteInNewTab(page: Page, title: string): Promise<void> {
+  await page.getByText(title, { exact: true }).first().click({ modifiers: ["ControlOrMeta"] });
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(title, {
     timeout: 10_000,
   });

@@ -466,7 +466,7 @@ function buildDecorations(
 }
 
 export interface LivePreviewCallbacks {
-  onNavigate?: (target: string, opts?: { newTab?: boolean }) => void;
+  onNavigate?: (target: string, opts?: { newTab?: boolean; heading?: string }) => void;
   vaultId?: string;
 }
 
@@ -526,9 +526,10 @@ export function livePreview(callbacks: LivePreviewCallbacks = {}) {
           const linkEl = target.closest?.("[data-wikilink-target]");
           if (linkEl instanceof HTMLElement) {
             const wikiTarget = linkEl.getAttribute("data-wikilink-target");
+            const heading = linkEl.getAttribute("data-wikilink-fragment") ?? undefined;
             const newTab = event.metaKey || event.ctrlKey;
             if (wikiTarget && (newTab || !selectionTouchesDOM(view, linkEl))) {
-              callbacks.onNavigate?.(wikiTarget, { newTab });
+              callbacks.onNavigate?.(wikiTarget, { newTab, heading });
               event.preventDefault();
               return true;
             }

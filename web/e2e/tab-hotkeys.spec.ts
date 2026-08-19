@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { openNoteFromExplorer, signupFreshUser } from "./helpers";
+import { openNoteFromExplorer, openNoteInNewTab, signupFreshUser } from "./helpers";
 
 /** ⌘/Ctrl+W closes the active tab, even with many tabs open. */
 test.describe("tab keyboard shortcuts", () => {
@@ -9,8 +9,8 @@ test.describe("tab keyboard shortcuts", () => {
 
     // Open the three seeded notes as tabs, in order → [Welcome, Linking, Formatting]
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
-    await openNoteFromExplorer(page, "Formatting showcase");
+    await openNoteInNewTab(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Formatting showcase");
 
     const tabs = page.getByRole("tab");
     await expect(tabs).toHaveCount(3);
@@ -36,8 +36,8 @@ test.describe("tab keyboard shortcuts", () => {
   test("palette moves between tabs and closes the others", async ({ page }) => {
     await signupFreshUser(page, "tab-nav-e2e");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
-    await openNoteFromExplorer(page, "Formatting showcase");
+    await openNoteInNewTab(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Formatting showcase");
     const title = page.getByRole("textbox", { name: "Note title" });
     await expect(title).toHaveValue("Formatting showcase"); // last opened is active
 
@@ -58,8 +58,8 @@ test.describe("tab keyboard shortcuts", () => {
   test("⌘1 and ⌘9 jump to the first and last tab", async ({ page }) => {
     await signupFreshUser(page, "tab-index-e2e");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
-    await openNoteFromExplorer(page, "Formatting showcase");
+    await openNoteInNewTab(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Formatting showcase");
     const title = page.getByRole("textbox", { name: "Note title" });
     await expect(title).toHaveValue("Formatting showcase");
 
@@ -73,7 +73,7 @@ test.describe("tab keyboard shortcuts", () => {
   test("⌘W leaves a pinned tab open", async ({ page }) => {
     await signupFreshUser(page, "tab-pin-e2e");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Linking your thinking");
 
     // Pin the active tab via its context menu
     await page.getByRole("tab", { name: /Linking your thinking/ }).click({ button: "right" });

@@ -63,7 +63,7 @@ export interface MarkdownEditorProps {
   initialContent: string;
   mode: "live" | "source";
   onChange: (content: string) => void;
-  onNavigate: (target: string, opts?: { newTab?: boolean }) => void;
+  onNavigate: (target: string, opts?: { newTab?: boolean; heading?: string }) => void;
   /** When set, the doc binds to the Yjs session (parent remounts by key). */
   collab?: CollabSession;
   /** Extra right-click actions that need workspace context (new note, extract). */

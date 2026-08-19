@@ -259,6 +259,9 @@ interface WorkspaceState {
   /** Explorer reveal request: {kind, id, nonce}. The nonce makes repeat
    *  reveals of the SAME item distinct events, so asking twice works. */
   revealTarget: { kind: "note" | "folder"; id: string; nonce: number } | null;
+  /** A [[Note#Heading]] was followed: the note's editor scrolls to the heading
+   *  once it is on screen. Consumed by the pane that shows the note. */
+  pendingHeading: { noteId: string; heading: string; nonce: number } | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -315,6 +318,8 @@ interface WorkspaceState {
   /** Same, for a folder. */
   revealFolder: (folderId: string) => void;
   setSplitOrientation: (orientation: "row" | "column") => void;
+  setPendingHeading: (noteId: string, heading: string) => void;
+  clearPendingHeading: (nonce: number) => void;
   /** Sign-out hygiene: close every transient overlay and drop the note-bound
    *  state, so the next account (same browser) starts clean. The remembered
    *  vault stays — the same person logging back in returns to it, and for a
@@ -375,6 +380,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       dragging: null,
       graphFocusNoteId: null,
       revealTarget: null,
+      pendingHeading: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -644,6 +650,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       revealFolder: (folderId) =>
         set({ revealTarget: { kind: "folder", id: folderId, nonce: (get().revealTarget?.nonce ?? 0) + 1 } }),
       setSplitOrientation: (orientation) => set({ splitOrientation: orientation }),
+      setPendingHeading: (noteId, heading) =>
+        set({ pendingHeading: { noteId, heading, nonce: (get().pendingHeading?.nonce ?? 0) + 1 } }),
+      clearPendingHeading: (nonce) => {
+        if (get().pendingHeading?.nonce === nonce) set({ pendingHeading: null });
+      },
       resetForSignOut: () =>
         set({
           settingsOpen: false,
