@@ -422,7 +422,7 @@ with the other defaults; e2e asserts a measured font-size change.
 
 ---
 
-## P3-7 — Release v3.3.0
+## P3-7 — Release v3.3.0 ✅ DONE 2026-08-19 (`d93fec3`, tag `v3.3.0`)
 
 Only after P0/P1 land. Check migrations, prod compose smoke, secrets, and the
 `docs/collab.md` correction from P0-2. `dev` → `main`, tag, prod-compose smoke.
