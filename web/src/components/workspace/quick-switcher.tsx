@@ -3,7 +3,7 @@
 /** Quick switcher (⌘O) — fuzzy note jump; Enter on no match creates the note. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Command,
@@ -42,12 +42,18 @@ export function QuickSwitcher({
   const [chosen, setChosen] = useState("");
   const queryClient = useQueryClient();
 
-  const { data: results } = useQuery({
+  const { data: results, isFetching } = useQuery({
     queryKey: ["quick-switch", vaultId, debouncedQuery],
     queryFn: () => searchApi.quickSwitch(vaultId, debouncedQuery),
     enabled: open,
     gcTime: 10_000, // per-keystroke entries must not pile up for 5 minutes
   });
+  // Results lag the typing by the debounce plus a round trip. Enter pressed
+  // in that window used to act on the PREVIOUS query's list (type fast, hit
+  // Enter, land in the wrong note); now it waits for the list that matches
+  // what was typed, then acts once.
+  const stale = query.trim() !== debouncedQuery.trim() || isFetching || results === undefined;
+  const pendingEnter = useRef<null | { background: boolean }>(null);
 
   const trimmed = query.trim();
   const exactMatch =
@@ -67,6 +73,7 @@ export function QuickSwitcher({
     if (!next) {
       setQuery("");
       setChosen("");
+      pendingEnter.current = null;
     }
     setOpen(next);
   };
@@ -96,6 +103,26 @@ export function QuickSwitcher({
     }
   };
 
+  const act = (background: boolean) => {
+    if (background) {
+      const match = results?.find((r) => r.id === highlighted);
+      if (match) {
+        openTabBackground({ id: match.id, kind: "note", title: match.title });
+        handleOpenChange(false);
+      }
+      return;
+    }
+    if (highlighted) selectValue(highlighted);
+  };
+
+  useEffect(() => {
+    const pending = pendingEnter.current;
+    if (!pending || stale) return;
+    pendingEnter.current = null;
+    act(pending.background);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stale, highlighted]);
+
   return (
     <CommandDialog
       open={open}
@@ -117,16 +144,15 @@ export function QuickSwitcher({
               if (trimmed) createNote.mutate(trimmed);
               return;
             }
-            // ⌘/Ctrl+Enter opens the match in the background (no tab switch)
-            if (e.metaKey || e.ctrlKey) {
-              const match = results?.find((r) => r.id === highlighted);
-              if (match) {
-                openTabBackground({ id: match.id, kind: "note", title: match.title });
-                handleOpenChange(false);
-              }
+            // ⌘/Ctrl+Enter opens the match in the background (no tab switch).
+            // While the list is still catching up with the typing, remember
+            // the intent and act when it has.
+            const background = e.metaKey || e.ctrlKey;
+            if (stale) {
+              pendingEnter.current = { background };
               return;
             }
-            if (highlighted) selectValue(highlighted);
+            act(background);
           }}
         />
         <CommandList>

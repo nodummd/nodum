@@ -17,7 +17,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ✅ `feature/6.docs-search` |
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ✅ `feature/7.table-steps` |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ✅ `feature/8.mcp-sse-stdio` |
-| 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ☐ |
+| 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ✅ `feature/8.mcp-sse-stdio` (root cause in the switcher) |
 | 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ☐ |
 
 ## Working rules (unchanged)
@@ -101,3 +101,9 @@ never a secret in the repo; branches
   stdio against the dev API (36 tools, list_vaults). **Not published to npm**
   — do not advertise `npx nodum-mcp` until the name is ours; the docs point at
   the checkout.
+- **2026-08-19 — #9 the two flakes had one cause.** The quick switcher's
+  results lag typing (150 ms debounce + a round trip); Enter / ⌘Enter pressed
+  in that window acted on the *previous* query's list — in a fast hand that
+  opens the wrong note, in the e2e it was ⌘\ and ⌘Enter failing ~1 run in 6.
+  Enter now waits for the list that matches what was typed and acts once.
+  8/8 and 6/6 on the two specs afterwards.
