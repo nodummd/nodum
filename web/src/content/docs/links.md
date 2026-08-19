@@ -15,7 +15,7 @@ Type `[[` and a note's name. A list appears as you type — press `Enter` or cli
 Variants:
 
 - `[[Note|shown text]]` — an alias: shows *shown text*, links to *Note*.
-- `[[Note#Heading]]` — links to a heading; the hover preview and `![[Note#Heading]]` embeds show just that section (clicking opens the note at the top).
+- `[[Note#Heading]]` — jumps to that heading; the hover preview and `![[Note#Heading]]` embeds show just that section.
 - `[[Folder/Note]]` — a full path, when two notes share a name. In live preview only the note's name shows.
 - `![[Note]]` — an embed: shows the other note's content inside this one. `![[image.png]]` embeds an image.
 

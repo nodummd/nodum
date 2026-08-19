@@ -152,8 +152,11 @@ export function Workspace({ vault }: { vault: Vault }) {
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
 
   const openNote = useCallback(
-    (noteId: string, title: string) => {
-      openTab({ id: noteId, kind: "note", title });
+    (noteId: string, title: string, opts?: { inCurrentTab?: boolean }) => {
+      // Obsidian: a click in the explorer reads the note in the current tab
+      // (a pinned one is never taken over); ⌘-click, panels and new notes
+      // open another tab.
+      openTab({ id: noteId, kind: "note", title }, { replace: opts?.inCurrentTab === true });
       // The open note is the one the graph accents as "selected".
       setGraphFocus(noteId);
       setMobileLeftOpen(false);

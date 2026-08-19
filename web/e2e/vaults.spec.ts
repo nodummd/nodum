@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { openNoteFromExplorer, signupFreshUser } from "./helpers";
+import { openNoteFromExplorer, openNoteInNewTab, signupFreshUser } from "./helpers";
 
 /** Multiple vaults: each is a separate workspace, and opening one launches it
  *  in its own browser tab so two can be worked in at once. */
@@ -63,7 +63,7 @@ test.describe("multiple vaults", () => {
   test("two vaults keep separate tab strips across reloads", async ({ page }) => {
     await signupFreshUser(page, "vault-layout");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Formatting showcase");
+    await openNoteInNewTab(page, "Formatting showcase");
     await expect(page.getByRole("tab")).toHaveCount(2);
 
     // Work in the second vault: it gets its own layout…
