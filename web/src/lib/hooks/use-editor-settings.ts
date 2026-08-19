@@ -83,6 +83,10 @@ export interface UserPrefs {
   /** Interface: left icon ribbon + tab title bar. */
   showRibbon: boolean;
   showTabTitleBar: boolean;
+  /** First-run state. Absent = never seen: the tour shows and the demo is
+   *  offered. Both are set once and stay set, whatever the answer was. */
+  onboardingDone: boolean;
+  demoOffered: boolean;
 }
 
 const HEX_RE = /^#[0-9a-f]{6}$/i;
@@ -98,6 +102,8 @@ export function parseUserPrefs(raw: Record<string, unknown> | undefined): UserPr
     fontMonospace: isFontChoice(s.fontMonospace) ? s.fontMonospace : "default",
     showRibbon: typeof s.showRibbon === "boolean" ? s.showRibbon : true,
     showTabTitleBar: typeof s.showTabTitleBar === "boolean" ? s.showTabTitleBar : true,
+    onboardingDone: s.onboardingDone === true,
+    demoOffered: s.demoOffered === true,
   };
 }
 

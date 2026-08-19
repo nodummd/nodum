@@ -63,6 +63,11 @@ export const authApi = {
 
 export const vaultApi = {
   list: () => api<Vault[]>("/vaults"),
+  /** What the Demo Workspace is — public, for the onboarding card. */
+  describeDemo: () => api<{ name: string; description: string; note_count: number }>("/vaults/demo"),
+  /** Create the populated demo vault for this user. */
+  createDemo: () =>
+    apiJson<{ vault: Vault; open_note_id: string | null; imported: number }>("/vaults/demo", "POST"),
   create: (name: string) => apiJson<Vault>("/vaults", "POST", { name }),
   update: (vaultId: string, body: { name?: string; settings?: Record<string, unknown> }) =>
     apiJson<Vault>(`/vaults/${vaultId}`, "PATCH", body),
