@@ -6,3 +6,6 @@ node_modules/
 test-results/
 playwright-report/
 e2e/
+# Dev tooling only: the docs screenshot capture imports ../e2e/helpers, which
+# is excluded above, so leaving scripts/ in would fail the image's type check.
+scripts/
