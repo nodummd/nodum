@@ -15,7 +15,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ✅ `feature/4.ai-streaming` |
 | 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ✅ `feature/5.ai-vault-keys` |
 | 6 | **Docs full-text search** over article bodies | onboarding-docs-mcp goal | ✅ `feature/6.docs-search` |
-| 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ☐ |
+| 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ✅ `feature/7.table-steps` |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ☐ |
 | 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ☐ |
 | 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ☐ |
@@ -78,3 +78,15 @@ never a secret in the repo; branches
   plain text at build time; the rail ranks title › heading › summary › body and
   shows the sentence a body-only match was found in. e2e: a phrase that only
   appears in the MCP article's body finds it with a snippet.
+- **2026-08-19 — #7 tables, steps 6–9.** Per-cell undo isolation (a new cell
+  starts a history group; ⌘Z/⌘⇧Z/Ctrl+Y inside a cell drive CodeMirror's
+  history, not the browser's contenteditable undo); grid paste (tab-separated
+  text or an HTML table) writes into the table from the focused cell, growing
+  it, as one transaction and one undo step — a single value pastes as text;
+  arrow keys walk between cells at the text's edges, Tab lands at the end;
+  Move row up/down (toolbar, ⌥↑/⌥↓, context menu); focus follows structural
+  commands (`focusTableCell` is consumed now); under collab the cell a peer is
+  in is tinted with their colour via an awareness field (the parked caret
+  could never name the cell). e2e: arrows, move, paste + single undo, per-cell
+  undo, collab tint; a crash found on the way (posAtDOM on a detached widget)
+  fixed.

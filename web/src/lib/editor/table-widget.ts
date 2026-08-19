@@ -20,17 +20,24 @@
  *   which keeps defaultKeymap, closeBrackets and autocompletion out of a cell.
  */
 
+import { isolateHistory, redo, undo } from "@codemirror/commands";
 import { EditorSelection } from "@codemirror/state";
-import { EditorView, WidgetType } from "@codemirror/view";
+import { EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+import { ySyncFacet } from "y-codemirror.next";
 
+import { presenceColor } from "./collab";
 import {
   findTable,
+  focusTableCell,
+  render,
   tableCellSpans,
   withTableAnchor,
   tableDeleteColumn,
   tableDeleteRow,
   tableInsertColumnRight,
   tableInsertRowBelow,
+  tableMoveRowDown,
+  tableMoveRowUp,
 } from "./table-commands";
 import {
   type Align,
@@ -49,6 +56,8 @@ interface DomState {
   composing: boolean;
   /** "row:col" of the last edited cell, for undo isolation. */
   lastCell: string | null;
+  /** Collab: the awareness listener that tints peers' cells, for removal. */
+  awarenessOff: (() => void) | null;
 }
 
 const DOM_STATE = new WeakMap<HTMLElement, DomState>();
@@ -56,7 +65,7 @@ const DOM_STATE = new WeakMap<HTMLElement, DomState>();
 function domState(dom: HTMLElement): DomState {
   let st = DOM_STATE.get(dom);
   if (!st) {
-    st = { reconciling: false, composing: false, lastCell: null };
+    st = { reconciling: false, composing: false, lastCell: null, awarenessOff: null };
     DOM_STATE.set(dom, st);
   }
   return st;
@@ -145,6 +154,8 @@ function scaffold(id: number): HTMLElement {
   for (const [label, action] of [
     ["Add row", "add-row"],
     ["Add column", "add-column"],
+    ["Move row up", "move-row-up"],
+    ["Move row down", "move-row-down"],
     ["Delete row", "delete-row"],
     ["Delete column", "delete-column"],
   ] as const) {
@@ -260,12 +271,96 @@ function commit(view: EditorView, dom: HTMLElement, cell: HTMLElement): void {
   const raw = escapeCell(cell.textContent ?? "");
   if (raw === view.state.sliceDoc(span.from, span.to)) return;
 
-  st.lastCell = `${row}:${col}`;
+  // Undo is per cell: moving to another cell and typing starts a new history
+  // group, so filling three cells quickly takes three ⌘Z to take back — not
+  // one (time-based grouping alone would merge them).
+  const key = `${row}:${col}`;
+  const newCell = st.lastCell !== null && st.lastCell !== key;
+  st.lastCell = key;
   view.dispatch({
     changes: { from: span.from, to: span.to, insert: raw },
     userEvent: "input.type",
+    annotations: newCell ? isolateHistory.of("before") : undefined,
     scrollIntoView: false,
   });
+}
+
+/** Text pasted as a grid (tab-separated, or an HTML table) is written into the
+ *  table starting at the focused cell, growing rows and columns as needed —
+ *  one transaction, one undo step. A single value goes into the cell. */
+function pasteInto(view: EditorView, dom: HTMLElement, cell: HTMLElement, data: DataTransfer): boolean {
+  const grid = gridFromClipboard(data);
+  if (!grid) return false;
+  const row = Number(cell.dataset.tableRow);
+  const col = Number(cell.dataset.tableCol);
+  const tableFrom = view.posAtDOM(dom);
+  const table = findTable(view.state, tableFrom);
+  if (!table) return false;
+  const rows = table.rows.map((r) => [...r]);
+  const aligns = [...table.aligns];
+  let cols = rows[0]?.length ?? 0;
+  for (let r = 0; r < grid.length; r++) {
+    while (rows.length <= row + r) rows.push(Array.from({ length: cols }, () => "   "));
+    for (let c = 0; c < grid[r].length; c++) {
+      while (cols <= col + c) {
+        cols++;
+        for (const existing of rows) existing.push("   ");
+        aligns.push("none");
+      }
+      rows[row + r][col + c] = grid[r][c];
+    }
+  }
+  view.dispatch({
+    changes: { from: table.from, to: table.to, insert: render(rows, aligns) },
+    selection: EditorSelection.cursor(table.from),
+    userEvent: "input.paste",
+    annotations: isolateHistory.of("full"),
+    effects: [focusTableCell.of({ row, col })],
+    scrollIntoView: false,
+  });
+  return true;
+}
+
+/** A 2-D grid from the clipboard, or null when it is a single value. */
+function gridFromClipboard(data: DataTransfer): string[][] | null {
+  const html = data.getData("text/html");
+  if (html && html.includes("<table")) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const rows = Array.from(doc.querySelectorAll("tr")).map((tr) =>
+      Array.from(tr.querySelectorAll("td,th")).map((td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()),
+    );
+    if (rows.length > 1 || (rows[0]?.length ?? 0) > 1) return rows;
+  }
+  const text = data.getData("text/plain").replace(/\r\n?/g, "\n").replace(/\n$/, "");
+  if (!text.includes("\t") && !text.includes("\n")) return null;
+  const rows = text.split("\n").map((line) => line.split("\t").map((v) => v.trim()));
+  return rows.length > 1 || (rows[0]?.length ?? 0) > 1 ? rows : null;
+}
+
+/** Insert plain text at the caret of a contenteditable cell. */
+function insertTextAtCaret(cell: HTMLElement, text: string): void {
+  const sel = cell.ownerDocument.getSelection();
+  if (!sel || sel.rangeCount === 0 || !cell.contains(sel.anchorNode)) {
+    cell.textContent = (cell.textContent ?? "") + text;
+    setCaretOffset(cell, (cell.textContent ?? "").length);
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const node = cell.ownerDocument.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  cell.normalize();
+}
+
+/** Is the caret at the start / end of the cell's text? */
+function caretAtEdge(cell: HTMLElement): { start: boolean; end: boolean } {
+  const offset = caretOffsetIn(cell);
+  const length = (cell.textContent ?? "").length;
+  return { start: offset === 0, end: offset >= length };
 }
 
 /** Run a structural command against THIS table, whatever the caret is doing. */
@@ -278,7 +373,11 @@ function runControl(view: EditorView, dom: HTMLElement, action: string): void {
         ? tableInsertColumnRight
         : action === "delete-row"
           ? tableDeleteRow
-          : tableDeleteColumn;
+          : action === "move-row-up"
+            ? tableMoveRowUp
+            : action === "move-row-down"
+              ? tableMoveRowDown
+              : tableDeleteColumn;
 
   // The commands read the caret to know which row/column to act on, so point
   // them at the focused cell — not at wherever the document selection sits.
@@ -327,6 +426,7 @@ function wire(dom: HTMLElement, view: EditorView): void {
     const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-table-cell]");
     if (!cell) return;
     toRaw(cell); // Tab-focus never went through mousedown.
+    announceCell(view, dom, cell);
     // Park the document caret at the table's start, once. Every cell keystroke
     // makes the DOM observer compute a selection at exactly this position, so
     // leaving it here means CodeMirror does no extra work per keystroke.
@@ -351,6 +451,8 @@ function wire(dom: HTMLElement, view: EditorView): void {
     // preventDefaults and keeps focus, so this does not fire for those.
     if (cell) queueMicrotask(() => {
       if (cell.ownerDocument.activeElement !== cell) toRendered(cell);
+      const still = cell.ownerDocument.activeElement?.closest?.("[data-table-cell]");
+      if (!still || !dom.contains(still)) announceCell(view, dom, null);
     });
   });
 
@@ -363,29 +465,205 @@ function wire(dom: HTMLElement, view: EditorView): void {
     if (cell) commit(view, dom, cell);
   });
 
+  dom.addEventListener("paste", (event) => {
+    if (st.reconciling) return;
+    const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-table-cell]");
+    if (!cell || !event.clipboardData) return;
+    // Always ours: the browser would otherwise paste markup into the cell.
+    event.preventDefault();
+    if (pasteInto(view, dom, cell, event.clipboardData)) return;
+    const text = event.clipboardData.getData("text/plain").replace(/\s+/g, " ");
+    if (!text) return;
+    insertTextAtCaret(cell, text);
+    commit(view, dom, cell);
+  });
+
   dom.addEventListener("keydown", (event) => {
     if (st.reconciling) return;
     const cell = (event.target as HTMLElement).closest<HTMLElement>("[data-table-cell]");
     if (!cell) return;
+    const row = Number(cell.dataset.tableRow);
+    const col = Number(cell.dataset.tableCol);
+    const cols = Number(dom.dataset.cols);
+    const rows = Number(dom.dataset.rows);
+    const go = (r: number, c: number, caret: "start" | "end") => {
+      if (r < 0 || r >= rows || c < 0 || c >= cols) return false;
+      const target = cellAt(dom, r, c);
+      if (!target) return false;
+      target.focus();
+      toRaw(target);
+      setCaretOffset(target, caret === "end" ? (target.textContent ?? "").length : 0);
+      return true;
+    };
     // Newlines would break the row; a table cell is one line by definition.
     if (event.key === "Enter") {
       event.preventDefault();
       return;
     }
+    // ⌘Z / ⌘⇧Z / Ctrl+Y: CodeMirror's history, not the browser's own undo of
+    // the contenteditable (ignoreEvent keeps CM's keymap out of cells, so the
+    // chord has to be forwarded by hand). reconcile() then rewrites the cell.
+    const mod = event.metaKey || event.ctrlKey;
+    if (mod && !event.altKey && (event.key === "z" || event.key === "Z" || event.key === "y")) {
+      event.preventDefault();
+      const isRedo = event.key === "y" || event.shiftKey;
+      if (isRedo) redo(view);
+      else undo(view);
+      return;
+    }
     if (event.key === "Tab") {
       event.preventDefault();
-      const row = Number(cell.dataset.tableRow);
-      const col = Number(cell.dataset.tableCol);
-      const cols = Number(dom.dataset.cols);
-      const rows = Number(dom.dataset.rows);
       let [r, c] = event.shiftKey ? [row, col - 1] : [row, col + 1];
       if (c >= cols) [r, c] = [row + 1, 0];
       if (c < 0) [r, c] = [row - 1, cols - 1];
-      if (r < 0 || r >= rows) return;
-      cellAt(dom, r, c)?.focus();
+      go(r, c, "end"); // append-friendly: Tab, type, Tab, type
+      return;
+    }
+    // Alt+↑/↓ moves the row; plain arrows walk between cells at the edges of
+    // the text (inside the text they move the caret as usual).
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey) {
+      event.preventDefault();
+      runControl(view, dom, event.key === "ArrowUp" ? "move-row-up" : "move-row-down");
+      return;
+    }
+    if (event.altKey || event.metaKey || event.ctrlKey) return;
+    const edge = caretAtEdge(cell);
+    if (event.key === "ArrowLeft" && edge.start) {
+      const [r, c] = col > 0 ? [row, col - 1] : [row - 1, cols - 1];
+      if (go(r, c, "end")) event.preventDefault();
+    } else if (event.key === "ArrowRight" && edge.end) {
+      const [r, c] = col + 1 < cols ? [row, col + 1] : [row + 1, 0];
+      if (go(r, c, "start")) event.preventDefault();
+    } else if (event.key === "ArrowUp") {
+      if (go(row - 1, col, "end")) event.preventDefault();
+    } else if (event.key === "ArrowDown") {
+      if (go(row + 1, col, "start")) event.preventDefault();
     }
   });
+
+  watchPresence(dom, view);
 }
+
+/** Collab: what a table needs from the session — an awareness to read and
+ *  write, and relative positions that survive concurrent edits. */
+interface TableAwareness {
+  clientID: number;
+  getStates: () => Map<number, unknown>;
+  getLocalState: () => Record<string, unknown> | null;
+  setLocalStateField: (field: string, value: unknown) => void;
+  on: (event: "change", f: () => void) => void;
+  off: (event: "change", f: () => void) => void;
+}
+interface TableSyncConf {
+  awareness?: TableAwareness;
+  toYPos: (pos: number, assoc?: number) => unknown;
+  fromYPos: (rpos: unknown) => { pos: number };
+}
+
+function syncConf(view: EditorView): TableSyncConf | null {
+  return (view.state.facet(ySyncFacet) as TableSyncConf | undefined) ?? null;
+}
+
+/** Tell peers which cell this client is in. The document caret is parked at
+ *  the table's start while a cell is edited (so remote-caret decorations can
+ *  never name the cell), hence an explicit awareness field: the table by a
+ *  relative position (stable across concurrent edits) plus row and column. */
+function announceCell(view: EditorView, dom: HTMLElement, cell: HTMLElement | null): void {
+  const conf = syncConf(view);
+  const awareness = conf?.awareness;
+  if (!conf || !awareness) return;
+  if (!cell) {
+    if (awareness.getLocalState()?.tableCell) awareness.setLocalStateField("tableCell", null);
+    return;
+  }
+  let tableFrom: number;
+  try {
+    tableFrom = view.posAtDOM(dom);
+  } catch {
+    return;
+  }
+  awareness.setLocalStateField("tableCell", {
+    table: conf.toYPos(tableFrom),
+    row: Number(cell.dataset.tableRow),
+    col: Number(cell.dataset.tableCol),
+  });
+}
+
+/** Collab: tint the cells peers are in with their colour — the remote caret
+ *  decorations cannot reach inside a replaced block, so this is how a table
+ *  shows who is where. */
+function watchPresence(dom: HTMLElement, view: EditorView): void {
+  const conf = syncConf(view);
+  const awareness = conf?.awareness;
+  if (!conf || !awareness) return;
+  const st = domState(dom);
+  const paint = () => {
+    // toDOM runs before the node is in the view; a detached node has no
+    // position, and posAtDOM on it throws.
+    if (!dom.isConnected || !view.contentDOM.contains(dom)) return;
+    for (const el of dom.querySelectorAll<HTMLElement>("[data-table-cell][data-peer]")) {
+      el.style.boxShadow = "";
+      delete el.dataset.peer;
+    }
+    let tableFrom: number;
+    try {
+      tableFrom = view.posAtDOM(dom);
+    } catch {
+      return;
+    }
+    for (const [clientId, raw] of awareness.getStates()) {
+      if (clientId === awareness.clientID) continue;
+      const state = raw as {
+        tableCell?: { table: unknown; row: number; col: number } | null;
+        user?: { name?: string; color?: string };
+      } | null;
+      const where = state?.tableCell;
+      if (!where) continue;
+      let pos: number | null = null;
+      try {
+        pos = conf.fromYPos(where.table).pos;
+      } catch {
+        pos = null;
+      }
+      if (pos !== tableFrom) continue;
+      const cell = cellAt(dom, where.row, where.col);
+      if (!cell) continue;
+      const colour = state?.user?.color ?? presenceColor(state?.user?.name ?? String(clientId));
+      cell.style.boxShadow = `inset 0 0 0 2px ${colour}`;
+      cell.dataset.peer = state?.user?.name ?? "";
+    }
+  };
+  awareness.on("change", paint);
+  st.awarenessOff = () => awareness.off("change", paint);
+  queueMicrotask(paint);
+}
+
+/** After a structural command, put focus where the person expects it. */
+export const tableFocusPlugin = ViewPlugin.fromClass(
+  class {
+    update(update: ViewUpdate) {
+      for (const tr of update.transactions) {
+        for (const effect of tr.effects) {
+          if (!effect.is(focusTableCell)) continue;
+          const { row, col } = effect.value;
+          const pos = update.state.selection.main.head;
+          queueMicrotask(() => {
+            for (const dom of update.view.contentDOM.querySelectorAll<HTMLElement>("[data-nodum-table]")) {
+              if (update.view.posAtDOM(dom) !== pos) continue;
+              const cell = cellAt(dom, row, col);
+              if (cell) {
+                cell.focus();
+                toRaw(cell);
+                setCaretOffset(cell, (cell.textContent ?? "").length);
+              }
+              break;
+            }
+          });
+        }
+      }
+    }
+  },
+);
 
 export class EditableTableWidget extends WidgetType {
   constructor(
@@ -417,6 +695,7 @@ export class EditableTableWidget extends WidgetType {
   }
 
   override destroy(dom: HTMLElement): void {
+    DOM_STATE.get(dom)?.awarenessOff?.();
     DOM_STATE.delete(dom);
   }
 
