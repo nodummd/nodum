@@ -18,7 +18,7 @@ that fails without it; each step reviewed adversarially before the release.
 | 7 | **P1-8 table steps 6–9** — per-cell undo isolation, grid paste, arrow-key cell navigation, Move row, remote-caret tints | editable-table spec | ✅ `feature/7.table-steps` |
 | 8 | **MCP**: stdio bridge package (`nodum-mcp`) + SSE responses with progress for long tools | onboarding-docs-mcp goal | ✅ `feature/8.mcp-sse-stdio` |
 | 9 | e2e flakes: `split-panes.spec.ts` ⌘\ and `switcher-extras.spec.ts` ⌘Enter | carried over | ✅ `feature/8.mcp-sse-stdio` (root cause in the switcher) |
-| 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ☐ |
+| 10 | **Release v3.3.0** — migrations, secrets, `dev` → `main`, tag, prod-compose smoke | editor-fixes P3-7 | ⏳ `chore/10.release-v3.3.0` |
 
 ## Working rules (unchanged)
 

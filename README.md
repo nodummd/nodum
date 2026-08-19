@@ -102,8 +102,15 @@ zip back whenever you want to leave.
 - **Demo Workspace** — 200 linked notes with coloured folders and graph groups, one click, so you can explore before you write.
 - **Documentation at `/docs`** — every button and panel explained, with screenshots captured from the app itself.
 
+### 🤝 Editing together
+- **Live collaboration** that works across API workers — one shared document seed, presence everywhere, your own undo.
+- **Tables you type into**: cells, rows and columns, paste a grid from a spreadsheet, move rows, per-cell undo.
+
+### 🤖 AI, your key
+- **An assistant you bring your own key for** — Claude, OpenAI, Gemini or Qwen, encrypted at rest — that searches, reads, creates and extends notes in your vault, streams its replies, keeps per-vault chat history, and can use a different key per vault.
+
 ### 🧩 Extending
-- **MCP server** — Nodum speaks the Model Context Protocol: point Claude Code, Claude Desktop or Cursor at `/api/v1/mcp` with a token and the AI can create vaults, write and link notes, colour folders, search, import and export — 36 tools, same rules as the app.
+- **MCP server** — Nodum speaks the Model Context Protocol: point Claude Code, Claude Desktop or Cursor at `/api/v1/mcp` with a token and the AI can create vaults, write and link notes, colour folders, search, import and export — 36 tools, same rules as the app, progress on long imports. A stdio bridge lives in `packages/nodum-mcp`.
 
 - **Plugins** — a capability-scoped API inside an opaque-origin sandboxed iframe
   (`sandbox="allow-scripts"`, no `allow-same-origin`, `connect-src 'none'`), permission
@@ -132,13 +139,6 @@ zip back whenever you want to leave.
   Celery for import/export and background scans, WebGL rendering, CDN-friendly frontend.
 - **Operationally honest** — structured logging, request-id middleware, security headers,
   CORS, deep `/health`, and an API that *refuses to boot* on placeholder secrets.
-
-### Coming next
-
-On `dev`, shipping in the next release: an **AI assistant** you bring your own key for —
-Claude, OpenAI, Gemini or Qwen, encrypted at rest with Fernet — that can search, read,
-create and append to notes in your vault, with per-vault chat history; **multi-vault
-browser tabs**; and **directly editable tables**.
 
 ## Stack
 
