@@ -37,6 +37,13 @@ test.describe("documentation", () => {
     await expect(rail.getByRole("link", { name: "Canvas" })).toHaveCount(0);
     await rail.getByRole("searchbox").fill("zzzz-nothing");
     await expect(rail.getByText(/Nothing matches/)).toBeVisible();
+
+    // Full text: a phrase that appears only in an article's body finds the
+    // article, and the row shows the sentence it was found in.
+    await rail.getByRole("searchbox").fill("mcp-remote");
+    await expect(rail.getByRole("link", { name: "MCP" })).toBeVisible();
+    await expect(rail.getByTestId("docs-snippet").first()).toContainText(/mcp-remote/);
+    await expect(rail.getByRole("link", { name: "Canvas" })).toHaveCount(0);
   });
 
   test("Help in the ribbon opens the docs in a new tab", async ({ page }) => {

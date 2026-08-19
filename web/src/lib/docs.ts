@@ -22,6 +22,22 @@ export interface DocArticle {
   body: string;
   /** H2 headings, for the nav's search. */
   headings: string[];
+  /** The body as plain text (markdown stripped), for full-text search in the nav. */
+  text: string;
+}
+
+/** Markdown → the words a reader would search for: no images, links keep
+ *  their text, no emphasis/code markers, no tables' pipes, no headings' #. */
+export function plainText(markdown: string): string {
+  return markdown
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[^\n]*/g, " "))
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/gm, " ")
+    .replace(/[|*_`~>#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Section order on the nav — the order a new user needs them in. */
@@ -75,6 +91,7 @@ export async function loadDocs(): Promise<DocArticle[]> {
       where: meta.where || undefined,
       body,
       headings: [...body.matchAll(/^## (.+)$/gm)].map((m) => m[1].trim()),
+      text: plainText(body),
     });
   }
   articles.sort((a, b) => {
