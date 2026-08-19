@@ -2,3 +2,5 @@
 
 export const APP_VERSION = "3.2.0";
 export const HELP_URL = "https://github.com/nodummd/nodum";
+/** In-app documentation. A path, so it works on every deployment. */
+export const DOCS_URL = "/docs";

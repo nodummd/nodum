@@ -15,6 +15,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { ApiError } from "@/lib/api/client";
+import { DOCS_URL } from "@/lib/app-meta";
 import { authApi, bookmarkApi, canvasApi, folderApi, noteApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
 import {
@@ -271,6 +272,7 @@ export function CommandPalette({
     { id: "show-tags", label: "Tags view: Show tags", run: () => setRightPanel("tags") },
     { id: "show-ai", label: "AI: Open chat", run: () => setRightPanel("ai") },
     { id: "help-tour", label: "Help: Show the tour again", run: () => useWorkspaceStore.getState().setTourOpen(true) },
+    { id: "help-docs", label: "Help: Open documentation", run: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
     {
       id: "ai-settings",
       label: "AI: Configure provider and API key",
