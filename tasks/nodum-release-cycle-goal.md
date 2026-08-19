@@ -10,7 +10,7 @@ that fails without it; each step reviewed adversarially before the release.
 | # | Item | Source | Status |
 |---|------|--------|--------|
 | 1 | **P0-2 collab under `--workers 4`** — deterministic shared seed across workers, late-joiner state sync, single persist owner, join/delete race (R2/R3); remote edits must not enter the local undo stack; `docs/collab.md` honest | editor-fixes P0-2, P1-3 (4) | ✅ `feature/1.collab-fanout` |
-| 2 | **P1-3 undo/redo** — Compartment reconfiguration (no remount on mode/pref change), per-(pane,note) history snapshots with an LRU, Windows redo chord, ⌘U decision | editor-fixes P1-3 | ☐ |
+| 2 | **P1-3 undo/redo** — Compartment reconfiguration (no remount on mode/pref change), per-(pane,note) history snapshots with an LRU, Windows redo chord, ⌘U decision | editor-fixes P1-3 | ✅ `feature/2.undo-history` |
 | 3 | Explorer click opens in the **current** tab (Obsidian; ⌘-click = new tab); `[[Note#Heading]]` scrolls to the heading | review pass 2/3 doc-vs-code | ☐ |
 | 4 | **Streaming AI replies** (SSE token stream into the chat pane) | vaults-ai goal | ☐ |
 | 5 | **Per-vault AI keys** (a vault may override the account key/model) | vaults-ai goal | ☐ |
@@ -40,3 +40,10 @@ never a secret in the repo; branches
   shown failing on per-worker seeds; the collab e2e run 6× against a real
   `uvicorn --workers 4` with rooms held by up to three workers — all green.
   `docs/collab.md` rewritten to match.
+- **2026-08-19 — #2 undo/redo.** Mode and editor prefs are Compartments
+  (reconfigure, never remount); the editor keeps a per-(pane, note) history
+  snapshot across unmounts (tab switch, reading view), restored only when the
+  document is byte-identical to the one it was taken from, LRU of 24; explicit
+  `Ctrl-Shift-Z` redo for Windows; ⌘U stays underline (documented). e2e covers
+  tab switch, mode switch, reading-view round trip and the Windows chord, and
+  fails on the old editor.

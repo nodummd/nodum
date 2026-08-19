@@ -458,6 +458,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
             <MarkdownEditor
               key={activeCollab ? `collab-${note.id}-${collabEpoch}` : editorEpoch}
               vaultId={vaultId}
+              historyKey={`${paneIndex}:${note.id}`}
               initialContent={draft}
               mode={mode}
               onChange={onChange}

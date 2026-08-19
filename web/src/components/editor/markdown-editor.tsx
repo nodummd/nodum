@@ -3,10 +3,10 @@
 /** CodeMirror 6 markdown editor — mounted manually per DECISIONS.md §1.1. */
 
 import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, redo } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { searchKeymap } from "@codemirror/search";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
@@ -26,8 +26,40 @@ import { EditorContextMenu, type EditorContextMenuActions } from "@/components/e
 import { attachmentUpload } from "@/lib/editor/attachment-upload";
 import { nodumEditorTheme } from "@/lib/editor/theme";
 
+/** Undo history outlives the editor. `workspace.tsx` renders only the active
+ *  tab, so switching away unmounts the editor; without this the next mount
+ *  started with an empty history and ⌘Z did nothing after a tab switch. The
+ *  snapshot is keyed by pane AND note (splitRight can show one note in two
+ *  panes, each with its own caret and its own undo stack) and guarded by the
+ *  exact document it was taken from — a snapshot of a different document
+ *  would undo into the wrong text. Bounded so a long session cannot grow it
+ *  without limit. */
+interface HistorySnapshot {
+  json: unknown;
+  doc: string;
+}
+const HISTORY_CACHE_LIMIT = 24;
+const historyCache = new Map<string, HistorySnapshot>();
+
+function rememberHistory(key: string, state: EditorState) {
+  historyCache.delete(key);
+  historyCache.set(key, { json: state.toJSON({ history: historyField }), doc: state.doc.toString() });
+  while (historyCache.size > HISTORY_CACHE_LIMIT) {
+    const oldest = historyCache.keys().next().value;
+    if (oldest === undefined) break;
+    historyCache.delete(oldest);
+  }
+}
+
+/** Test hook: how many history snapshots are held. */
+export function historySnapshotCount(): number {
+  return historyCache.size;
+}
+
 export interface MarkdownEditorProps {
   vaultId: string;
+  /** Pane + note identity for the undo-history snapshot; omit to never keep one. */
+  historyKey?: string;
   initialContent: string;
   mode: "live" | "source";
   onChange: (content: string) => void;
@@ -45,6 +77,7 @@ export interface MarkdownEditorProps {
 
 export function MarkdownEditor({
   vaultId,
+  historyKey,
   initialContent,
   mode,
   onChange,
@@ -67,6 +100,17 @@ export function MarkdownEditor({
     onViewReadyRef.current = onViewReady;
   }, [onChange, onNavigate, onViewReady]);
 
+  // Mode and editor prefs are Compartments: reconfiguring keeps the whole
+  // EditorState — history, selection, scroll — where a remount would not.
+  const modeCompartment = useRef(new Compartment()).current;
+  const gutterCompartment = useRef(new Compartment()).current;
+  const spellcheckCompartment = useRef(new Compartment()).current;
+
+  const modeExtensions = (m: "live" | "source") =>
+    m === "live"
+      ? [livePreview({ onNavigate: (t, opts) => onNavigateRef.current(t, opts), vaultId }), blockWidgets()]
+      : [];
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -82,6 +126,8 @@ export function MarkdownEditor({
         { key: "Mod-i", run: toggleItalic },
         { key: "Mod-k", run: insertLink },
         { key: "Mod-Shift-h", run: toggleHighlightCmd },
+        // ⌘U is underline (Obsidian) — deliberately ahead of historyKeymap's
+        // undoSelection, which is the less useful of the two.
         { key: "Mod-u", run: toggleUnderline },
         // ⌘E is "toggle reading view" (workspace hotkey, Hotkeys tab, docs) —
         // it must not also wrap the selection in backticks; inline code is
@@ -93,6 +139,10 @@ export function MarkdownEditor({
         // window-level hotkey listener still navigates.
         { key: "Mod-[", run: () => true },
         { key: "Mod-]", run: () => true },
+        // Redo on every platform: historyKeymap gives macOS ⌘⇧Z, Linux both
+        // Ctrl-Shift-Z and Ctrl-Y — and Windows Ctrl-Y only. Ctrl-Shift-Z is
+        // what most Windows hands reach for.
+        { key: "Ctrl-Shift-z", run: redo },
         ...defaultKeymap,
         ...historyKeymap,
         ...searchKeymap,
@@ -109,42 +159,60 @@ export function MarkdownEditor({
       nodumEditorTheme,
       placeholder("Start writing…"),
       EditorView.lineWrapping,
-      EditorView.contentAttributes.of({ spellcheck: String(spellcheck) }),
-      ...(showLineNumbers ? [lineNumbers()] : []),
+      spellcheckCompartment.of(EditorView.contentAttributes.of({ spellcheck: String(spellcheck) })),
+      gutterCompartment.of(showLineNumbers ? lineNumbers() : []),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChangeRef.current(update.state.doc.toString());
       }),
+      modeCompartment.of(modeExtensions(mode)),
     ];
-
-    if (mode === "live") {
-      extensions.push(
-        livePreview({ onNavigate: (t, opts) => onNavigateRef.current(t, opts), vaultId }),
-      );
-      extensions.push(blockWidgets());
-    }
 
     if (collab) extensions.push(collabExtension(collab));
 
+    const doc = collab ? collab.ytext.toString() : initialContent;
+    const snapshot = historyKey ? historyCache.get(historyKey) : undefined;
+    let state: EditorState | null = null;
+    if (snapshot && snapshot.doc === doc) {
+      try {
+        state = EditorState.fromJSON(snapshot.json as Parameters<typeof EditorState.fromJSON>[0], { extensions }, {
+          history: historyField,
+        });
+      } catch {
+        state = null; // a snapshot from an older build: start fresh
+      }
+    }
     const view = new EditorView({
-      state: EditorState.create({
-        doc: collab ? collab.ytext.toString() : initialContent,
-        extensions,
-      }),
+      state: state ?? EditorState.create({ doc, extensions }),
       parent: containerRef.current,
     });
     viewRef.current = view;
     onViewReadyRef.current?.(view);
 
     return () => {
+      if (historyKey) rememberHistory(historyKey, view.state);
       view.destroy();
       viewRef.current = null;
       onViewReadyRef.current?.(null);
     };
-    // Recreate only when the note identity, mode, or editor prefs change —
-    // content updates flow through the editor itself; external resets use the
-    // key prop.
+    // Recreate only when the note identity changes — content updates flow
+    // through the editor itself; external resets use the key prop; mode and
+    // prefs reconfigure the live view below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, vaultId, showLineNumbers, spellcheck]);
+  }, [vaultId, historyKey]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: modeCompartment.reconfigure(modeExtensions(mode)) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: [
+        gutterCompartment.reconfigure(showLineNumbers ? lineNumbers() : []),
+        spellcheckCompartment.reconfigure(EditorView.contentAttributes.of({ spellcheck: String(spellcheck) })),
+      ],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showLineNumbers, spellcheck]);
 
   // Right-clicking outside the selection moves the caret there first, so the
   // context menu acts on what the user pointed at. Clicking INSIDE a selection
