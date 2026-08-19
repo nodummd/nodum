@@ -101,8 +101,7 @@ the decoration/plugin is removed.
 
 ## P0-2 — Collab loses work in production (`--workers 4`)
 
-**Status:** demonstrated by the triage, not started. **Collab is enabled on the
-demo vault today.**
+**Status:** ✅ DONE 2026-08-19 (`feature/1.collab-fanout`): shared seed, late-join sync, single persist owner, presence fanout, join/teardown race, local undo. See `tasks/nodum-release-cycle-goal.md`.
 
 **R2 — cross-worker fanout does not work for any non-empty note.** Prod runs
 `uvicorn --workers 4` (`back/build/Dockerfile.api:62-65`). Each worker builds its
@@ -156,7 +155,7 @@ proves an update from one reaches the other. `docs/collab.md` matches reality.
 
 ## P1-3 — Undo history is destroyed when you leave a note and come back
 
-**Status:** verified, not started.
+**Status:** ✅ DONE 2026-08-19 (`feature/2.undo-history`): Stages A–C + Windows redo chord; ⌘U kept for underline. See `tasks/nodum-release-cycle-goal.md`.
 
 **Reproduction (live).** Type `UNDOTEST` into a note → ⌘Z removes it → ⌘⇧Z
 restores it (both work *in place*). Switch to another tab and back → ⌘Z does
