@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.models.auth import User
 from app.models.vaults import Vault
+from app.services import api_token_service
 from app.services import email_verification_service as otp
 from app.services.service_response import ServiceResponse
 from app.utils.password_utils import hash_password_async
@@ -66,6 +67,9 @@ async def reset_password(db: AsyncSession, *, email: str, code: str, new_passwor
     # so an account that never finished verifying is verified by this.
     user.email_verified = True
     await revoke_existing_sessions(db, user.id, "password_reset")
+    # A reset is what someone does when they suspect the account is taken over:
+    # every MCP token goes too, or a stolen one would keep the vaults open.
+    await api_token_service.revoke_all(db, user.id, reason="password_reset")
     await db.commit()
     logger.info("password_reset_completed", user_id=str(user.id))
     return ServiceResponse.ok(user)

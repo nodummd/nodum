@@ -15,10 +15,10 @@ A canvas is an infinite board. Cards on it hold text; lines between cards show r
 ## Using it
 
 - **New canvas** — the `+` next to *Canvases* at the bottom of the file list, or the palette.
-- **Add a card** — double-click empty space.
-- **Move / resize** — drag a card; drag its corner.
-- **Connect** — drag from the edge of one card to another.
-- **Edit** — click into a card and type; `Esc` finishes.
-- **Delete** — select a card or line and press `⌫`.
+- **Add a card** — *Text card* / *Note card* in the canvas toolbar (top-left).
+- **Move / resize** — drag a card; drag its bottom-right corner.
+- **Connect** — click a card, then `⇧`-click the card to link it to.
+- **Edit** — double-click a text card and type; `Esc` finishes.
+- **Delete** — select a card and press `⌫` (its lines go with it).
 
 Canvases save as they change and open in a tab like a note. Settings → Canvas chooses the background (dots, grid or plain).

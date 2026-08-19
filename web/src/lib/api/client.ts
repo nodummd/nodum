@@ -107,6 +107,7 @@ const CREDENTIAL_PATHS = [
   "/auth/resend-verification",
   "/auth/forgot-password",
   "/auth/reset-password",
+  "/auth/change-password", // its 401 is "current password is wrong"
 ];
 function isCredentialPath(path: string): boolean {
   return CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(`${p}?`));

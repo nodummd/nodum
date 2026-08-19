@@ -38,7 +38,7 @@ Dots take a colour from, in order: the graph group they match, the folder colour
 
 ## Local graph
 
-The right sidebar's branching icon shows just the note you are reading and its neighbours, one or two steps out. Same controls, smaller picture.
+The right sidebar's branching icon shows just the note you are reading and its neighbours; a *Depth* slider (1–5) chooses how many steps out. It has no settings popover, search or reset of its own — it uses the main graph's saved settings and colours.
 
 ## Layouts are remembered
 

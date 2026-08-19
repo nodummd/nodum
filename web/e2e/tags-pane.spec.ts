@@ -25,7 +25,7 @@ test.describe("nested tag pane", () => {
 
     // Clicking a nested tag opens the search pane seeded with tag:
     await page.getByText("#alpha", { exact: true }).click();
-    await expect(page.getByLabel("Search notes")).toHaveValue("tag:project/alpha", {
+    await expect(page.getByLabel("Search notes")).toHaveValue("tag:#project/alpha", {
       timeout: 10_000,
     });
     await expect(page.getByText("Tagged note").first()).toBeVisible({ timeout: 10_000 });

@@ -774,3 +774,8 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     the 4 MiB MCP body cap, tour focus/keyboard/inert/resize defects, lost
     first-run answers after token expiry, the deleted-vault dead end, and a
     dozen doc claims the app did not honour. Details in the goal doc.
+  - *Second review pass* — 22 more on `bug/8.review-fixes-2_…`, including two
+    regressions from the first fix (stale-list redirect, unverified-token
+    rate-limit bucket), MCP tokens surviving password reset/change (revoked
+    now), `list_attachments` crash, prepend-above-frontmatter, ⌘E double
+    binding, and eight more doc claims. Details in the goal doc.

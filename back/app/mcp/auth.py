@@ -66,4 +66,5 @@ class BearerTokenGate:
             )
             return
         scope.setdefault("state", {})[USER_ID_KEY] = user_id
+        await api_token_service.mark_verified(token)
         await self.app(scope, receive, send)

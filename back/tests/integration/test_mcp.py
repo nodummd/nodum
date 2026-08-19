@@ -6,6 +6,7 @@ real work in the vault through the same rules as the app; and nothing crosses
 between users.
 """
 
+import asyncio
 import base64
 import uuid
 from typing import Any
@@ -345,31 +346,105 @@ async def test_nested_note_resource_and_body_limits(client: AsyncClient, account
         await call(client, h, "import_attachment", vault_id=vid, filename="huge.png", content_base64=huge)
 
 
-async def test_rate_limit_keys_mcp_traffic_per_token(client: AsyncClient, account: dict) -> None:
+async def test_rate_limit_keys_mcp_traffic_per_verified_token(client: AsyncClient, account: dict) -> None:
+    """A verified MCP token gets its own rate-limit bucket; a made-up nodum_
+    string does not (it stays on the per-IP bucket, so rotating junk tokens
+    buys no extra budget)."""
     from app.core.middlewares.rate_limit_middleware import _authenticated_user
 
     class R:
         def __init__(self, auth: str) -> None:
             self.headers = {"Authorization": auth}
 
-    a = _authenticated_user(R(f"Bearer {account['token']}"))
-    b = _authenticated_user(R("Bearer nodum_mcp_someoneelse"))
-    assert a and b and a != b and a.startswith("tok:")
-    assert account["token"] not in a
-    assert _authenticated_user(R("Bearer not-a-token")) is None
-
-
-async def test_revoking_the_token_cuts_the_client_off(client: AsyncClient, account: dict) -> None:
+    assert await _authenticated_user(R("Bearer nodum_mcp_someoneelse")) is None
+    assert await _authenticated_user(R("Bearer not-a-token")) is None
+    # Before any MCP call the real token is unverified too …
+    fresh = await _authenticated_user(R(f"Bearer {account['token']}"))
+    # … one call through the gate later it has its own bucket, keyed by hash.
     assert (await rpc(client, account["mcp"], "tools/list"))["result"]["tools"]
-    revoked = await client.delete(f"/api/v1/mcp-tokens/{account['token_id']}", headers=account["session"])
-    assert revoked.status_code == 200
-    resp = await client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=account["mcp"])
-    assert resp.status_code == 401
+    keyed = await _authenticated_user(R(f"Bearer {account['token']}"))
+    assert keyed and keyed.startswith("tok:") and account["token"] not in keyed, (fresh, keyed)
 
 
-async def test_token_list_never_shows_the_token(client: AsyncClient, account: dict) -> None:
-    listed = await client.get("/api/v1/mcp-tokens", headers=account["session"])
-    body = listed.json()["data"]
-    assert account["token"] not in listed.text
-    assert body["tokens"][0]["hint"] == account["token"][-4:]
-    assert body["endpoint"].endswith("/api/v1/mcp")
+async def test_password_change_and_reset_revoke_mcp_tokens(client: AsyncClient) -> None:
+    from app.settings import get_settings
+
+    email = f"mcp-pw-{uuid.uuid4().hex[:12]}@nodumtest.dev"
+    signed = await client.post(
+        "/api/v1/auth/signup", json={"email": email, "password": "s3cure-Password!", "name": "PW"}
+    )
+    assert signed.status_code == 201, signed.text
+    client.cookies.clear()
+    session = {"Authorization": f"Bearer {signed.json()['data']['access_token']}"}
+    minted = (await client.post("/api/v1/mcp-tokens", json={"name": "laptop"}, headers=session)).json()["data"]
+    mcp = {**ACCEPT, "Authorization": f"Bearer {minted['token']}"}
+    assert (await rpc(client, mcp, "tools/list"))["result"]["tools"]
+
+    changed = await client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "s3cure-Password!", "new_password": "new-Password-123"},
+        headers=session,
+    )
+    assert changed.status_code == 200, changed.text
+    gone = await client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=mcp)
+    assert gone.status_code == 401, "a password change must cut every MCP token"
+
+    # Log in again, mint another, reset the password by code: same outcome.
+    # (The change-password revocation marker is second-granular: a session
+    # minted in the same second would be revoked too, so wait one out.)
+    await asyncio.sleep(1.1)
+    client.cookies.clear()
+    login = await client.post("/api/v1/auth/login", json={"email": email, "password": "new-Password-123"})
+    assert login.status_code == 200, login.text
+    session2 = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    minted2 = (await client.post("/api/v1/mcp-tokens", json={"name": "phone"}, headers=session2)).json()["data"]
+    mcp2 = {**ACCEPT, "Authorization": f"Bearer {minted2['token']}"}
+    assert (await rpc(client, mcp2, "tools/list"))["result"]["tools"]
+    assert (await client.post("/api/v1/auth/forgot-password", json={"email": email})).status_code == 200
+    reset = await client.post(
+        "/api/v1/auth/reset-password",
+        json={"email": email, "code": get_settings().EMAIL_OTP_DEV_CODE, "new_password": "reset-Password-456"},
+    )
+    assert reset.status_code == 200, reset.text
+    gone2 = await client.post(MCP, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=mcp2)
+    assert gone2.status_code == 401, "a password reset must cut every MCP token"
+    # The token list shows them revoked rather than silently gone.
+    session3 = {"Authorization": f"Bearer {reset.json()['data']['access_token']}"}
+    listed = (await client.get("/api/v1/mcp-tokens", headers=session3)).json()["data"]["tokens"]
+    assert listed and all(t["revoked_at"] for t in listed), listed
+
+
+async def test_prepend_keeps_frontmatter_link_notes_is_idempotent_and_attachments_list(
+    client: AsyncClient, account: dict
+) -> None:
+    h = account["mcp"]
+    vid = account["vault_id"]
+    fm = "---\ntags: [alpha, beta]\naliases: [zz]\n---\nbody"
+    note = await call(client, h, "create_note", vault_id=vid, title="Props", content=fm)
+    assert (await call(client, h, "read_note", vault_id=vid, note=note["id"]))["properties"]["tags"] == [
+        "alpha",
+        "beta",
+    ]
+    await call(client, h, "update_note", vault_id=vid, note=note["id"], content="PRE", mode="prepend")
+    read = await call(client, h, "read_note", vault_id=vid, note=note["id"])
+    assert read["content"].startswith("---\ntags: [alpha, beta]"), read["content"]
+    assert "PRE\n\nbody" in read["content"]
+    assert read["properties"]["tags"] == ["alpha", "beta"], "prepend must not bury the frontmatter"
+
+    other = await call(client, h, "create_note", vault_id=vid, title="Other", content="hello")
+    first = await call(client, h, "link_notes", vault_id=vid, from_note="Other", to_note="Props")
+    assert first["inserted"] == "- [[Props]]" and first["already_linked"] is False
+    again = await call(client, h, "link_notes", vault_id=vid, from_note="Other", to_note="Props")
+    assert again["already_linked"] is True and again["inserted"] is None
+    assert (await call(client, h, "read_note", vault_id=vid, note=other["id"]))["content"].count("[[Props]]") == 1
+    with pytest.raises(AssertionError, match="cannot link to itself"):
+        await call(client, h, "link_notes", vault_id=vid, from_note="Other", to_note="Other")
+
+    png = base64.b64encode(bytes.fromhex("89504e470d0a1a0a") + b"\0" * 1000).decode()
+    await call(client, h, "import_attachment", vault_id=vid, filename="tiny.png", content_base64=png)
+    listed = await call(client, h, "list_attachments", vault_id=vid)
+    assert [(a["filename"], a["size"]) for a in listed] == [("tiny.png", 1008)], listed
+
+    # A missing note as a resource: a sentence, not a bare "Error creating resource".
+    res = await rpc(client, h, "resources/read", {"uri": f"nodum://vault/{vid}/note/Nope"})
+    assert "No note called" in res["error"]["message"], res

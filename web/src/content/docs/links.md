@@ -15,7 +15,7 @@ Type `[[` and a note's name. A list appears as you type — press `Enter` or cli
 Variants:
 
 - `[[Note|shown text]]` — an alias: shows *shown text*, links to *Note*.
-- `[[Note#Heading]]` — jumps to a heading inside the note.
+- `[[Note#Heading]]` — links to a heading; the hover preview and `![[Note#Heading]]` embeds show just that section (clicking opens the note at the top).
 - `[[Folder/Note]]` — a full path, when two notes share a name. In live preview only the note's name shows.
 - `![[Note]]` — an embed: shows the other note's content inside this one. `![[image.png]]` embeds an image.
 
@@ -29,7 +29,7 @@ A link to a name with no note behind it is an *unresolved* link — dimmer, and 
 
 ## Backlinks
 
-Open the first panel in the right sidebar. It lists every note that links to the one you are reading, with the sentence around each link. Below it, *unlinked mentions* are places that use this note's name without linking — one click turns each into a link.
+Open the first panel in the right sidebar. It lists every note that links to the one you are reading, with the sentence around each link. Below it, *unlinked mentions* are places that use this note's name without linking — click one to open that note, where you can add the `[[ ]]` yourself.
 
 ![The Backlinks panel for a note.](/docs/backlinks.png)
 
@@ -41,4 +41,4 @@ The second panel is the reverse: every link *from* this note, resolved or not.
 
 ## Renaming and links
 
-Rename a note and every link to it keeps working: links are matched by name, and the app updates the ones it can. Links to the old name that could not be updated show as unresolved so you can see them.
+Renaming or moving a note does **not** rewrite the notes that link to it: every `[[Old name]]` becomes an unresolved link (a ghost node in the graph) until you edit it — Nodum never changes your markdown behind your back. To keep the old links working, add the old name as an alias in the renamed note's frontmatter (`aliases: [Old name]`): links resolve through aliases, so they light up again.

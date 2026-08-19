@@ -14,7 +14,7 @@ The explorer is the list of everything in the vault: folders, and the notes insi
 
 ## Everyday use
 
-- **Open** a note by clicking it. It opens in the current tab; `⌘`-click opens a new tab.
+- **Open** a note by clicking it — it opens in a new tab (or switches to it if it is already open). Links inside notes reuse the tab you are reading in.
 - **Create** with the two icons at the top of the list (new note, new folder), or `⌘N` for a note. New notes land in the folder you last clicked in, or wherever Settings → Files & links says.
 - **Rename** from the right-click menu, or double-click a note's title in the editor.
 - **Move** with right-click → *Move file to…* (dragging a note into the editor inserts a link to it; it does not move it)

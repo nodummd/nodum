@@ -8,7 +8,7 @@ where: The tab strip above the editor; back/forward arrows sit left of the note'
 
 ## Tabs
 
-Each open note, graph or canvas is a tab. Following a link opens the note **in the tab you are reading in** — a session does not pile up tabs. `⌘`-click a link, or a file in the explorer, for a new tab.
+Each open note, graph or canvas is a tab. Following a link opens the note **in the tab you are reading in** — a session does not pile up tabs. `⌘`-click a link for a new tab; the explorer always opens a note in a new tab (or switches to it).
 
 ![Two panes side by side, each with its own tabs.](/docs/tabs.png)
 
