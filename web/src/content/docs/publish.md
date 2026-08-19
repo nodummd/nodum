@@ -14,4 +14,4 @@ The share icon at the top-right of a note makes a public read-only link to that 
 
 ## Publishing a vault
 
-Settings → Publish turns the whole vault into a browsable site under your own slug: every note, with navigation, wikilinks that work between pages, and a link back to nothing private. Unpublish from the same place; the site goes away immediately.
+Settings → Publish turns the vault into a browsable site at `/s/<slug>` (the slug is made from the vault's name): every note except those whose frontmatter says `publish: false`, with navigation and wikilinks that work between pages. Unpublish from the same place; the site goes away immediately.

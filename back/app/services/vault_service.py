@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.limits import MAX_VAULTS_PER_USER
@@ -42,7 +43,13 @@ async def create_vault(db: AsyncSession, user_id: UUID, *, name: str) -> Service
 
     vault = Vault(user_id=user_id, name=name)
     db.add(vault)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two creates raced past the SELECT above; the unique constraint is
+        # the real guard, and its verdict is the same 409, not a 500.
+        await db.rollback()
+        return ServiceResponse.fail("already_exists", "A vault with this name already exists.")
     await db.refresh(vault)
     return ServiceResponse.ok(vault)
 
@@ -60,7 +67,11 @@ async def rename_vault(db: AsyncSession, vault_id: UUID, user_id: UUID, *, name:
     if duplicate:
         return ServiceResponse.fail("already_exists", "A vault with this name already exists.")
     vault.name = name
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return ServiceResponse.fail("already_exists", "A vault with this name already exists.")
     await db.refresh(vault)
     return ServiceResponse.ok(vault)
 

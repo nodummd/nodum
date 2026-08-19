@@ -11,11 +11,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.auth import ApiToken
+from app.models.auth import ApiToken, User
 from app.services.service_response import ServiceResponse
 
 MAX_TOKENS_PER_USER = 10
@@ -55,6 +55,9 @@ async def create_token(
 ) -> ServiceResponse[dict[str, Any]]:
     """Mint a token. The plaintext is in the response exactly once."""
     name = (name or "").strip()[:100] or "MCP client"
+    # Count and insert in one serialised step per user, or parallel creates
+    # all see the same count and the cap is exceeded.
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:u))"), {"u": f"api_tokens:{user_id}"})
     live = (
         (
             await db.execute(
@@ -126,8 +129,13 @@ async def verify_token(db: AsyncSession, plaintext: str, *, kind: str = "mcp") -
     if not plaintext or not plaintext.startswith(f"nodum_{kind}_"):
         return None
     row = await db.scalar(
-        select(ApiToken).where(
-            ApiToken.token_hash == _hash(plaintext), ApiToken.kind == kind, ApiToken.revoked_at.is_(None)
+        select(ApiToken)
+        .join(User, User.id == ApiToken.user_id)
+        .where(
+            ApiToken.token_hash == _hash(plaintext),
+            ApiToken.kind == kind,
+            ApiToken.revoked_at.is_(None),
+            User.is_active.is_(True),  # a deactivated account's tokens die with its sessions
         )
     )
     if row is None:

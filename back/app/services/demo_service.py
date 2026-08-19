@@ -59,9 +59,15 @@ async def _unique_vault_name(db: AsyncSession, user_id: UUID, base: str) -> str:
 async def create_demo_vault(db: AsyncSession, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
     """Create the demo vault for a user and return `{vault, open_note_id, imported}`."""
     manifest = load_manifest()
-    name = await _unique_vault_name(db, user_id, manifest.get("name", "Demo Workspace"))
+    base = manifest.get("name", "Demo Workspace")
+    name = await _unique_vault_name(db, user_id, base)
 
     created = await vault_service.create_vault(db, user_id, name=name)
+    if not created.success and created.error_code == "already_exists":
+        # Two requests picked the same free name at once (two tabs); the loser
+        # takes the next number rather than failing.
+        name = await _unique_vault_name(db, user_id, base)
+        created = await vault_service.create_vault(db, user_id, name=name)
     if not created.success:
         return ServiceResponse.fail(created.error_code or "validation_failed", created.message)
     vault = created.data

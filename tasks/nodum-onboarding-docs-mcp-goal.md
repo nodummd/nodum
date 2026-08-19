@@ -242,6 +242,40 @@ security 2, MCP correctness 2, docs 2) confirmed 22 more, all fixed:
   click), local graph has a Depth slider not "the same controls", explorer
   click opens a new tab, per-account vs per-vault toggles on Files & links.
 
+## Third pass (2026-08-19, `bug/10.review-fixes-3_…`)
+
+18 agents over the second fix commit and the surfaces not yet examined
+(token lifecycle, demo service, first-run state machine, docs 3): 13
+confirmed, all fixed:
+
+- **Cross-account leak in one browser (high, pre-existing)** — logging out
+  and in as another account through client-side navigation kept the TanStack
+  cache (previous account's vault list, notes) and the persisted
+  `activeVaultId`, so the new account landed in the old account's vault with
+  its notes on screen; an open Settings dialog also survived and blocked the
+  tour. The query cache is cleared whenever the identity changes; logout /
+  expiry reset the transient workspace slice and forget the vault; the tour
+  never opens over Settings. e2e: A's note, Settings open, palette Log out,
+  B signs up via links — B lands in its own vault, sees nothing of A.
+- Regression caught: putting `/auth/change-password` on the no-refresh list
+  broke a change after token expiry. Reverted; the backend answers **403**
+  for a wrong current password, so a 401 there means "expired" and refreshes.
+- Claude Desktop config now passes the token through `env` (`Authorization:${AUTH_HEADER}`)
+  — mcp-remote's documented workaround for Windows/Cursor splitting an
+  `args` entry at a space. Docs updated.
+- Token cap enforced under concurrent creates (advisory lock); a
+  deactivated account's tokens stop working; the endpoint URL comes from
+  `FRONTEND_BASE_URL` (behind an upstream TLS terminator the forwarded
+  scheme is `http`).
+- Two simultaneous demo creations: the loser takes "Demo Workspace 2"
+  instead of a 500 (`create_vault`/`rename_vault` turn the unique-constraint
+  race into `already_exists`).
+- Daily notes on the **user's** clock: the web sends its local time, the
+  MCP tool accepts `local_time`; the demo's daily notes moved to `Daily/`
+  so the calendar button files next to them.
+- Docs: publish (`publish: false`, slug), web clipper (the token can list
+  vaults), canvas background label.
+
 ## Deliberately not done
 
 - MCP over stdio as an installable package (`npx nodum-mcp`) — Streamable HTTP

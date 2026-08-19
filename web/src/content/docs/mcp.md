@@ -36,10 +36,10 @@ claude mcp add --transport http nodum https://your-nodum/api/v1/mcp --header "Au
 { "mcpServers": { "nodum": { "url": "https://your-nodum/api/v1/mcp", "headers": { "Authorization": "Bearer nodum_mcp_…" } } } }
 ```
 
-**Claude Desktop** speaks stdio, so `mcp-remote` bridges it — in `claude_desktop_config.json`:
+**Claude Desktop** speaks stdio, so `mcp-remote` bridges it — in `claude_desktop_config.json` (the token rides in `env`: on Windows an `args` entry with a space in it gets split):
 
 ```json
-{ "mcpServers": { "nodum": { "command": "npx", "args": ["-y", "mcp-remote", "https://your-nodum/api/v1/mcp", "--header", "Authorization:Bearer nodum_mcp_…"] } } }
+{ "mcpServers": { "nodum": { "command": "npx", "args": ["-y", "mcp-remote", "https://your-nodum/api/v1/mcp", "--header", "Authorization:${AUTH_HEADER}"], "env": { "AUTH_HEADER": "Bearer nodum_mcp_…" } } } }
 ```
 
 Anything else that supports Streamable HTTP with a bearer header works the same way.

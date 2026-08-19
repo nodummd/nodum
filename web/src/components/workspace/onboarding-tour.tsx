@@ -208,10 +208,12 @@ export function OnboardingTour() {
   const isMobile = useIsMobile();
   const tourOpen = useWorkspaceStore((s) => s.tourOpen);
   const setTourOpen = useWorkspaceStore((s) => s.setTourOpen);
+  const settingsOpen = useWorkspaceStore((s) => s.settingsOpen);
 
   // First run opens it on its own; Help re-opens it. On mobile the drawers
   // hide everything a spotlight would point at, so first run stays quiet.
-  const open = Boolean(user) && (tourOpen || (!onboardingDone && !isMobile));
+  // Never on top of Settings: two modals would fight over pointer events.
+  const open = Boolean(user) && !settingsOpen && (tourOpen || (!onboardingDone && !isMobile));
 
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);

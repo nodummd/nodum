@@ -1,6 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-import { createNoteViaApi, editorSurface, openNoteFromExplorer, signupFreshUser } from "./helpers";
+import {
+  createNoteViaApi,
+  editorSurface,
+  openNoteFromExplorer,
+  passEmailVerification,
+  PASSWORD,
+  signupFreshUser,
+  uniqueEmail,
+} from "./helpers";
 
 /** Follow-ups from the adversarial review of the first-run work. */
 
@@ -76,6 +84,44 @@ test.describe("first-run follow-ups", () => {
     await page.keyboard.press("ControlOrMeta+e");
     await expect(editorSurface(page)).toContainText("just words here");
     await expect(editorSurface(page)).not.toContainText("`");
+  });
+
+  test("logging out and in as someone else in the same tab starts clean — no cached vault, notes, or dialogs", async ({
+    page,
+  }) => {
+    // Account A: a note, Settings left open, then log out via the palette
+    // (SPA navigation all the way — no reload clears anything for us).
+    await signupFreshUser(page, "leak-a");
+    await createNoteViaApi(page, "A Secret Note", "top secret content of A");
+    await page.reload();
+    await openNoteFromExplorer(page, "A Secret Note");
+    const aUrl = page.url();
+    await page.keyboard.press("ControlOrMeta+,");
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByPlaceholder("Select a command...").fill("log out");
+    await page.getByRole("option", { name: /Log out/ }).click();
+    await expect(page).toHaveURL(/\/$/, { timeout: 10_000 });
+
+    // Account B signs up through the marketing nav (client-side link) …
+    await page.getByRole("link", { name: "Log in" }).first().click();
+    await page.getByRole("link", { name: "Create an account" }).click();
+    const emailB = uniqueEmail("leak-b");
+    await page.getByLabel("Name").fill("B");
+    await page.getByLabel("Email").fill(emailB);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Sign up" }).click();
+    await passEmailVerification(page);
+    await expect(page).toHaveURL(/\/vault\//, { timeout: 20_000 });
+    // … and lands in B's own vault: not A's URL, none of A's notes, no
+    // Settings dialog left over, and the first-run tour usable.
+    expect(page.url()).not.toBe(aUrl);
+    await expect(page.getByTestId("tour")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(0);
+    await expect(page.getByText("A Secret Note")).toHaveCount(0);
+    await expect(page.getByText("top secret content of A")).toHaveCount(0);
+    await page.getByTestId("tour-card").getByRole("button", { name: "Start" }).click();
+    await expect(page.getByTestId("tour-card")).toHaveAttribute("data-step", "explorer");
   });
 
   test("deleting the vault open in this tab lands on another vault, not on 'Loading vault…'", async ({
