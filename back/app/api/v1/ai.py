@@ -5,10 +5,13 @@ are configured and a hint like `sk-ant…7f2a`; that is all a client needs to sh
 the settings screen, and all it is allowed to know.
 """
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies.auth import CurrentUserId
@@ -138,6 +141,40 @@ async def chat_in_vault(
         )
     ).unwrap()
     return {"data": data}
+
+
+@router.post("/vaults/{vault_id}/chat/stream")
+async def chat_in_vault_stream(
+    vault_id: UUID, body: VaultChatRequest, user_id: CurrentUserId, db: SessionDep
+) -> StreamingResponse:
+    """`chat_in_vault`, streamed as server-sent events so the panel can show the
+    reply as it is written and what the assistant is doing in between:
+
+        data: {"type":"status","text":"Searching the vault…"}
+        data: {"type":"delta","text":"…"}
+        data: {"type":"action","action":{…}}
+        data: {"type":"done", …same payload as the JSON endpoint…}
+        data: {"type":"error","message":"…"}
+
+    Always HTTP 200 once the stream starts; a failure before the first event
+    is still an ordinary error envelope (401, 404, 422)."""
+
+    async def events() -> AsyncIterator[bytes]:
+        async for event in ai_service.chat_with_vault_events(
+            db,
+            user_id,
+            vault_id,
+            message=body.message,
+            conversation_id=body.conversation_id,
+            context=body.context,
+        ):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/chat")

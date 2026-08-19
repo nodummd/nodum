@@ -11,6 +11,7 @@ gets serialized to the browser.
 """
 
 import logging
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -362,7 +363,17 @@ async def chat(
     return ServiceResponse.ok({"reply": reply, "provider": credential.provider, "model": credential.model})
 
 
-async def chat_with_vault(
+TOOL_STATUS = {
+    "search_notes": "Searching the vault…",
+    "read_note": "Reading a note…",
+    "create_note": "Writing a note…",
+    "append_to_note": "Adding to a note…",
+    "list_notes": "Listing notes…",
+    "link_notes": "Linking notes…",
+}
+
+
+async def chat_with_vault_events(
     db: AsyncSession,
     user_id: UUID,
     vault_id: UUID,
@@ -370,8 +381,13 @@ async def chat_with_vault(
     message: str,
     conversation_id: UUID | None = None,
     context: str = "",
-) -> ServiceResponse[dict[str, Any]]:
-    """A chat turn that can search, read and write the vault.
+) -> AsyncIterator[dict[str, Any]]:
+    """`chat_with_vault` as a stream of events, for the live panel:
+
+        {"type": "status", "text": "Searching the vault…"}   — a tool is running
+        {"type": "delta",  "text": "…"}                       — reply text, as it arrives
+        {"type": "done",   ...the same payload chat_with_vault returns}
+        {"type": "error",  "message": "…"}                    — nothing was stored
 
     The transcript comes from the database, not from the client: the client
     sends one new message and the server appends it to the stored conversation.
@@ -385,11 +401,14 @@ async def chat_with_vault(
     """
     message = (message or "").strip()
     if not message:
-        return ServiceResponse.fail("validation_failed", "No message.")
+        yield {"type": "error", "code": "validation_failed", "message": "No message."}
+        return
     if len(message) > MAX_MESSAGE_CHARS:
-        return ServiceResponse.fail("validation_failed", "That message is too long.")
+        yield {"type": "error", "code": "validation_failed", "message": "That message is too long."}
+        return
     if await get_owned_vault(db, vault_id, user_id) is None:
-        return ServiceResponse.fail("not_found", "Vault not found.")
+        yield {"type": "error", "code": "not_found", "message": "Vault not found."}
+        return
 
     if conversation_id is None:
         conversation = AIConversation(user_id=user_id, vault_id=vault_id, title=_title_from(message))
@@ -399,7 +418,8 @@ async def chat_with_vault(
     else:
         found = await _owned_conversation(db, user_id, vault_id, conversation_id)
         if found is None:
-            return ServiceResponse.fail("not_found", "Conversation not found.")
+            yield {"type": "error", "code": "not_found", "message": "Conversation not found."}
+            return
         conversation = found
         prior = [{"role": m.role, "content": m.content} for m in await _conversation_messages(db, conversation.id)][
             -MAX_MESSAGES:
@@ -409,7 +429,8 @@ async def chat_with_vault(
 
     resolved = await resolve(db, user_id)
     if not resolved.success:
-        return ServiceResponse.fail(resolved.error_code or "not_found", resolved.message)
+        yield {"type": "error", "code": resolved.error_code or "not_found", "message": resolved.message}
+        return
     credential, key = resolved.data
     provider = credential.provider
 
@@ -436,7 +457,9 @@ async def chat_with_vault(
     reply = ""
     try:
         for _ in range(ai_tools.MAX_TOOL_ROUNDS):
-            turn = await ai_providers.turn(
+            turn: ai_providers.Turn | None = None
+            streamed = ""
+            async for item in ai_providers.stream_turn(
                 provider=provider,
                 api_key=key,
                 model=credential.model,
@@ -444,32 +467,49 @@ async def chat_with_vault(
                 system=system,
                 tools=ai_tools.TOOLS,
                 base_url=credential.base_url,
-            )
+            ):
+                if isinstance(item, ai_providers.Turn):
+                    turn = item
+                    break
+                streamed += item
+                yield {"type": "delta", "text": item}
+            if turn is None:
+                raise ProviderError("The provider closed the stream early.")
             if not turn.tool_calls:
                 reply = turn.text
                 break
+            if streamed:
+                # Text that came with tool calls is commentary the model wrote
+                # before acting; the panel showed it live, and the final reply
+                # replaces it — tell the panel to start the bubble over.
+                yield {"type": "reset"}
             if turn.raw_message is not None:
                 history.append(turn.raw_message)
             for call in turn.tool_calls:
+                yield {"type": "status", "text": TOOL_STATUS.get(call.name, "Working…"), "tool": call.name}
                 result = await ai_tools.run_tool(db, vault_id, user_id, call.name, call.arguments)
                 recorded = ai_tools.describe(call.name, call.arguments, result)
                 if recorded:
                     actions.append(recorded)
+                    yield {"type": "action", "action": recorded}
                 history.append(ai_providers.tool_result_message(provider, call, result))
         else:
             # Ran out of rounds with tools still pending: say so rather than
             # pretending nothing happened. Anything it already did is in
             # `actions` and has been written to the vault.
             reply = "I stopped after several steps. Ask me to continue if that was not enough."
+            yield {"type": "delta", "text": reply}
     except ProviderError as exc:
         # The turn failed, so nothing is stored — the panel puts the question
         # back in the box and a retry starts from the same history.
         await db.rollback()
-        return ServiceResponse.fail("validation_failed", str(exc))
+        yield {"type": "error", "code": "validation_failed", "message": str(exc)}
+        return
     except Exception:
         logger.warning("ai vault chat failed for provider=%s", provider, exc_info=True)
         await db.rollback()
-        return ServiceResponse.fail("validation_failed", "Could not reach the provider.")
+        yield {"type": "error", "code": "validation_failed", "message": "Could not reach the provider."}
+        return
 
     db.add(AIMessage(conversation_id=conversation.id, role="user", content=message))
     db.add(AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions))
@@ -477,13 +517,36 @@ async def chat_with_vault(
     # may have committed mid-turn, which leaves updated_at stale otherwise.)
     conversation.updated_at = datetime.now(UTC)
     await db.commit()
-    return ServiceResponse.ok(
-        {
-            "conversation_id": str(conversation.id),
-            "title": conversation.title,
-            "reply": reply,
-            "provider": provider,
-            "model": credential.model,
-            "actions": actions,
-        }
-    )
+    yield {
+        "type": "done",
+        "conversation_id": str(conversation.id),
+        "title": conversation.title,
+        "reply": reply,
+        "provider": provider,
+        "model": credential.model,
+        "actions": actions,
+    }
+
+
+async def chat_with_vault(
+    db: AsyncSession,
+    user_id: UUID,
+    vault_id: UUID,
+    *,
+    message: str,
+    conversation_id: UUID | None = None,
+    context: str = "",
+) -> ServiceResponse[dict[str, Any]]:
+    """A chat turn that can search, read and write the vault — the whole
+    answer at once. Same loop as the stream; see `chat_with_vault_events`."""
+    final: dict[str, Any] | None = None
+    async for event in chat_with_vault_events(
+        db, user_id, vault_id, message=message, conversation_id=conversation_id, context=context
+    ):
+        if event["type"] == "error":
+            return ServiceResponse.fail(event.get("code") or "validation_failed", event["message"])
+        if event["type"] == "done":
+            final = {k: v for k, v in event.items() if k != "type"}
+    if final is None:
+        return ServiceResponse.fail("validation_failed", "Could not reach the provider.")
+    return ServiceResponse.ok(final)

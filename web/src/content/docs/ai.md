@@ -14,7 +14,7 @@ Nodum has no AI of its own. Settings → AI: pick a provider (Claude, OpenAI, Ge
 
 ## Chatting
 
-Open the sparkles panel in the right sidebar and ask. The note you are reading travels along as context, so *summarise this* works. The assistant can **search** the vault, **read** notes, **create** a note and **append** to one — and every note it writes shows up as a card in the chat that opens it. It cannot rename, overwrite or delete anything.
+Open the sparkles panel in the right sidebar and ask. The reply is written as it arrives, and while the assistant is working in the vault you see what it is doing (*Searching the vault…*, *Writing a note…*). The note you are reading travels along as context, so *summarise this* works. The assistant can **search** the vault, **read** notes, **create** a note and **append** to one — and every note it writes shows up as a card in the chat that opens it. It cannot rename, overwrite or delete anything.
 
 ![The AI panel, after asking for a note to be written.](/docs/ai-chat.png)
 

@@ -154,3 +154,58 @@ export function apiJson<T>(
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
 }
+
+/** POST and read a server-sent-event stream: each `data:` payload is parsed as
+ *  JSON and handed to `onEvent` as it arrives. Same auth and refresh-and-retry
+ *  as `api()`; a non-2xx before the stream starts throws the usual ApiError. */
+export async function apiStream(
+  path: string,
+  payload: unknown,
+  onEvent: (event: Record<string, unknown>) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(payload),
+    signal,
+  };
+  let res = await rawRequest(path, init);
+  if (res.status === 401 && !isCredentialPath(path)) {
+    if (await tryRefresh()) {
+      res = await rawRequest(path, init);
+    } else {
+      accessToken = null;
+      authExpiredHandler?.();
+    }
+  }
+  if (!res.ok) throw await parseError(res);
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const flush = (block: string) => {
+    const data = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+    try {
+      onEvent(JSON.parse(data) as Record<string, unknown>);
+    } catch {
+      /* a malformed frame is dropped, the stream goes on */
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let at: number;
+    while ((at = buffer.indexOf("\n\n")) >= 0) {
+      flush(buffer.slice(0, at));
+      buffer = buffer.slice(at + 2);
+    }
+  }
+  if (buffer.trim()) flush(buffer);
+}

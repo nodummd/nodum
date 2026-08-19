@@ -1,8 +1,9 @@
 /** Typed API endpoint functions — the only place the app touches the network. */
 
-import { api, apiJson } from "./client";
+import { api, ApiError, apiJson, apiStream } from "./client";
 import type {
   AIChatReply,
+  AIStreamEvent,
   AIConversationDetail,
   AIConversationMeta,
   AIStatus,
@@ -290,6 +291,44 @@ export const aiApi = {
     vaultId: string,
     body: { message: string; conversation_id?: string; context?: string },
   ) => apiJson<AIChatReply>(`/ai/vaults/${vaultId}/chat`, "POST", body),
+  /** The same turn, streamed: `onEvent` sees status / delta / action / reset
+   *  events as they happen; the promise resolves with the stored reply (the
+   *  `done` event) or rejects with the `error` event's message. */
+  vaultChatStream: (
+    vaultId: string,
+    body: { message: string; conversation_id?: string; context?: string },
+    onEvent: (event: AIStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<AIChatReply> =>
+    new Promise<AIChatReply>((resolve, reject) => {
+      let settled = false;
+      apiStream(
+        `/ai/vaults/${vaultId}/chat/stream`,
+        body,
+        (raw) => {
+          const event = raw as unknown as AIStreamEvent;
+          if (event.type === "done") {
+            settled = true;
+            const { type: _type, ...reply } = event;
+            void _type;
+            resolve(reply as AIChatReply);
+          } else if (event.type === "error") {
+            settled = true;
+            reject(new ApiError(200, "ai_stream", event.message));
+          } else {
+            onEvent(event);
+          }
+        },
+        signal,
+      ).then(
+        () => {
+          if (!settled) reject(new ApiError(200, "ai_stream", "The provider closed the stream early."));
+        },
+        (err) => {
+          if (!settled) reject(err);
+        },
+      );
+    }),
   conversations: (vaultId: string) =>
     api<AIConversationMeta[]>(`/ai/vaults/${vaultId}/conversations`),
   conversation: (vaultId: string, id: string) =>
