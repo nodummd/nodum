@@ -15,7 +15,6 @@ import {
   insertLink,
   toggleBold,
   toggleHighlightCmd,
-  toggleInlineCode,
   toggleItalic,
   toggleUnderline,
 } from "@/lib/editor/format-commands";
@@ -84,7 +83,9 @@ export function MarkdownEditor({
         { key: "Mod-k", run: insertLink },
         { key: "Mod-Shift-h", run: toggleHighlightCmd },
         { key: "Mod-u", run: toggleUnderline },
-        { key: "Mod-e", run: toggleInlineCode },
+        // ⌘E is "toggle reading view" (workspace hotkey, Hotkeys tab, docs) —
+        // it must not also wrap the selection in backticks; inline code is
+        // on the context menu.
         // ⌘[ / ⌘] are Obsidian's navigate back/forward. CodeMirror's
         // defaultKeymap binds them to indentLess/indentMore, so without this
         // the chord would BOTH indent the line and navigate. Returning true

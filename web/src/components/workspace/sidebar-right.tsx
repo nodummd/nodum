@@ -306,7 +306,7 @@ function TagsPane({ vaultId }: { vaultId: string }) {
     });
   };
   const search = (full: string) => {
-    setSearchSeed(`tag:${full}`);
+    setSearchSeed(`tag:#${full}`);
     setLeftPane("search");
   };
 

@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from mcp.server.mcpserver import Context
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -34,6 +34,7 @@ from app.services import (
 )
 from app.services.folder_service import ensure_folder_path
 from app.services.vault_service import get_owned_vault
+from app.utils.markdown_parse import _FRONTMATTER_RE, extract_wikilinks
 
 VaultId = Annotated[str, Field(description="Vault id (from list_vaults)")]
 
@@ -329,7 +330,14 @@ async def update_note(
         if mode == "append":
             body = f"{n.content.rstrip()}\n\n{content.strip()}\n"
         elif mode == "prepend":
-            body = f"{content.strip()}\n\n{n.content.lstrip()}"
+            # Below the frontmatter, never above it — the properties block
+            # must stay the first thing in the file or it stops being one.
+            fm = _FRONTMATTER_RE.match(n.content)
+            if fm:
+                head, rest = n.content[: fm.end()], n.content[fm.end() :]
+                body = f"{head}\n{content.strip()}\n\n{rest.lstrip()}"
+            else:
+                body = f"{content.strip()}\n\n{n.content.lstrip()}"
         else:
             body = content
         updated = unwrap(await note_service.update_content(db, vid, user_id, n.id, content=body))
@@ -409,18 +417,27 @@ async def link_notes(
         str, Field(description="Optional sentence to put the link in; the link is appended if empty")
     ] = "",
 ) -> dict[str, Any]:
-    """Connect two existing notes by appending a [[wikilink]] to the first."""
+    """Connect two existing notes by appending a [[wikilink]] to the first.
+    Idempotent without `context`: if the first note already links to the
+    second, nothing is written (already_linked=true)."""
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
         vid = as_uuid(vault_id, "vault_id")
         src = await _resolve_note(db, vid, user_id, from_note)
         dst = await _resolve_note(db, vid, user_id, to_note)
-        line = context.strip().replace("{link}", f"[[{dst.title}]]") if context.strip() else f"- [[{dst.title}]]"
-        if f"[[{dst.title}]]" not in line:
-            line = f"{line} [[{dst.title}]]"
+        if src.id == dst.id:
+            raise ToolError("A note cannot link to itself.")
+        link = f"[[{dst.title}]]"
+        targets = {dst.title.lower(), dst.path.lower()}
+        already = any(w.target.strip().lower() in targets for w in extract_wikilinks(src.content))
+        if already and not context.strip():
+            return {"from": src.title, "to": dst.title, "inserted": None, "already_linked": True}
+        line = context.strip().replace("{link}", link) if context.strip() else f"- {link}"
+        if link not in line:
+            line = f"{line} {link}"
         body = f"{src.content.rstrip()}\n\n{line}\n"
         unwrap(await note_service.update_content(db, vid, user_id, src.id, content=body))
-        return {"from": src.title, "to": dst.title, "inserted": line}
+        return {"from": src.title, "to": dst.title, "inserted": line, "already_linked": already}
 
 
 @tool()
@@ -638,7 +655,7 @@ async def list_attachments(ctx: Context, vault_id: VaultId) -> list[dict[str, An
                 "id": str(a.id),
                 "filename": a.filename,
                 "mime_type": a.mime_type,
-                "size": a.size,
+                "size": a.size_bytes,
                 "embed": f"![[{a.filename}]]",
             }
             for a in rows
@@ -775,6 +792,12 @@ async def list_templates(ctx: Context, vault_id: VaultId) -> list[dict[str, Any]
 async def note_resource(vault_id: str, path: str, ctx: Context) -> str:
     user_id = user_id_from(ctx)
     async with async_session_factory() as db:
-        vid = as_uuid(vault_id, "vault_id")
-        n = await _resolve_note(db, vid, user_id, path)
+        try:
+            vid = as_uuid(vault_id, "vault_id")
+            n = await _resolve_note(db, vid, user_id, path)
+        except ToolError as exc:
+            # The SDK turns any other exception into a bare "Error creating
+            # resource" — this keeps the sentence ("Vault not found." for a
+            # foreign vault as for a missing one; "No note called …").
+            raise ResourceNotFoundError(str(exc)) from None
         return n.content

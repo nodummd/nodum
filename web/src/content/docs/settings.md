@@ -25,4 +25,4 @@ where: Ribbon → gear, or ⌘,
 | **Publish** | Publish the vault as a site. |
 | **Collab** | Live editing on or off. |
 
-Account settings (General, Editor, Appearance, Interface, Hotkeys, AI, MCP, Web Clipper) follow you across vaults and devices; the rest are per vault.
+Account settings (General, Editor, Appearance, Interface, Hotkeys, AI, MCP, Web Clipper — and, on Files & links, *Confirm before deleting* and *Page preview requires ⌘/Ctrl*) follow you across vaults and devices; the rest are per vault.

@@ -372,12 +372,7 @@ export function EditorContextMenu({
             <ContextMenuSeparator />
             <Item label="Superscript" onSelect={run(toggleSuperscript)} />
             <Item label="Subscript" onSelect={run(toggleSubscript)} />
-            <ToggleItem
-              label="Inline code"
-              checked={f.code}
-              onSelect={run(toggleInlineCode)}
-              shortcut="⌘E"
-            />
+            <ToggleItem label="Inline code" checked={f.code} onSelect={run(toggleInlineCode)} />
             <Item label="Code block" onSelect={run(insertCodeBlock)} />
             <ContextMenuSeparator />
             <Item label="Clear formatting" onSelect={run(clearFormatting)} />

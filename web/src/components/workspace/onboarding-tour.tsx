@@ -155,6 +155,8 @@ const STEPS: Step[] = [
 ];
 
 const DEMO_INDEX = STEPS.findIndex((s) => s.id === "demo");
+/** ⌘/Ctrl chords the workspace binds (workspace.tsx) — the only ones the tour eats. */
+const APP_CHORDS = new Set(["o", "n", "g", "p", "w", ",", "e", "\\", "[", "]", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
 const PAD = 8; // spotlight breathing room around the target
 const GAP = 14; // card distance from the spotlight
 const CARD_W = 340;
@@ -213,7 +215,9 @@ export function OnboardingTour() {
 
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
-  const [vp, setVp] = useState({ w: 0, h: 0 });
+  const [vp, setVp] = useState(() =>
+    typeof window === "undefined" ? { w: 0, h: 0 } : { w: window.innerWidth, h: window.innerHeight },
+  );
   const [cardH, setCardH] = useState(220);
   const cardRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -320,15 +324,18 @@ export function OnboardingTour() {
   }, [open, index]);
 
   // Keyboard, in the capture phase so it runs before the workspace's own
-  // hotkeys and before any dialog's Escape: modifier chords (⌘O, ⌘P, ⌘,, ⌘N …)
-  // are swallowed while the tour is up — they would open UI under the veil —
+  // hotkeys and before any dialog's Escape: the workspace's own chords (⌘O,
+  // ⌘P, ⌘,, ⌘N …) are swallowed while the tour is up — they would open UI
+  // under the veil — while browser chords (⌘R, ⌘L, ⌘C, ⌘+/-) pass through.
   // Esc leaves, arrows move, Tab cycles inside the card.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) {
-        e.preventDefault();
-        e.stopPropagation();
+        if (APP_CHORDS.has(e.key.toLowerCase())) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         return;
       }
       if (e.key === "Escape") {

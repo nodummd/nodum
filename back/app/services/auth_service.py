@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.auth import Session, User
+from app.services import api_token_service
 from app.services.service_response import ServiceResponse
 from app.settings import get_settings
 from app.utils.jwt_utils import create_access_token, create_refresh_token, decode_token, new_jti
@@ -301,6 +302,9 @@ async def change_password(
     result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))
     for s in result.scalars():
         s.invalidate("password_changed")
+    # MCP tokens are passwords for one program each — a password change is
+    # the moment to cut them, exactly like the other sessions.
+    await api_token_service.revoke_all(db, user_id, reason="password_changed")
     await db.commit()
     try:
         from app.core.redis import redis_control

@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { authApi, vaultApi } from "@/lib/api/endpoints";
+import type { Vault } from "@/lib/api/types";
 import { useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -70,6 +71,11 @@ export function useCreateDemoWorkspace(
     mutationFn: () => vaultApi.createDemo(),
     onSuccess: (data) => {
       remember.mutate();
+      // The new vault goes into the cached list right now, so the vault page
+      // finds it on arrival; the refetch that follows only confirms it.
+      queryClient.setQueryData<Vault[]>(["vaults"], (prev) =>
+        prev && !prev.some((v) => v.id === data.vault.id) ? [...prev, data.vault] : prev,
+      );
       void queryClient.invalidateQueries({ queryKey: ["vaults"] });
       toast(`${data.vault.name} is ready — ${data.imported} notes to explore.`, "info");
       onCreated?.();

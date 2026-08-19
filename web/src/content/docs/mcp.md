@@ -20,7 +20,7 @@ The AI chat inside Nodum (see [AI chat](/docs/ai)) is the other direction — No
 
 ![Settings → MCP: the server URL, a token, and the client configs.](/docs/settings-mcp.png)
 
-A token is a password for one program: it can do anything your account can, so treat it like one. Revoke it on this screen when the machine goes; the client stops working on its next call.
+A token is a password for one program: it can do anything your account can, so treat it like one. Revoke it on this screen when the machine goes; the client stops working on its next call. Changing or resetting your password revokes every token too — mint new ones afterwards.
 
 ## Connecting a client
 

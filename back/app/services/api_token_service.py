@@ -14,10 +14,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import get_logger
 from app.models.auth import ApiToken
 from app.services.service_response import ServiceResponse
 
 MAX_TOKENS_PER_USER = 10
+logger = get_logger(__name__)
 _TOUCH_INTERVAL = timedelta(minutes=1)
 
 
@@ -84,6 +86,38 @@ async def revoke_token(db: AsyncSession, user_id: UUID, token_id: UUID) -> Servi
         row.revoked_at = datetime.now(UTC)
         await db.commit()
     return ServiceResponse.ok(_public(row))
+
+
+async def revoke_all(db: AsyncSession, user_id: UUID, *, reason: str) -> int:
+    """Revoke every live token the user holds — what a password reset or change
+    must do, since a token is a password for one program. The caller commits."""
+    result = await db.execute(select(ApiToken).where(ApiToken.user_id == user_id, ApiToken.revoked_at.is_(None)))
+    rows = list(result.scalars())
+    now = datetime.now(UTC)
+    for row in rows:
+        row.revoked_at = now
+    if rows:
+        logger.info("api_tokens_revoked", user_id=str(user_id), count=len(rows), reason=reason)
+    return len(rows)
+
+
+VERIFIED_MARKER_TTL_SECONDS = 120
+
+
+def verified_marker_key(plaintext: str) -> str:
+    """Redis key that says "this token verified recently" — what lets the rate
+    limiter give a *valid* token its own bucket while a made-up `nodum_…`
+    string stays on the per-IP bucket. Keyed by hash; the token is never stored."""
+    return f"mcp_tok_ok:{_hash(plaintext.strip())[:32]}"
+
+
+async def mark_verified(plaintext: str) -> None:
+    try:
+        from app.core.redis import redis_control
+
+        await redis_control.set(verified_marker_key(plaintext), "1", ex=VERIFIED_MARKER_TTL_SECONDS)
+    except Exception:  # Redis down — the limiter falls back to per-IP, which is safe
+        logger.warning("mcp_token_marker_failed")
 
 
 async def verify_token(db: AsyncSession, plaintext: str, *, kind: str = "mcp") -> UUID | None:

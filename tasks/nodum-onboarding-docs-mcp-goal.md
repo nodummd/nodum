@@ -207,6 +207,41 @@ all fixed and covered:
   variables; the importer reads `.obsidian` `attachmentFolderPath`; a
   "Split down" palette command exists.
 
+## Second pass (2026-08-19, `bug/8.review-fixes-2_…`)
+
+A 27-agent pass over the fix commit itself (regressions, tour a11y/UX, MCP
+security 2, MCP correctness 2, docs 2) confirmed 22 more, all fixed:
+
+- **Regression caught**: the new "vault is gone → dispatcher" redirect fired on
+  a *stale* vault list right after creating the demo vault (the refetch was in
+  flight), bouncing a first visit back to the old vault. It waits for a fresh
+  list now, and the demo hook seeds the cache with the new vault. e2e delays
+  the refetch by 1.5 s to prove it.
+- **Regression caught**: keying the rate limiter on any `nodum_…` bearer let a
+  rotating junk token escape the per-IP bucket. A token gets its own bucket
+  only after the MCP gate verified it (short-lived Redis marker); junk stays
+  per-IP.
+- **Password reset / change now revoke every MCP token** (a stolen token used
+  to survive both — the one moment revocation matters most). Documented.
+- MCP: `list_attachments` crashed on any vault with attachments (`size` →
+  `size_bytes`); `update_note(prepend)` no longer writes above the
+  frontmatter; `link_notes` is idempotent and refuses self-links; the note
+  resource returns "Vault not found." / "No note called …" instead of a bare
+  "Error creating resource"; `/auth/change-password` is a credential path
+  (its 401 must not trigger a refresh).
+- Tour: only the workspace's own ⌘-chords are eaten (⌘R/⌘L/⌘C/⌘± pass
+  through); the viewport is seeded from `window` so the first paint is
+  centred (no 20 px jump).
+- ⌘E had two owners (inline code in the editor *and* reading view) — the
+  editor binding is gone, matching the Hotkeys tab and docs. Palette labels
+  now match the docs and Hotkeys tab (*Delete current note*, *Bookmark
+  current note*). Tags panel seeds `tag:#name` like the operator table.
+- Docs: renaming does not rewrite links (aliases are the way to keep them),
+  `[[Note#Heading]]` opens at the top, unlinked mentions have no one-click
+  link, canvas interactions as they really are (toolbar / ⇧-click / double
+  click), local graph has a Depth slider not "the same controls", explorer
+  click opens a new tab, per-account vs per-vault toggles on Files & links.
+
 ## Deliberately not done
 
 - MCP over stdio as an installable package (`npx nodum-mcp`) — Streamable HTTP
