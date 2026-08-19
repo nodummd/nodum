@@ -302,6 +302,7 @@ async def test_credential(
             provider=credential.provider,
             api_key=key,
             model=credential.model,
+            base_url=credential.base_url,
             messages=[{"role": "user", "content": "Reply with the single word: ready"}],
             max_tokens=16,
         )
@@ -506,10 +507,11 @@ async def chat_with_vault_events(
         yield {"type": "error", "code": "not_found", "message": "Vault not found."}
         return
 
+    # A new thread is created only once the turn has succeeded: the tools may
+    # commit mid-turn (a note written), and a thread flushed before a failing
+    # provider round would survive the rollback as an empty conversation.
+    conversation: AIConversation | None = None
     if conversation_id is None:
-        conversation = AIConversation(user_id=user_id, vault_id=vault_id, title=_title_from(message))
-        db.add(conversation)
-        await db.flush()
         prior: list[dict[str, str]] = []
     else:
         found = await _owned_conversation(db, user_id, vault_id, conversation_id)
@@ -607,6 +609,10 @@ async def chat_with_vault_events(
         yield {"type": "error", "code": "validation_failed", "message": "Could not reach the provider."}
         return
 
+    if conversation is None:
+        conversation = AIConversation(user_id=user_id, vault_id=vault_id, title=_title_from(message))
+        db.add(conversation)
+        await db.flush()
     db.add(AIMessage(conversation_id=conversation.id, role="user", content=message))
     db.add(AIMessage(conversation_id=conversation.id, role="assistant", content=reply, actions=actions))
     # Touch the thread so the history list sorts by real activity. (The tools

@@ -135,3 +135,39 @@ async def test_json_endpoint_still_answers_whole(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["reply"] == "Whole answer."
+
+
+async def test_a_failure_after_a_tool_ran_leaves_no_empty_thread(
+    client: AsyncClient, account: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rounds = {"n": 0}
+
+    async def tool_then_fail(**kw):
+        rounds["n"] += 1
+        if rounds["n"] == 1:
+            yield ai_providers.Turn(
+                text="",
+                tool_calls=[
+                    ai_providers.ToolCall(id="c1", name="create_note", arguments={"title": "Half done", "content": "x"})
+                ],
+                raw_message={"role": "assistant", "content": None, "tool_calls": []},
+            )
+            return
+        raise ai_providers.ProviderError("The provider is having trouble right now (500).")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(ai_providers, "stream_turn", tool_then_fail)
+    async with client.stream(
+        "POST",
+        f"/api/v1/ai/vaults/{account['vault_id']}/chat/stream",
+        json={"message": "write then fail"},
+        headers=account["headers"],
+    ) as resp:
+        events = _events((await resp.aread()).decode())
+    assert events[-1]["type"] == "error"
+    # The note the tool wrote exists (it was committed) — but no empty thread
+    # is left in the list.
+    listed = (
+        await client.get(f"/api/v1/ai/vaults/{account['vault_id']}/conversations", headers=account["headers"])
+    ).json()["data"]
+    assert listed == [], listed

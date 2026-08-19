@@ -1,6 +1,7 @@
 """Live collaboration — Yjs websocket sync, seeding, persistence, auth."""
 
 import asyncio
+import contextlib
 import uuid
 
 import pytest
@@ -311,10 +312,13 @@ async def test_stale_seed_from_a_crashed_worker_yields_to_the_database(
     await a.get_room(name)
     stale = await redis_binary.get(f"collab-seed:{name}")
     await a.delete_room(name=name)  # holder count → 0, seed gone
-    # Simulate the crash: the stale seed is back, a phantom holder is counted,
-    # and meanwhile the note was saved over REST with new text.
+    # Simulate the crash: the stale seed is back, a holder that last
+    # heart-beat long ago is still registered, and meanwhile the note was
+    # saved over REST with new text.
+    import time as _time
+
     await redis_binary.set(f"collab-seed:{name}", stale, ex=600)
-    await redis_binary.set(f"collab-holders:{name}", 1, ex=600)
+    await redis_binary.zadd(f"collab-holders:{name}", {b"D" * 32: _time.time() - 3600})
     saved = await client.put(
         f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}/content",
         json={"content": "Saved while nobody was home."},
@@ -373,3 +377,120 @@ async def test_join_during_teardown_gets_a_fresh_room(workspace: dict, running_c
     assert second is not first, "joined the room that was being deleted"
     assert name in a.states and name in a.rooms
     await a.delete_room(name=name)
+
+
+async def test_a_slow_live_holder_never_causes_a_reset_or_duplication(
+    client: AsyncClient, workspace: dict, running_collab, second_worker
+) -> None:
+    """A holder that answers the late joiner slowly (busy event loop, pub/sub
+    latency) must not be mistaken for a dead one: resetting to the DB text and
+    then receiving the holder's state would duplicate the note on every worker."""
+    from uuid import UUID
+
+    from app.core import collab as collab_mod
+    from app.core.collab import room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a, b = running_collab, second_worker
+    await a.get_room(name)
+    a.rooms[name].ydoc.get("content", type=Text).insert(0, "Edited. ")
+    await a._persist(name, a.states[name], a.rooms[name])  # DB now differs from the seed
+
+    # A answers sync requests late — later than one wait round.
+    real_answer = a._answer_sync
+
+    async def slow_answer(room_name_: str, room) -> None:
+        await asyncio.sleep(collab_mod.SYNC_WAIT_SECONDS * 2)
+        await real_answer(room_name_, room)
+
+    a._answer_sync = slow_answer  # type: ignore[method-assign]
+    try:
+        await b.get_room(name)
+        # Wait past the slow answer, then look: no duplication anywhere.
+        await asyncio.sleep(collab_mod.SYNC_WAIT_SECONDS * 3)
+        await _eventually(lambda: _text(b, name), "Edited. Hello collab.", timeout=5)
+        await asyncio.sleep(0.3)
+        assert await _text(a, name) == "Edited. Hello collab."
+        assert await _text(b, name) == "Edited. Hello collab."
+    finally:
+        a._answer_sync = real_answer  # type: ignore[method-assign]
+        await a.delete_room(name=name)
+        await b.delete_room(name=name)
+
+
+async def test_join_during_anothers_teardown_keeps_one_shared_seed(
+    workspace: dict, running_collab, second_worker
+) -> None:
+    """A's last client leaves while B's first arrives (a reconnect landing on
+    another worker): the holder release and the seed acquisition are atomic, so
+    a third worker C still adopts the same seed and all three converge."""
+    from uuid import UUID
+
+    from app.core.collab import CollabServer, room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a, b = running_collab, second_worker
+    c = CollabServer(worker_id=b"C" * 32)
+    await c.startup()
+    try:
+        await a.get_room(name)
+        # Interleave: B joins exactly while A tears down.
+        closing = asyncio.create_task(a.delete_room(name=name))
+        await b.get_room(name)
+        await closing
+        await c.get_room(name)
+        b.rooms[name].ydoc.get("content", type=Text).insert(0, "B typed. ")
+        await _eventually(lambda: _text(c, name), "B typed. Hello collab.")
+        c.rooms[name].ydoc.get("content", type=Text).insert(0, "C too. ")
+        await _eventually(lambda: _text(b, name), "C too. B typed. Hello collab.")
+    finally:
+        with contextlib.suppress(Exception):
+            await b.delete_room(name=name)
+        with contextlib.suppress(Exception):
+            await c.delete_room(name=name)
+        await c.shutdown()
+
+
+async def test_saving_the_same_text_twice_over_rest_resets_the_room_both_times(
+    client: AsyncClient, workspace: dict, running_collab
+) -> None:
+    """The reset lock is per save, not per text: save 'X', let the room drift,
+    save 'X' again within seconds — the second save must win too."""
+    from uuid import UUID
+
+    from app.core.collab import room_name
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a = running_collab
+    await a.get_room(name)
+    url = f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}/content"
+    assert (await client.put(url, json={"content": "X"}, headers=workspace["headers"])).status_code == 200
+    await _eventually(lambda: _text(a, name), "X")
+    a.rooms[name].ydoc.get("content", type=Text).insert(1, "y")
+    assert await _text(a, name) == "Xy"
+    assert (await client.put(url, json={"content": "X"}, headers=workspace["headers"])).status_code == 200
+    await _eventually(lambda: _text(a, name), "X")
+    await a.delete_room(name=name)
+
+
+async def test_final_persist_writes_even_when_a_dead_owner_holds_the_lock(
+    client: AsyncClient, workspace: dict, running_collab
+) -> None:
+    from uuid import UUID
+
+    from app.core.collab import room_name
+    from app.core.redis import redis_binary
+
+    name = room_name(UUID(workspace["vault_id"]), UUID(workspace["note_id"]))
+    a = running_collab
+    await a.get_room(name)
+    await redis_binary.set(f"collab-persist:{name}", b"D" * 32, ex=15)  # a crashed owner's lock
+    a.rooms[name].ydoc.get("content", type=Text).insert(0, "Last words. ")
+    await a.delete_room(name=name)
+    note = (
+        await client.get(
+            f"/api/v1/vaults/{workspace['vault_id']}/notes/{workspace['note_id']}", headers=workspace["headers"]
+        )
+    ).json()["data"]
+    assert note["content"] == "Last words. Hello collab."
+    await redis_binary.delete(f"collab-persist:{name}")

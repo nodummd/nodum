@@ -64,8 +64,11 @@ export function splitRow(line: string): string[] {
 }
 
 /** `\|` → `|` for display. */
+/** The exact inverse of `escapeCell`, in one pass so `\\|` reads as a
+ *  backslash followed by a pipe — otherwise every render doubled the
+ *  backslashes in a cell (`C:\temp` → `C:\\temp` → …). */
 export function unescapeCell(text: string): string {
-  return text.replace(/\\\|/g, "|");
+  return text.replace(/\\([\\|])/g, "$1");
 }
 
 /** `|` → `\|` so a cell's content cannot invent a column, and newlines are

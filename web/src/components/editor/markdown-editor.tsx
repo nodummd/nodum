@@ -24,6 +24,7 @@ import { livePreview } from "@/lib/editor/live-preview";
 import { nodumMarkdownExtensions } from "@/lib/editor/markdown-extensions";
 import { EditorContextMenu, type EditorContextMenuActions } from "@/components/editor/editor-context-menu";
 import { attachmentUpload } from "@/lib/editor/attachment-upload";
+import { findTable, tableCellSpans } from "@/lib/editor/table-commands";
 import { nodumEditorTheme } from "@/lib/editor/theme";
 
 /** Undo history outlives the editor. `workspace.tsx` renders only the active
@@ -226,6 +227,20 @@ export function MarkdownEditor({
   const syncCaretToPointer = (event: React.MouseEvent) => {
     const view = viewRef.current;
     if (!view) return;
+    // Inside a rendered table the document caret is parked at the table's
+    // start, and posAtCoords on a block widget only ever answers its first or
+    // last position — so the Table commands would act on the header or the
+    // last row. Put the caret in the cell that was right-clicked instead.
+    const cell = (event.target as HTMLElement | null)?.closest?.<HTMLElement>("[data-table-cell]");
+    const tableDom = cell?.closest<HTMLElement>("[data-nodum-table]");
+    if (cell && tableDom) {
+      const table = findTable(view.state, view.posAtDOM(tableDom));
+      const span = table
+        ? tableCellSpans(view.state, table)[Number(cell.dataset.tableRow)]?.[Number(cell.dataset.tableCol)]
+        : undefined;
+      if (span) view.dispatch({ selection: { anchor: span.from }, userEvent: "select" });
+      return;
+    }
     // `false` = never null: a widget click is not over text but still has a
     // nearest document position, and that position is inside the widget's range.
     const pos = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);

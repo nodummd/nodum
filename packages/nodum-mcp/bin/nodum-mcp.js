@@ -93,3 +93,7 @@ const stop = async () => {
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 stdio.onclose = stop;
+// A client that only closes the pipe (or a parent that died) must not leave
+// an orphan bridge holding an HTTP stream open.
+process.stdin.once("end", stop);
+process.stdin.once("close", stop);

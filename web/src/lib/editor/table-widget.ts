@@ -327,7 +327,12 @@ function gridFromClipboard(data: DataTransfer): string[][] | null {
   if (html && html.includes("<table")) {
     const doc = new DOMParser().parseFromString(html, "text/html");
     const rows = Array.from(doc.querySelectorAll("tr")).map((tr) =>
-      Array.from(tr.querySelectorAll("td,th")).map((td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()),
+      Array.from(tr.querySelectorAll("td,th")).map((td) => {
+        // Line breaks inside a spreadsheet cell must not fuse the words.
+        td.querySelectorAll("br").forEach((br) => br.replaceWith(" "));
+        td.querySelectorAll("p,div,li").forEach((el) => el.append(" "));
+        return (td.textContent ?? "").replace(/\s+/g, " ").trim();
+      }),
     );
     if (rows.length > 1 || (rows[0]?.length ?? 0) > 1) return rows;
   }
