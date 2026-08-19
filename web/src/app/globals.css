@@ -651,3 +651,25 @@ body {
   color: var(--ob-color-text, #dadada);
   border-color: var(--ob-color-accent, #7852ee);
 }
+
+/* ============================================================
+   Onboarding tour — the spotlight ring breathes, gently
+   ============================================================ */
+@keyframes tour-ring-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.tour-ring {
+  animation: tour-ring-breathe 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-ring {
+    animation: none;
+    opacity: 0.9;
+  }
+}

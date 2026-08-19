@@ -23,31 +23,48 @@ import {
 } from "@/components/ui/dialog";
 import { authApi, vaultApi } from "@/lib/api/endpoints";
 import { useUserPrefs } from "@/lib/hooks/use-editor-settings";
+import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 
-/** Remember an answer on the user, optimistically — the dialog must not
- *  reappear while the PATCH is in flight. */
-function useRememberOffered() {
+/** Remember first-run answers on the user, optimistically — a prompt must not
+ *  reappear while its PATCH is in flight. Two of these can be in flight at
+ *  once (the tour finishing and the demo answered in the same click), and the
+ *  server merges settings, so a reply is applied over the local settings rather
+ *  than replacing them: whichever PATCH answers first must not undo the other. */
+export function useRememberFirstRun(patch: Record<string, unknown>) {
   const setUser = useAuthStore((s) => s.setUser);
   return useMutation({
-    mutationFn: () => authApi.updateMe({ settings: { demoOffered: true } }),
+    mutationFn: () => authApi.updateMe({ settings: patch }),
     onMutate: () => {
       const current = useAuthStore.getState().user;
-      if (current) setUser({ ...current, settings: { ...current.settings, demoOffered: true } });
+      if (current) setUser({ ...current, settings: { ...current.settings, ...patch } });
     },
-    onSuccess: (updated) => setUser(updated),
+    onSuccess: (updated) => {
+      const current = useAuthStore.getState().user;
+      setUser({ ...updated, settings: { ...current?.settings, ...updated.settings, ...patch } });
+    },
   });
 }
 
+function useRememberOffered(also: Record<string, unknown> = {}) {
+  return useRememberFirstRun({ demoOffered: true, ...also });
+}
+
 /** Create the demo vault and go there. Shared by the dialog, the onboarding
- *  step and Settings → Vault. */
-export function useCreateDemoWorkspace(onCreated?: () => void) {
+ *  step and Settings → Vault. `alsoRemember` rides in the same PATCH as
+ *  `demoOffered` — the tour passes `onboardingDone`, and one write beats two
+ *  in flight (the server merges settings under a row lock, but a lost update
+ *  is still cheaper to avoid than to guard). */
+export function useCreateDemoWorkspace(
+  onCreated?: () => void,
+  alsoRemember: Record<string, unknown> = {},
+) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.push);
-  const remember = useRememberOffered();
+  const remember = useRememberOffered(alsoRemember);
   return useMutation({
     mutationFn: () => vaultApi.createDemo(),
     onSuccess: (data) => {
@@ -73,13 +90,16 @@ export function DemoWorkspaceCard({
   onCreated,
   onDecline,
   compact = false,
+  alsoRemember = {},
 }: {
   onCreated?: () => void;
   onDecline: () => void;
   compact?: boolean;
+  /** Extra settings to store together with the answer (see useCreateDemoWorkspace). */
+  alsoRemember?: Record<string, unknown>;
 }) {
   const { data: info } = useQuery({ queryKey: ["demo-info"], queryFn: vaultApi.describeDemo });
-  const create = useCreateDemoWorkspace(onCreated);
+  const create = useCreateDemoWorkspace(onCreated, alsoRemember);
   const remember = useRememberOffered();
 
   return (
@@ -120,9 +140,13 @@ export function DemoWorkspaceCard({
 
 /** Auto-shown once for a user who has never been asked. */
 export function DemoWorkspaceOffer() {
-  const { demoOffered } = useUserPrefs();
+  const { demoOffered, onboardingDone } = useUserPrefs();
   const user = useAuthStore((s) => s.user);
-  const open = Boolean(user) && !demoOffered;
+  const isMobile = useIsMobile();
+  // The tour asks this as its last step, so on desktop the dialog only fires
+  // for an account that finished the tour without being asked. On mobile the
+  // tour does not run at all, and the dialog is the one place to ask.
+  const open = Boolean(user) && !demoOffered && (onboardingDone || isMobile);
   const remember = useRememberOffered();
 
   return (

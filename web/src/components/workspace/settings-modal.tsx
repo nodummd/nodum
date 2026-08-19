@@ -302,14 +302,26 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                       Version {APP_VERSION}
                       <span className="block text-[11px] text-ob-faint">nodum — open-source</span>
                     </span>
-                    <a
-                      href={HELP_URL}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
-                    >
-                      Help
-                    </a>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenChange(false);
+                          useWorkspaceStore.getState().setTourOpen(true);
+                        }}
+                        className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                      >
+                        Show the tour again
+                      </button>
+                      <a
+                        href={HELP_URL}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                      >
+                        Help
+                      </a>
+                    </div>
                   </div>
                 </section>
 
