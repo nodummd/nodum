@@ -38,6 +38,13 @@ export default function WorkspacePage() {
   });
   const vault = vaults?.find((v) => v.id === vaultId);
 
+  // The vault is gone — deleted from Settings in this tab, over MCP, or the
+  // URL was stale. Hand the tab to the dispatcher, which lands on a vault that
+  // exists, instead of leaving it on "Loading vault…" forever.
+  useEffect(() => {
+    if (status === "authenticated" && vaults && !vault) router.replace("/vault");
+  }, [status, vaults, vault, router]);
+
   if (status !== "authenticated" || !vault || !storeReady) {
     return (
       <main className="flex h-screen items-center justify-center bg-ob-bg">

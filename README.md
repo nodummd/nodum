@@ -97,7 +97,13 @@ zip back whenever you want to leave.
   presence.
 - **Publish** — public share links per note and a public site view per vault.
 
+### 🧭 Getting your bearings
+- **First-run tour** — a spotlight walk through the real interface, skippable, re-runnable from Help.
+- **Demo Workspace** — 200 linked notes with coloured folders and graph groups, one click, so you can explore before you write.
+- **Documentation at `/docs`** — every button and panel explained, with screenshots captured from the app itself.
+
 ### 🧩 Extending
+- **MCP server** — Nodum speaks the Model Context Protocol: point Claude Code, Claude Desktop or Cursor at `/api/v1/mcp` with a token and the AI can create vaults, write and link notes, colour folders, search, import and export — 36 tools, same rules as the app.
 
 - **Plugins** — a capability-scoped API inside an opaque-origin sandboxed iframe
   (`sandbox="allow-scripts"`, no `allow-same-origin`, `connect-src 'none'`), permission

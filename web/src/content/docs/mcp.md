@@ -62,7 +62,7 @@ Notes are addressed by id, path (`Projects/Alpha`) or title, so a model can say 
 
 > *You:* Make a vault called Reading, put a note in it for each of these three books with a line about why I want to read it, link them from a note called Shelf, and colour the vault's Books folder green.
 >
-> *The assistant* calls `create_vault`, `create_note` ×4 (three books plus *Shelf* with `[[…]]` links to each), and `set_item_color` — then tells you it is done, and it is. Open the vault: four notes, three backlinks on each book, a green folder, and the graph already drawn.
+> *The assistant* calls `create_vault`, `create_note` ×4 (three books plus *Shelf* with `[[…]]` links to each), and `set_item_color` — then tells you it is done, and it is. Open the vault: four notes, a backlink from *Shelf* on each book, a green folder, and the graph already drawn.
 
 ## What it cannot do
 

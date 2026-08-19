@@ -22,7 +22,7 @@ Operators narrow it:
 
 | Operator | Finds |
 | --- | --- |
-| `path:Projects` | notes whose path starts with `Projects` |
+| `path:Projects` | notes whose path contains `Projects` (case-insensitive) |
 | `file:Weekly` | notes whose name contains `Weekly` |
 | `tag:#book` | notes tagged `#book` (nested tags match) |
 | `"exact phrase"` | that phrase |
@@ -35,4 +35,4 @@ Select a word in a note, right-click → *Search for “…”* — the sidebar 
 
 ## Related notes
 
-The Backlinks panel ends with *Related notes*: notes that are about similar things, found by meaning rather than by shared words. Useful for finding the note you forgot to link.
+The Backlinks panel also lists *Related notes*, between the linked and unlinked mentions: notes whose text overlaps with this one (or, when the server is configured with an embeddings provider, notes that are about similar things). Useful for finding the note you forgot to link.

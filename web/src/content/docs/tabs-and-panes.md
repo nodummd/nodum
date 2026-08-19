@@ -22,7 +22,7 @@ The arrows beside the breadcrumb (`⌘[` / `⌘]`) walk where this pane has been
 
 ## Panes
 
-`⌘\` splits the window in two. Each pane has its own tabs and its own history. Drag the seam to resize; the palette switches between side-by-side and stacked. Closing a pane's last tab closes the pane.
+`⌘\` splits the window in two. Each pane has its own tabs and its own history. Drag the seam to resize; *Split right* / *Split down* (in the palette, or the note's ⋯ menu) choose side-by-side or stacked. Closing a pane's last tab closes the pane.
 
 ## The breadcrumb
 

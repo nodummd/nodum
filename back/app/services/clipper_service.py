@@ -120,7 +120,10 @@ async def clip(
 
     folder_id = None
     if folder:
-        folder_id = await ensure_folder_path(db, target, user.id, folder)
+        ensured = await ensure_folder_path(db, target, user.id, folder)
+        if not ensured.success:
+            return ServiceResponse.fail(ensured.error_code or "validation_failed", ensured.message or "Bad folder.")
+        folder_id = ensured.data
 
     body = f"{_frontmatter(url, clean_title, tags or [], datetime.now())}\n\n{markdown.strip()}\n"
     created = await create_note(db, target, user.id, title=clean_title, folder_id=folder_id, content=body)

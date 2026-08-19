@@ -138,7 +138,12 @@ async def run_tool(
 
         if name == "create_note":
             folder = (args.get("folder") or "").strip()
-            folder_id = await ensure_folder_path(db, vault_id, user_id, folder) if folder else None
+            folder_id = None
+            if folder:
+                ensured = await ensure_folder_path(db, vault_id, user_id, folder)
+                if not ensured.success:
+                    return {"ok": False, "error": ensured.message or "Bad folder path."}
+                folder_id = ensured.data
             created = await note_service.create_note(
                 db,
                 vault_id,

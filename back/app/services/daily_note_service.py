@@ -54,8 +54,9 @@ def apply_template_vars(content: str, *, title: str, when: datetime) -> str:
 
 
 async def _ensure_folder(db: AsyncSession, vault_id: UUID, user_id: UUID, path: str) -> UUID | None:
-    """Get or create the folder for a path (delegates to folder_service)."""
-    return await folder_service.ensure_folder_path(db, vault_id, user_id, path)
+    """Get or create the folder for a path; a misconfigured folder falls back to the root."""
+    ensured = await folder_service.ensure_folder_path(db, vault_id, user_id, path)
+    return ensured.data if ensured.success else None
 
 
 async def open_daily_note(

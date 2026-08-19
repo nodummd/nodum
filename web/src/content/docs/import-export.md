@@ -10,9 +10,8 @@ where: Command palette → Import notes from a zip / Import a folder / Export va
 
 From the command palette:
 
-- **Import notes from a zip** — a zip of `.md` files, in folders. An **Obsidian vault** zipped whole works as-is: the wrapper folder is stripped, `.obsidian` settings for daily notes and attachments are read, images and PDFs become attachments (a PDF also becomes a searchable note of its text), and `[[wikilinks]]` resolve across everything imported.
+- **Import notes from a zip** — a zip of `.md` files, in folders. An **Obsidian vault** zipped whole works as-is: the wrapper folder is stripped, `.obsidian` settings for daily notes and the attachment folder are read, images and PDFs become attachments (a PDF also becomes a searchable note of its text), and `[[wikilinks]]` resolve across everything imported.
 - **Import a folder** — pick a folder from your computer; same handling, no zip needed.
-- **Drop files onto the explorer** — markdown files import as notes.
 
 Names that collide get a suffix rather than overwriting.
 

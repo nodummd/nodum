@@ -45,6 +45,7 @@ export function useRememberFirstRun(patch: Record<string, unknown>) {
       const current = useAuthStore.getState().user;
       setUser({ ...updated, settings: { ...current?.settings, ...updated.settings, ...patch } });
     },
+    onError: (err) => toastError(err, "Could not save your answer — it will be asked again next time."),
   });
 }
 
@@ -164,7 +165,8 @@ export function DemoWorkspaceOffer() {
           </DialogTitle>
           <DialogDescription>See how Nodum works with real notes and links.</DialogDescription>
         </DialogHeader>
-        <DemoWorkspaceCard onDecline={() => remember.mutate()} />
+        {/* The card remembers "not now" itself; the dialog's own write is for Esc / ×. */}
+        <DemoWorkspaceCard onDecline={() => {}} />
       </DialogContent>
     </Dialog>
   );

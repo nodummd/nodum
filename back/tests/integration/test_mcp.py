@@ -240,16 +240,123 @@ async def test_a_full_session_of_vault_work(client: AsyncClient, account: dict) 
 
 
 async def test_tools_never_cross_users(client: AsyncClient, account: dict) -> None:
+    h = account["mcp"]
+    vid = account["vault_id"]
+    secret = await call(client, h, "create_note", vault_id=vid, title="Salary review", content="TOP SECRET BODY")
+    await call(client, h, "create_folder", vault_id=vid, path="Private")
+
     other_session = await _signup(client, "mcp-other")
     other_token = (await client.post("/api/v1/mcp-tokens", json={"name": "x"}, headers=other_session)).json()["data"][
         "token"
     ]
     other = {**ACCEPT, "Authorization": f"Bearer {other_token}"}
-    # The other user's token cannot see or touch this account's vault.
+    # The other user's token cannot see or touch this account's vault…
     with pytest.raises(AssertionError, match=r"not found|No note"):
-        await call(client, other, "list_notes", vault_id=account["vault_id"])
+        await call(client, other, "list_notes", vault_id=vid)
     with pytest.raises(AssertionError):
-        await call(client, other, "create_note", vault_id=account["vault_id"], title="Intruder", content="x")
+        await call(client, other, "create_note", vault_id=vid, title="Intruder", content="x")
+    # …not by title, not by id, not by path, not by pattern, and the error never
+    # says whether the note or folder exists ("Vault not found." every time).
+    for ref in ("Salary review", secret["id"], "Salary review", "%", "S%", "salary REVIEW"):
+        with pytest.raises(AssertionError, match=r"Vault not found") as exc:
+            await call(client, other, "read_note", vault_id=vid, note=ref)
+        assert "TOP SECRET" not in str(exc.value) and "Salary" not in str(exc.value)
+    for tool, extra in (
+        ("bookmark_note", {"note": "Salary review"}),
+        ("get_backlinks", {"note": "Salary review"}),
+        ("update_note", {"note": "Salary review", "content": "x"}),
+        ("delete_note", {"note": "Salary review"}),
+        ("rename_folder", {"path": "Private", "new_name": "P"}),
+        ("rename_folder", {"path": "Nope", "new_name": "P"}),
+        ("delete_folder", {"path": "Private", "confirm": True}),
+        ("list_item_colors", {}),
+        ("export_vault", {}),
+    ):
+        with pytest.raises(AssertionError, match=r"Vault not found"):
+            await call(client, other, tool, vault_id=vid, **extra)
+    # The resource, too.
+    res = await rpc(client, other, "resources/read", {"uri": f"nodum://vault/{vid}/note/Salary review"})
+    assert "error" in res and "TOP SECRET" not in str(res)
+    # And nothing was written into this account's vault along the way.
+    assert await call(client, h, "list_bookmarks", vault_id=vid) == []
+    assert (await call(client, h, "read_note", vault_id=vid, note="Salary review"))["content"] == "TOP SECRET BODY"
+
+
+async def test_item_colors_only_resolve_ids_in_this_vault(client: AsyncClient, account: dict) -> None:
+    """A vault's itemColors keys are client-controlled; a foreign note id in
+    there must not come back with the foreign note's path."""
+    h = account["mcp"]
+    other_session = await _signup(client, "mcp-other2")
+    other_vaults = (await client.get("/api/v1/vaults", headers=other_session)).json()["data"]
+    foreign = await client.post(
+        f"/api/v1/vaults/{other_vaults[0]['id']}/notes",
+        json={"title": "Their private note", "content": "x"},
+        headers=other_session,
+    )
+    foreign_id = foreign.json()["data"]["id"]
+    mine = await call(client, h, "create_note", vault_id=account["vault_id"], title="Mine", content="y")
+    patched = await client.patch(
+        f"/api/v1/vaults/{account['vault_id']}",
+        json={"settings": {"itemColors": {foreign_id: "#ffffff", mine["id"]: "#000000", "not-a-uuid": "#123"}}},
+        headers=account["session"],
+    )
+    assert patched.status_code == 200, patched.text
+    colours = await call(client, h, "list_item_colors", vault_id=account["vault_id"])
+    assert [c["path"] for c in colours] == ["Mine"], colours
+
+
+async def test_bad_folder_names_are_errors_not_silent_root(client: AsyncClient, account: dict) -> None:
+    h = account["mcp"]
+    vid = account["vault_id"]
+    with pytest.raises(AssertionError, match=r"Folder name 'Bad\|Name'"):
+        await call(client, h, "create_note", vault_id=vid, title="Filed", content="", folder="Bad|Name")
+    assert all(n["title"] != "Filed" for n in await call(client, h, "list_notes", vault_id=vid))
+    with pytest.raises(AssertionError, match=r"Bad:Name"):
+        await call(client, h, "create_folder", vault_id=vid, path="Ok/Bad:Name")
+    tree = await call(client, h, "get_tree", vault_id=vid)
+    folders = [i["name"] for i in tree["items"] if i["type"] == "folder"]
+    assert "Ok" not in folders, "nothing is created when a later segment is invalid"
+    note = await call(client, h, "create_note", vault_id=vid, title="Movee", content="", folder="Keep")
+    with pytest.raises(AssertionError, match=r"Q\?A"):
+        await call(client, h, "move_note", vault_id=vid, note=note["id"], folder="Q?A")
+    assert (await call(client, h, "read_note", vault_id=vid, note=note["id"]))["path"] == "Keep/Movee"
+    # move_folder never creates its destination.
+    with pytest.raises(AssertionError, match=r"No folder at 'Keep/Zed'"):
+        await call(client, h, "move_folder", vault_id=vid, path="Keep", new_parent="Keep/Zed")
+    tree = await call(client, h, "get_tree", vault_id=vid)
+    assert [i["name"] for i in tree["items"] if i["type"] == "folder"] == ["Keep"]
+
+
+async def test_nested_note_resource_and_body_limits(client: AsyncClient, account: dict) -> None:
+    h = account["mcp"]
+    vid = account["vault_id"]
+    await call(client, h, "create_note", vault_id=vid, title="Deep", content="down here", folder="A/B")
+    res = await rpc(client, h, "resources/read", {"uri": f"nodum://vault/{vid}/note/A/B/Deep"})
+    assert res["result"]["contents"][0]["text"] == "down here", res
+    # A 3 MB attachment (4 MB as base64) goes through; the old 4 MiB transport cap
+    # answered it with a bare HTTP 413.
+    png_header = bytes.fromhex("89504e470d0a1a0a")
+    big = base64.b64encode(png_header + b"\0" * (3 * 1024 * 1024)).decode()
+    att = await call(client, h, "import_attachment", vault_id=vid, filename="big.png", content_base64=big)
+    assert att["embed"] == "![[big.png]]"
+    # Over the app's own attachment limit: a sentence for the model, not a 413.
+    huge = base64.b64encode(png_header + b"\0" * (5 * 1024 * 1024)).decode()
+    with pytest.raises(AssertionError, match=r"limited to 5 MB"):
+        await call(client, h, "import_attachment", vault_id=vid, filename="huge.png", content_base64=huge)
+
+
+async def test_rate_limit_keys_mcp_traffic_per_token(client: AsyncClient, account: dict) -> None:
+    from app.core.middlewares.rate_limit_middleware import _authenticated_user
+
+    class R:
+        def __init__(self, auth: str) -> None:
+            self.headers = {"Authorization": auth}
+
+    a = _authenticated_user(R(f"Bearer {account['token']}"))
+    b = _authenticated_user(R("Bearer nodum_mcp_someoneelse"))
+    assert a and b and a != b and a.startswith("tok:")
+    assert account["token"] not in a
+    assert _authenticated_user(R("Bearer not-a-token")) is None
 
 
 async def test_revoking_the_token_cuts_the_client_off(client: AsyncClient, account: dict) -> None:

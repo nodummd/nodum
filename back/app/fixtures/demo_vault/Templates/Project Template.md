@@ -1,6 +1,15 @@
-Frame a project: outcome, next actions, and the areas it touches.
+# {{title}}
 
-## Related
+**Started:** {{date}}
+**Outcome:** what "done" looks like, in one line.
+
+## Next actions
+- [ ] 
+
+## Areas it touches
 - [[Home]]
 
-Tags: #template
+## Log
+- {{date}} — created
+
+Tags: #project #active

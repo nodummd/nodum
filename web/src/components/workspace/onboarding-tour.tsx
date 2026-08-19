@@ -182,9 +182,9 @@ function place(
   side: Side,
   cardW: number,
   cardH: number,
+  vw: number,
+  vh: number,
 ): { left: number; top: number } {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
   const clamp = (left: number, top: number) => ({
     left: Math.max(12, Math.min(left, vw - cardW - 12)),
     top: Math.max(12, Math.min(top, vh - cardH - 12)),
@@ -213,26 +213,73 @@ export function OnboardingTour() {
 
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
+  const [vp, setVp] = useState({ w: 0, h: 0 });
   const [cardH, setCardH] = useState(220);
   const cardRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const step = STEPS[index];
 
   // Optimistic, so the veil is gone on the click and never flashes back.
-  const finish = useRememberFirstRun({ onboardingDone: true });
+  // `mutate` is stable across renders (the mutation object is not), which
+  // keeps the callbacks below — and the effects that depend on them — still.
+  const { mutate: finish } = useRememberFirstRun({ onboardingDone: true });
+  // Dismissing the demo step (× / Esc on it) is the answer "not now": both
+  // flags in one write, so no dialog re-asks the question the moment the
+  // veil lifts.
+  const { mutate: finishDeclined } = useRememberFirstRun({ onboardingDone: true, demoOffered: true });
 
   const close = useCallback(() => {
     setTourOpen(false);
-    if (!useAuthStore.getState().user?.settings?.onboardingDone) finish.mutate();
+    if (!useAuthStore.getState().user?.settings?.onboardingDone) finish();
     setIndex(0);
   }, [finish, setTourOpen]);
 
   /** Skip / × / Esc: not straight out — to the one question asked once. A
-   *  person who has already answered it (re-running the tour) leaves directly. */
+   *  person who has already answered it (re-running the tour) leaves directly;
+   *  dismissing the question itself counts as declining it. */
   const leave = useCallback(() => {
     const offered = useAuthStore.getState().user?.settings?.demoOffered === true;
+    if (!offered && index === DEMO_INDEX) {
+      setTourOpen(false);
+      finishDeclined();
+      setIndex(0);
+      return;
+    }
     if (offered || index >= DEMO_INDEX) close();
     else setIndex(DEMO_INDEX);
-  }, [close, index]);
+  }, [close, finishDeclined, index, setTourOpen]);
+
+  // The tour talks about the explorer, the ribbon and the right panel — make
+  // sure they are on screen while it runs, and put them back afterwards.
+  useEffect(() => {
+    if (!open) return;
+    const s = useWorkspaceStore.getState();
+    const prev = {
+      leftSidebarOpen: s.leftSidebarOpen,
+      rightSidebarOpen: s.rightSidebarOpen,
+      ribbonVisible: s.ribbonVisible,
+    };
+    useWorkspaceStore.setState({ leftSidebarOpen: true, rightSidebarOpen: true, ribbonVisible: true });
+    return () => {
+      useWorkspaceStore.setState(prev);
+    };
+  }, [open]);
+
+  // Modal for real: everything outside the tour is inert while it is open, so
+  // Tab, Shift+Tab and screen readers stay in the card.
+  useEffect(() => {
+    if (!open) return;
+    const root = rootRef.current;
+    const touched: HTMLElement[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (!(el instanceof HTMLElement) || el === root || el.contains(root) || el.inert) continue;
+      el.inert = true;
+      touched.push(el);
+    }
+    return () => {
+      for (const el of touched) el.inert = false;
+    };
+  }, [open]);
 
   // Track the spotlight target through resizes and layout shifts. The rect
   // is measured in a layout effect so the first paint already has it, and
@@ -241,7 +288,15 @@ export function OnboardingTour() {
   useLayoutEffect(() => {
     if (!open) return;
     const update = () => {
-      setRect(measure(step.target));
+      setRect((prev) => {
+        const next = measure(step.target);
+        if (prev && next && prev.x === next.x && prev.y === next.y && prev.w === next.w && prev.h === next.h)
+          return prev; // unchanged → no re-render on this tick
+        return next;
+      });
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      setVp((p) => (p.w === w && p.h === h ? p : { w, h }));
       if (cardRef.current) setCardH(cardRef.current.offsetHeight);
     };
     update();
@@ -253,26 +308,74 @@ export function OnboardingTour() {
     };
   }, [open, step.target, index]);
 
-  // Keyboard: arrows move, Esc leaves. Focus starts on the card.
+  // Focus lands on the card when the tour opens and on every step — once,
+  // not on every re-render, so Tab can reach the buttons. A menu or dialog
+  // that opened the tour returns focus to its trigger a tick later; the
+  // second, deferred focus wins that race.
+  useEffect(() => {
+    if (!open) return;
+    cardRef.current?.focus();
+    const t = window.setTimeout(() => cardRef.current?.focus(), 50);
+    return () => window.clearTimeout(t);
+  }, [open, index]);
+
+  // Keyboard, in the capture phase so it runs before the workspace's own
+  // hotkeys and before any dialog's Escape: modifier chords (⌘O, ⌘P, ⌘,, ⌘N …)
+  // are swallowed while the tour is up — they would open UI under the veil —
+  // Esc leaves, arrows move, Tab cycles inside the card.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         leave();
-      } else if (e.key === "ArrowRight" && step.id !== "demo" && index < STEPS.length - 1) {
+        return;
+      }
+      if (e.key === "Tab" && cardRef.current) {
+        const focusables = Array.from(
+          cardRef.current.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])'),
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (!active || !cardRef.current.contains(active)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        } else if (e.shiftKey && (active === first || active === cardRef.current)) {
+          e.preventDefault();
+          last.focus();
+        }
+        return;
+      }
+      const inCard = cardRef.current?.contains(document.activeElement) ?? false;
+      if (!inCard) return;
+      if (e.key === "ArrowRight" && step.id !== "demo" && index < STEPS.length - 1) {
         setIndex((i) => i + 1);
       } else if (e.key === "ArrowLeft" && index > 0) {
         setIndex((i) => i - 1);
       }
     };
-    window.addEventListener("keydown", onKey);
-    cardRef.current?.focus();
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open, index, step.id, leave]);
 
-  const cardW = step.side === "center" ? CARD_W_CENTER : CARD_W;
-  const pos = useMemo(() => place(rect, step.side, cardW, cardH), [rect, step.side, cardW, cardH]);
+  // Never wider than the viewport: on a phone the 400px card would push its
+  // × and Next off the right edge.
+  const cardW = Math.min(step.side === "center" ? CARD_W_CENTER : CARD_W, Math.max(vp.w - 24, 240));
+  const pos = useMemo(
+    () => place(rect, step.side, cardW, cardH, vp.w, vp.h),
+    [rect, step.side, cardW, cardH, vp.w, vp.h],
+  );
 
   if (!open || typeof document === "undefined") return null;
 
@@ -283,7 +386,14 @@ export function OnboardingTour() {
   const total = STEPS.length;
 
   return createPortal(
-    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label="Welcome tour" data-testid="tour">
+    <div
+      ref={rootRef}
+      className="fixed inset-0 z-[70]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Welcome tour"
+      data-testid="tour"
+    >
       {/* The veil, with the spotlight cut out. evenodd: outer rect minus the
           rounded inner rect. It swallows clicks — the tour is modal — except
           over the hole, which is left as an accent ring so the lit UI reads as
@@ -293,7 +403,7 @@ export function OnboardingTour() {
           fill="rgba(0,0,0,0.62)"
           fillRule="evenodd"
           d={
-            `M0 0H${window.innerWidth}V${window.innerHeight}H0Z` +
+            `M0 0H${vp.w}V${vp.h}H0Z` +
             (spot
               ? ` M${spot.x + 8} ${spot.y}H${spot.x + spot.w - 8}a8 8 0 0 1 8 8V${spot.y + spot.h - 8}a8 8 0 0 1-8 8H${spot.x + 8}a8 8 0 0 1-8-8V${spot.y + 8}a8 8 0 0 1 8-8Z`
               : "")

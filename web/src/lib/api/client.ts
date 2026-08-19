@@ -92,6 +92,26 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, code, message, details);
 }
 
+// Endpoints whose own 401 means "wrong credentials", not "token expired":
+// refreshing and retrying those would be wrong (and, for login, would log the
+// person out of nothing). Everything else under /auth — /auth/me, change
+// password, delete-account — is a normal authenticated call and gets the
+// refresh-and-retry like any other, so an answer given after the access token
+// expired (the first-run tour, left open for a while) is not silently lost.
+const CREDENTIAL_PATHS = [
+  "/auth/refresh",
+  "/auth/login",
+  "/auth/signup",
+  "/auth/logout",
+  "/auth/verify-email",
+  "/auth/resend-verification",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+];
+function isCredentialPath(path: string): boolean {
+  return CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(`${p}?`));
+}
+
 export async function api<T>(
   path: string,
   init: RequestInit = {},
@@ -99,7 +119,7 @@ export async function api<T>(
 ): Promise<T> {
   let res = await rawRequest(path, init);
 
-  if (res.status === 401 && retryOn401 && !path.startsWith("/auth/")) {
+  if (res.status === 401 && retryOn401 && !isCredentialPath(path)) {
     if (await tryRefresh()) {
       res = await rawRequest(path, init);
     } else {

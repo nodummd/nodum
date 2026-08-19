@@ -68,5 +68,10 @@
     ]
   },
   "canvasBackground": "dots",
+  "settings": {
+    "dailyNoteFolder": "Daily",
+    "dailyNoteTemplate": "Templates/Daily Note Template",
+    "templatesFolder": "Templates"
+  },
   "open_note": "Home"
 }

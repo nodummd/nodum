@@ -21,7 +21,7 @@ Variants:
 
 ## Following a link
 
-Click a link to open the note **in the same tab** — the back and forward arrows next to the breadcrumb bring you back. `⌘`-click opens a new tab. Hold `⌘` while hovering (or plain hover, depending on Settings → Editor) for a preview card.
+Click a link to open the note **in the same tab** — the back and forward arrows next to the breadcrumb bring you back. `⌘`-click opens a new tab. Hold `⌘` while hovering (or plain hover, depending on Settings → Files & links) for a preview card.
 
 ## Links to notes that don't exist
 

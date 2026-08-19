@@ -746,3 +746,31 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     provenance, and an MV3 extension under clipper/.
   - Graph also gained an Obsidian-grade layout pass, richer interactions, and a
     guard so a failed WebGL context can no longer take down the workspace.
+
+- **2026-08-19: First run, docs, MCP.** Five chained branches, all merged to dev
+  (`tasks/nodum-onboarding-docs-mcp-goal.md`):
+  - *Branching* — `<kind>/<N>.<slug>_<contributor>_<DDMMYYYYHHMM>`, cut as a chain.
+  - *Demo Workspace* — the "Second Brain" vault is a repo fixture (207 notes +
+    manifest of folder colours by path, 13 graph groups); `POST /vaults/demo`
+    imports it through `import_zip` and maps colours onto the created folders.
+    Offered once (the tour's last step; a dialog on phones), creatable any time
+    from Settings → Vault.
+  - *Onboarding* — a spotlight tour over the real interface, keyboard driven,
+    Skip/×/Esc route through the one demo question, re-runnable from a new Help
+    "?" in the ribbon. Fixed a real layout leak between vaults in one tab and a
+    lost-update race on `PATCH /auth/me`.
+  - *Docs* — `/docs`: 21 articles, each with a "where" line and screenshots
+    captured from the running app by `npm run docs:shots`. Reached from Help,
+    the palette, the tour, Settings, the site nav.
+  - *MCP* — Nodum is an MCP server at `/api/v1/mcp` (Streamable HTTP, stateless
+    JSON), 36 tools over the same services and ownership checks as the app,
+    per-user hashed revocable tokens (Settings → MCP with copy-paste configs for
+    Claude Code / Claude Desktop / Cursor). Verified with raw JSON-RPC, the
+    official client SDK and `claude mcp add` (✔ Connected).
+  - *Review pass* — a 39-agent adversarial review confirmed 34 findings, all
+    fixed on `bug/7.review-fixes_…`: an MCP cross-tenant read by note title
+    (ownership check now precedes every lookup; exact title match), silent
+    misfiling on invalid folder names (`ensure_folder_path` → ServiceResponse),
+    the 4 MiB MCP body cap, tour focus/keyboard/inert/resize defects, lost
+    first-run answers after token expiry, the deleted-vault dead end, and a
+    dozen doc claims the app did not honour. Details in the goal doc.

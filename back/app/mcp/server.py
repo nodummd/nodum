@@ -16,6 +16,8 @@ Design notes:
   and raise ToolError with a sentence the model can act on.
 """
 
+import functools
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -23,7 +25,11 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 
+from app.constants.limits import MCP_MAX_REQUEST_BODY_BYTES
+from app.core.logging import get_logger
 from app.mcp.auth import USER_ID_KEY, BearerTokenGate
+
+logger = get_logger("mcp")
 
 server = MCPServer(
     name="nodum",
@@ -65,6 +71,31 @@ def unwrap(response: Any) -> Any:
     return response.data
 
 
+def tool(*args: Any, **kwargs: Any) -> Callable[..., Any]:
+    """`server.tool` with a guard: ToolErrors reach the model as they are; any
+    other exception is logged with its traceback (the operator's problem to see)
+    and turned into a short ToolError, so a broken database or object store is
+    never narrated to the AI client verbatim."""
+    register = server.tool(*args, **kwargs)
+
+    def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(fn)  # the SDK reads the signature through __wrapped__
+        async def guarded(*a: Any, **kw: Any) -> Any:
+            try:
+                return await fn(*a, **kw)
+            except ToolError:
+                raise
+            except Exception:
+                logger.exception("mcp_tool_failed", tool=fn.__name__)
+                raise ToolError(
+                    f"{fn.__name__} failed with an internal error. Try again; if it keeps happening, tell the operator."
+                ) from None
+
+        return register(guarded)
+
+    return decorate
+
+
 # Tools register themselves against `server` on import.
 from app.mcp import tools  # noqa: E402,F401
 
@@ -82,6 +113,7 @@ mcp_asgi_app = server.streamable_http_app(
     streamable_http_path=MCP_PATH,
     stateless_http=True,
     json_response=True,
+    max_request_body_size=MCP_MAX_REQUEST_BODY_BYTES,
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 mcp_app = BearerTokenGate(mcp_asgi_app)
