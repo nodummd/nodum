@@ -115,6 +115,81 @@ test.describe("editable tables", () => {
     await expect(cell(page, 1, 1)).toBeFocused();
   });
 
+  test("arrow keys walk between cells at the edges of the text", async ({ page }) => {
+    await open(page, "tbl-arrows");
+    await clickAtEnd(page, 1, 0); // "Ada", caret at the end
+    await page.keyboard.press("ArrowRight");
+    await expect(cell(page, 1, 1)).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(cell(page, 2, 1)).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(cell(page, 1, 1)).toBeFocused();
+    // Left at the start of "Maths" goes to the previous cell's end.
+    const maths = cell(page, 1, 1);
+    const box = await maths.boundingBox();
+    await maths.click({ position: { x: 3, y: box!.height / 2 } });
+    await page.keyboard.press("ArrowLeft");
+    await expect(cell(page, 1, 0)).toBeFocused();
+  });
+
+  test("a row can be moved up and down, from the toolbar and with ⌥↑/⌥↓", async ({ page }) => {
+    await open(page, "tbl-move");
+    await cell(page, 2, 0).click(); // Alan
+    await page.getByRole("button", { name: "Move row up" }).click();
+    await expect(cell(page, 1, 0)).toHaveText("Alan");
+    await expect(cell(page, 2, 0)).toHaveText("Ada");
+    // Focus followed the row; ⌥↓ puts it back.
+    await expect(cell(page, 1, 0)).toBeFocused();
+    await page.keyboard.press("Alt+ArrowDown");
+    await expect(cell(page, 1, 0)).toHaveText("Ada");
+    await expect(cell(page, 2, 0)).toHaveText("Alan");
+    expect(await source(page)).toMatch(/Ada[\s\S]*Alan/);
+  });
+
+  test("pasting a tab-separated grid fills cells and grows the table; one undo takes it back", async ({
+    page,
+  }) => {
+    await open(page, "tbl-paste");
+    await cell(page, 2, 1).click(); // Alan / Logic
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "X1\tX2\nY1\tY2");
+      document.activeElement?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    // One new column and one new row: 4 rows × 3 cols = 12 cells.
+    await expect(page.locator("[data-table-cell]")).toHaveCount(12);
+    await expect(cell(page, 2, 1)).toHaveText("X1");
+    await expect(cell(page, 2, 2)).toHaveText("X2");
+    await expect(cell(page, 3, 1)).toHaveText("Y1");
+    await expect(cell(page, 3, 2)).toHaveText("Y2");
+    const src = await source(page);
+    expect(src).toContain("X1");
+    expect(src).toContain("Y2");
+    // One undo step for the whole paste.
+    await cell(page, 1, 0).click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(page.locator("[data-table-cell]")).toHaveCount(6);
+  });
+
+  test("undo is per cell: three cells filled quickly take three undos", async ({ page }) => {
+    await open(page, "tbl-undo");
+    await clickAtEnd(page, 1, 0);
+    await page.keyboard.type("1");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("2");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("3");
+    await expect(cell(page, 2, 0)).toHaveText("Alan3");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(cell(page, 2, 0)).toHaveText("Alan");
+    await expect(cell(page, 1, 1)).toHaveText("Maths2");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(cell(page, 1, 1)).toHaveText("Maths");
+    await expect(cell(page, 1, 0)).toHaveText("Ada1");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(cell(page, 1, 0)).toHaveText("Ada");
+  });
+
   test("a pipe typed into a cell is escaped, not a new column", async ({ page }) => {
     await open(page, "tbl-pipe");
     await clickAtEnd(page, 1, 1);

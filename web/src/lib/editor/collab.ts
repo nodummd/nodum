@@ -5,7 +5,8 @@
  * settings.collabEnabled.
  */
 
-import { yCollab } from "y-codemirror.next";
+import { type Annotation, EditorState, Transaction } from "@codemirror/state";
+import { yCollab, ySyncFacet } from "y-codemirror.next";
 import { WebsocketProvider } from "y-websocket";
 
 import { getAccessToken, refreshAccessToken } from "@/lib/api/client";
@@ -115,7 +116,25 @@ export function createCollabSession(
   };
 }
 
-/** CodeMirror extension binding the editor to the session (cursors included). */
+/** Other people's edits arrive as ordinary transactions (ySync dispatches
+ *  them with its own annotation only), so CodeMirror's history would record
+ *  them and ⌘Z would undo a peer's words. Keep them out of the local stack:
+ *  undo is "what I typed", never "what they typed". */
+const remoteEditsOutOfHistory = EditorState.transactionExtender.of((tr) => {
+  const conf = tr.startState.facet(ySyncFacet);
+  if (!conf || !tr.docChanged) return null;
+  // `Transaction.annotations` is public at runtime but not in the typings.
+  const annotations = (tr as unknown as { annotations: readonly Annotation<unknown>[] }).annotations;
+  const fromPeer = annotations.some((a) => a.value === conf);
+  return fromPeer ? { annotations: Transaction.addToHistory.of(false) } : null;
+});
+
+/** CodeMirror extension binding the editor to the session (cursors included).
+ *  One undo stack — CodeMirror's, local-only; y-codemirror's own Y.UndoManager
+ *  is switched off so there are not two histories answering different keys. */
 export function collabExtension(session: CollabSession) {
-  return yCollab(session.ytext, session.provider.awareness);
+  return [
+    yCollab(session.ytext, session.provider.awareness, { undoManager: false }),
+    remoteEditsOutOfHistory,
+  ];
 }

@@ -15,6 +15,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { ApiError } from "@/lib/api/client";
+import { DOCS_URL } from "@/lib/app-meta";
 import { authApi, bookmarkApi, canvasApi, folderApi, noteApi } from "@/lib/api/endpoints";
 import type { Note } from "@/lib/api/types";
 import {
@@ -223,9 +224,9 @@ export function CommandPalette({
     { id: "new-tab", label: "New tab", run: onNewNote },
     { id: "create-note-right", label: "Create note to the right", run: guard(createNoteRight), needsNote: true },
     { id: "duplicate-note", label: "Duplicate current file", run: guard(duplicateNote), needsNote: true },
-    { id: "delete-note", label: "Delete current file", run: onDeleteActiveNote, needsNote: true },
+    { id: "delete-note", label: "Delete current note", run: onDeleteActiveNote, needsNote: true },
     { id: "copy-path", label: "Copy file path", run: guard(copyNotePath), needsNote: true },
-    { id: "bookmark-note", label: "Bookmark…", run: guard(bookmarkCurrent), needsNote: true },
+    { id: "bookmark-note", label: "Bookmark current note", run: guard(bookmarkCurrent), needsNote: true },
     { id: "bookmark-all", label: "Bookmark all tabs", run: guard(bookmarkAllTabs), needsTab: true },
     { id: "daily-note", label: "Daily notes: Open today's daily note", run: onOpenDailyNote },
     { id: "insert-template", label: "Insert template", run: onInsertTemplate, needsNote: true },
@@ -253,7 +254,27 @@ export function CommandPalette({
     })),
     { id: "focus-right-pane", label: "Focus on tab group to the right", run: () => focusPane(1), needsTab: true },
     { id: "focus-left-pane", label: "Focus on tab group to the left", run: () => focusPane(-1), needsTab: true },
-    { id: "split-right", label: "Split right", hotkey: "⌘\\", run: () => useWorkspaceStore.getState().splitRight(), needsNote: true },
+    {
+      id: "split-right",
+      label: "Split right",
+      hotkey: "⌘\\",
+      run: () => {
+        const s = useWorkspaceStore.getState();
+        s.setSplitOrientation("row");
+        s.splitRight();
+      },
+      needsNote: true,
+    },
+    {
+      id: "split-down",
+      label: "Split down",
+      run: () => {
+        const s = useWorkspaceStore.getState();
+        s.setSplitOrientation("column");
+        s.splitRight();
+      },
+      needsNote: true,
+    },
     { id: "toggle-pin", label: "Toggle pin on current tab", run: () => activeTabId && useWorkspaceStore.getState().togglePin(activeTabId, activePane), needsTab: true },
     { id: "mode-live", label: "Editor: Live Preview", run: () => setMode("live"), needsNote: true },
     { id: "mode-source", label: "Editor: Source mode", run: () => setMode("source"), needsNote: true },
@@ -270,6 +291,8 @@ export function CommandPalette({
     { id: "show-outline", label: "Outline: Show outline of the current file", run: () => setRightPanel("outline"), needsNote: true },
     { id: "show-tags", label: "Tags view: Show tags", run: () => setRightPanel("tags") },
     { id: "show-ai", label: "AI: Open chat", run: () => setRightPanel("ai") },
+    { id: "help-tour", label: "Help: Show the tour again", run: () => useWorkspaceStore.getState().setTourOpen(true) },
+    { id: "help-docs", label: "Help: Open documentation", run: () => window.open(DOCS_URL, "_blank", "noopener,noreferrer") },
     {
       id: "ai-settings",
       label: "AI: Configure provider and API key",

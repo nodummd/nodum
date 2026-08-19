@@ -10,6 +10,8 @@ import { useRef, useState } from "react";
 
 import { AiSettingsTab } from "./ai-settings-tab";
 import { ClipperTab } from "./clipper-tab";
+import { DeleteAccountSection } from "./delete-account";
+import { McpSettingsTab } from "./mcp-settings-tab";
 import { PluginsTab } from "./plugins-tab";
 import { VaultsSection } from "./vaults-section";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authApi, siteApi, vaultApi } from "@/lib/api/endpoints";
-import { APP_VERSION, HELP_URL } from "@/lib/app-meta";
+import { APP_VERSION, DOCS_URL, HELP_URL } from "@/lib/app-meta";
 import { filterHotkeys, HOTKEY_SECTIONS } from "@/lib/hotkeys";
 import {
   FONT_CHOICES,
@@ -49,6 +51,7 @@ const TABS = [
   "Canvas",
   "Plugins",
   "AI",
+  "MCP",
   "Web Clipper",
   "Publish",
   "Collab",
@@ -284,9 +287,10 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             ))}
           </nav>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             {tab === "Plugins" && <PluginsTab vaultId={vaultId} />}
-            {tab === "AI" && <AiSettingsTab />}
+            {tab === "AI" && <AiSettingsTab vaultId={vaultId} vaultName={vault?.name} />}
+            {tab === "MCP" && <McpSettingsTab />}
 
             {tab === "Web Clipper" && <ClipperTab />}
 
@@ -301,14 +305,34 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                       Version {APP_VERSION}
                       <span className="block text-[11px] text-ob-faint">nodum — open-source</span>
                     </span>
-                    <a
-                      href={HELP_URL}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
-                    >
-                      Help
-                    </a>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpenChange(false);
+                          useWorkspaceStore.getState().setTourOpen(true);
+                        }}
+                        className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                      >
+                        Show the tour again
+                      </button>
+                      <a
+                        href={DOCS_URL}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                      >
+                        Documentation
+                      </a>
+                      <a
+                        href={HELP_URL}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="rounded-md border border-ob-border px-2.5 py-1 text-[12px] text-ob-muted hover:text-ob-text"
+                      >
+                        GitHub
+                      </a>
+                    </div>
                   </div>
                 </section>
 
@@ -367,6 +391,8 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
                     Change password
                   </Button>
                 </section>
+
+                <DeleteAccountSection email={user?.email} />
               </>
             )}
 

@@ -101,8 +101,7 @@ the decoration/plugin is removed.
 
 ## P0-2 — Collab loses work in production (`--workers 4`)
 
-**Status:** demonstrated by the triage, not started. **Collab is enabled on the
-demo vault today.**
+**Status:** ✅ DONE 2026-08-19 (`feature/1.collab-fanout`): shared seed, late-join sync, single persist owner, presence fanout, join/teardown race, local undo. See `tasks/nodum-release-cycle-goal.md`.
 
 **R2 — cross-worker fanout does not work for any non-empty note.** Prod runs
 `uvicorn --workers 4` (`back/build/Dockerfile.api:62-65`). Each worker builds its
@@ -156,7 +155,7 @@ proves an update from one reaches the other. `docs/collab.md` matches reality.
 
 ## P1-3 — Undo history is destroyed when you leave a note and come back
 
-**Status:** verified, not started.
+**Status:** ✅ DONE 2026-08-19 (`feature/2.undo-history`): Stages A–C + Windows redo chord; ⌘U kept for underline. See `tasks/nodum-release-cycle-goal.md`.
 
 **Reproduction (live).** Type `UNDOTEST` into a note → ⌘Z removes it → ⌘⇧Z
 restores it (both work *in place*). Switch to another tab and back → ⌘Z does
@@ -342,10 +341,9 @@ added a row, added a column, deleted a row, each confirmed in postgres) and
 covered by 9 e2e; the canary reads "Mathse" instead of "Mathsematics" when
 widget DOM reuse is broken.
 
-Deferred from the spec, none of them blocking: per-cell undo isolation
-(`isolateHistory`), grid paste of tab-separated text, arrow-key navigation
-between cells, a Move-row command, and remote-caret tints inside a table under
-collab.
+~~Deferred from the spec~~ — per-cell undo isolation, grid paste, arrow-key
+navigation, Move row and collab cell tints all landed 2026-08-19
+(`feature/7.table-steps`, see `tasks/nodum-release-cycle-goal.md`).
 
 The maintainer's requirement: "once you insert the table, the user should see
 the real table structure and edit inside, and if possible user should be able to

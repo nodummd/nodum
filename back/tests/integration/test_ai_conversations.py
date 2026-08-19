@@ -48,11 +48,14 @@ def stub_provider(monkeypatch: pytest.MonkeyPatch):
     """Answer every turn with plain text, and record what was sent."""
     sent: list[list[Any]] = []
 
-    async def fake_turn(**kwargs: Any) -> ai_providers.Turn:
+    async def fake_stream_turn(**kwargs: Any):
         sent.append(kwargs["messages"])
-        return ai_providers.Turn(text="stub reply", tool_calls=[], raw_message=None)
+        yield "stub "
+        yield ai_providers.Turn(text="stub reply", tool_calls=[], raw_message=None)
 
-    monkeypatch.setattr(ai_providers, "turn", fake_turn)
+    # The chat goes through the streaming adapter (the JSON endpoint consumes
+    # the same generator), so that is what the stub replaces.
+    monkeypatch.setattr(ai_providers, "stream_turn", fake_stream_turn)
     return sent
 
 
@@ -167,10 +170,11 @@ async def test_a_failed_turn_stores_nothing(client: AsyncClient, account: dict, 
     headers = _auth(account["tokens"])
     vault = account["vault_id"]
 
-    async def failing_turn(**kwargs: Any) -> ai_providers.Turn:
+    async def failing_turn(**kwargs: Any):
         raise ai_providers.ProviderError("nope")
+        yield  # pragma: no cover — makes this an async generator
 
-    monkeypatch.setattr(ai_providers, "turn", failing_turn)
+    monkeypatch.setattr(ai_providers, "stream_turn", failing_turn)
     resp = await client.post(f"/api/v1/ai/vaults/{vault}/chat", json={"message": "will fail"}, headers=headers)
     assert resp.status_code == 422
     # No half-written thread left behind.

@@ -2,7 +2,7 @@
 
 One shape in, one shape out: a list of `{role, content}` messages and a system
 prompt go in, an assistant string comes back. Each provider gets the smallest
-correct request for a chat completion — no streaming yet, and no provider SDKs
+correct request for a chat completion — streamed when the panel wants it — and no provider SDKs
 (four SDKs for four thin HTTP calls is a poor trade, and `httpx` is already a
 dependency).
 
@@ -12,6 +12,7 @@ contain the key), and always bound the request in time.
 """
 
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -338,6 +339,223 @@ async def turn(
                 arguments = {}
             calls.append(ToolCall(id=call.get("id", ""), name=function.get("name", ""), arguments=arguments))
         return Turn(text=(message.get("content") or "").strip(), tool_calls=calls, raw_message=message)
+
+
+# ── Streaming ────────────────────────────────────────────────────────────────
+
+
+async def _sse_data(response: httpx.Response) -> AsyncIterator[str]:
+    """Yield the `data:` payloads of an SSE stream, one event at a time."""
+    buffer: list[str] = []
+    async for line in response.aiter_lines():
+        if line == "":
+            if buffer:
+                yield "\n".join(buffer)
+                buffer = []
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            buffer.append(line[5:].lstrip())
+    if buffer:
+        yield "\n".join(buffer)
+
+
+async def stream_turn(
+    *,
+    provider: str,
+    api_key: str,
+    model: str,
+    messages: list[Any],
+    system: str,
+    tools: list[dict[str, Any]],
+    base_url: str | None = None,
+    max_tokens: int = 2048,
+) -> AsyncIterator[str | Turn]:
+    """`turn`, streamed: yields text deltas as they arrive and, last, the Turn.
+
+    Tool calls stream too (as argument fragments) and are assembled before the
+    Turn is yielded, so a turn that ends in tool calls produces no text deltas
+    worth showing and the caller simply runs the tools. The raw assistant
+    message is rebuilt in the provider's shape so the next round can echo it.
+    """
+    if provider not in PROVIDERS:
+        raise ProviderError(f"Unknown provider: {provider}")
+    url_root = await _checked_base_url(provider, base_url)
+    timeout = httpx.Timeout(float(get_settings().AI_REQUEST_TIMEOUT))
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        if provider == "anthropic":
+            payload: dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+                "tools": _tools_for(provider, tools),
+                "stream": True,
+            }
+            if system:
+                payload["system"] = system
+            async with client.stream(
+                "POST",
+                f"{url_root}/v1/messages",
+                json=payload,
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            ) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    raise _safe_error(provider, response)
+                blocks: list[dict[str, Any]] = []
+                partial_json: dict[int, str] = {}
+                async for data in _sse_data(response):
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    kind = event.get("type")
+                    if kind == "content_block_start":
+                        block = dict(event.get("content_block") or {})
+                        index = int(event.get("index", len(blocks)))
+                        while len(blocks) <= index:
+                            blocks.append({})
+                        if block.get("type") == "tool_use":
+                            block["input"] = {}
+                            partial_json[index] = ""
+                        elif block.get("type") == "text":
+                            block["text"] = block.get("text", "")
+                        blocks[index] = block
+                    elif kind == "content_block_delta":
+                        index = int(event.get("index", 0))
+                        delta = event.get("delta") or {}
+                        if index >= len(blocks):
+                            continue
+                        if delta.get("type") == "text_delta":
+                            piece = delta.get("text", "")
+                            blocks[index]["text"] = blocks[index].get("text", "") + piece
+                            if piece:
+                                yield piece
+                        elif delta.get("type") == "input_json_delta":
+                            partial_json[index] = partial_json.get(index, "") + delta.get("partial_json", "")
+                    elif kind == "content_block_stop":
+                        index = int(event.get("index", 0))
+                        if index in partial_json:
+                            try:
+                                blocks[index]["input"] = json.loads(partial_json[index] or "{}")
+                            except json.JSONDecodeError:
+                                blocks[index]["input"] = {}
+                    elif kind == "error":
+                        raise ProviderError("The provider reported an error mid-stream.")
+                text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+                calls = [
+                    ToolCall(id=b.get("id", ""), name=b.get("name", ""), arguments=b.get("input") or {})
+                    for b in blocks
+                    if b.get("type") == "tool_use"
+                ]
+                yield Turn(text=text, tool_calls=calls, raw_message={"role": "assistant", "content": blocks})
+                return
+
+        if provider == "gemini":
+            payload = {"contents": messages, "tools": _tools_for(provider, tools)}
+            if system:
+                payload["systemInstruction"] = {"parts": [{"text": system}]}
+            async with client.stream(
+                "POST",
+                f"{url_root}/models/{model}:streamGenerateContent?alt=sse",
+                json=payload,
+                headers={"x-goog-api-key": api_key},
+            ) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    raise _safe_error(provider, response)
+                parts: list[dict[str, Any]] = []
+                text_buf = ""
+                async for data in _sse_data(response):
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    candidates = chunk.get("candidates") or []
+                    if not candidates:
+                        continue
+                    for part in candidates[0].get("content", {}).get("parts", []) or []:
+                        if "text" in part:
+                            piece = part.get("text", "")
+                            text_buf += piece
+                            if piece:
+                                yield piece
+                        elif "functionCall" in part:
+                            parts.append(part)
+                if text_buf:
+                    parts.insert(0, {"text": text_buf})
+                calls = [
+                    ToolCall(
+                        id=p["functionCall"].get("name", ""),
+                        name=p["functionCall"].get("name", ""),
+                        arguments=p["functionCall"].get("args") or {},
+                    )
+                    for p in parts
+                    if "functionCall" in p
+                ]
+                raw = {"role": "model", "parts": parts} if parts else None
+                yield Turn(text=text_buf.strip(), tool_calls=calls, raw_message=raw)
+                return
+
+        # openai / qwen
+        async with client.stream(
+            "POST",
+            f"{url_root}/chat/completions",
+            json={
+                "model": model,
+                "messages": ([{"role": "system", "content": system}] if system else []) + messages,
+                "max_tokens": max_tokens,
+                "tools": _tools_for(provider, tools),
+                "stream": True,
+            },
+            headers={"Authorization": f"Bearer {api_key}"},
+        ) as response:
+            if response.status_code >= 400:
+                await response.aread()
+                raise _safe_error(provider, response)
+            text_buf = ""
+            pending_calls: dict[int, dict[str, Any]] = {}
+            async for data in _sse_data(response):
+                if data.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                piece = delta.get("content") or ""
+                if piece:
+                    text_buf += piece
+                    yield piece
+                for call in delta.get("tool_calls") or []:
+                    index = int(call.get("index", 0))
+                    slot = pending_calls.setdefault(
+                        index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+                    )
+                    if call.get("id"):
+                        slot["id"] = call["id"]
+                    function = call.get("function") or {}
+                    if function.get("name"):
+                        slot["function"]["name"] += function["name"]
+                    if function.get("arguments"):
+                        slot["function"]["arguments"] += function["arguments"]
+            calls = []
+            for index in sorted(pending_calls):
+                slot = pending_calls[index]
+                try:
+                    arguments = json.loads(slot["function"]["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    arguments = {}
+                calls.append(ToolCall(id=slot["id"], name=slot["function"]["name"], arguments=arguments))
+            raw: dict[str, Any] = {"role": "assistant", "content": text_buf or None}
+            if pending_calls:
+                raw["tool_calls"] = [pending_calls[i] for i in sorted(pending_calls)]
+            yield Turn(text=text_buf.strip(), tool_calls=calls, raw_message=raw)
 
 
 def user_message(provider: str, text: str) -> Any:

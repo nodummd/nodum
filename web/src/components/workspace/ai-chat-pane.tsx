@@ -49,7 +49,10 @@ export function AiChatPane({
 }) {
   const queryClient = useQueryClient();
   const openSettings = useWorkspaceStore((s) => s.openSettings);
-  const { data: status, isLoading } = useQuery({ queryKey: ["ai-status"], queryFn: aiApi.status });
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["ai-status", vaultId],
+    queryFn: () => aiApi.status(vaultId),
+  });
 
   // Which thread is showing, as an intent rather than an id — so "the most
   // recent one" survives the list loading, and "new chat" is not immediately
@@ -87,22 +90,43 @@ export function AiChatPane({
 
   const scrollToEnd = () => requestAnimationFrame(() => listRef.current?.scrollTo({ top: 1e6 }));
 
+  // What the assistant is doing and saying right now, while the turn streams:
+  // the reply grows word by word, and a tool call shows as a status line.
+  const [live, setLive] = useState<{ text: string; status: string | null; actions: AIAction[] }>({
+    text: "",
+    status: null,
+    actions: [],
+  });
+
   const send = useMutation({
     mutationFn: async (text: string) => {
       // Whatever note is open goes along as context, so "summarise this" works.
       const open = noteId ? queryClient.getQueryData<Note>(["note", vaultId, noteId]) : undefined;
       const context = open ? `# ${open.title}\n\n${open.content.slice(0, CONTEXT_CHARS)}` : "";
-      return aiApi.vaultChat(vaultId, {
-        message: text,
-        conversation_id: conversationId ?? undefined,
-        context,
-      });
+      return aiApi.vaultChatStream(
+        vaultId,
+        { message: text, conversation_id: conversationId ?? undefined, context },
+        (event) => {
+          if (event.type === "delta") {
+            setLive((l) => ({ ...l, status: null, text: l.text + event.text }));
+          } else if (event.type === "status") {
+            setLive((l) => ({ ...l, status: event.text }));
+          } else if (event.type === "action") {
+            setLive((l) => ({ ...l, actions: [...l.actions, event.action] }));
+          } else if (event.type === "reset") {
+            setLive((l) => ({ ...l, text: "" }));
+          }
+          scrollToEnd();
+        },
+      );
     },
     onMutate: (text: string) => {
       setPending((m) => [...m, { role: "user", content: text, actions: [] }]);
+      setLive({ text: "", status: null, actions: [] });
       setDraft("");
       scrollToEnd();
     },
+    onSettled: () => setLive({ text: "", status: null, actions: [] }),
     onSuccess: (data) => {
       setPending((m) => [
         ...m,
@@ -259,6 +283,9 @@ export function AiChatPane({
                 "rounded-md px-2 py-1.5 text-[13px]",
                 message.role === "user" ? "bg-ob-active text-ob-text" : "bg-ob-bg text-ob-muted",
               )}
+              // The reading view sizes itself from the editor's font setting;
+              // in a side panel it should match the panel.
+              style={{ "--editor-font-size": "13px" } as React.CSSProperties}
             >
               {message.role === "assistant" ? (
                 <ReadingView
@@ -287,7 +314,24 @@ export function AiChatPane({
             ))}
           </div>
         ))}
-        {send.isPending && <p className="px-1 text-[13px] text-ob-faint">Thinking…</p>}
+        {send.isPending && (
+          <div className="space-y-1.5" data-testid="ai-live">
+            {live.text ? (
+              <>
+                <p className="px-1 text-[11px] font-medium tracking-wide text-ob-faint uppercase">Assistant</p>
+                <div
+                  className="rounded-md bg-ob-bg px-2 py-1.5 text-[13px] text-ob-muted"
+                  style={{ "--editor-font-size": "13px" } as React.CSSProperties}
+                >
+                  <ReadingView content={live.text} vaultId={vaultId} onNavigate={() => undefined} />
+                </div>
+              </>
+            ) : null}
+            <p className="px-1 text-[13px] text-ob-faint" aria-live="polite">
+              {live.status ?? (live.text ? "" : "Thinking…")}
+            </p>
+          </div>
+        )}
       </div>
 
       <form

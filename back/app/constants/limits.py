@@ -36,3 +36,7 @@ UNLINKED_MENTIONS_TIMEOUT_MS = 2000
 # be per-tenant (partitioning or partial indexes), which is a schema decision,
 # not a tuning one.
 RELATED_NOTES_TIMEOUT_MS = 2000
+
+# One MCP call (JSON-RPC body). Enough for a 5 MB attachment as base64 plus
+# a batch of markdown files; far below the REST zip import, which streams.
+MCP_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024

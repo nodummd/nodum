@@ -22,6 +22,9 @@ export function SiteNav() {
           <a className="mk-navlink" href="#self-host">
             Self-host
           </a>
+          <Link className="mk-navlink" href="/docs">
+            Docs
+          </Link>
           <a className="mk-navlink" href={GITHUB} target="_blank" rel="noreferrer">
             GitHub
           </a>
@@ -54,9 +57,9 @@ export function SiteFooter() {
           <a className="mk-navlink" href={GITHUB} target="_blank" rel="noreferrer">
             Source
           </a>
-          <a className="mk-navlink" href={`${GITHUB}#quick-start`} target="_blank" rel="noreferrer">
+          <Link className="mk-navlink" href="/docs">
             Docs
-          </a>
+          </Link>
           <Link className="mk-navlink" href="/login">
             Log in
           </Link>

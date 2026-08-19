@@ -224,13 +224,28 @@ export interface AICredentialInfo {
   base_url: string;
 }
 
-export interface AIStatus {
-  /** False when the server has no encryption key, so keys cannot be stored. */
-  available: boolean;
+/** One scope's keys: the account's (every vault) or one vault's own. */
+export interface AIScopeStatus {
   configured: boolean;
   active_provider: string | null;
   active_model: string;
   credentials: AICredentialInfo[];
+}
+
+export interface AIStatus {
+  /** False when the server has no encryption key, so keys cannot be stored. */
+  available: boolean;
+  /** What chat in the asked-for context uses: the vault's own keys when it
+   *  has any, the account's otherwise. */
+  configured: boolean;
+  active_provider: string | null;
+  active_model: string;
+  /** The account's keys (kept at the top level for older callers). */
+  credentials: AICredentialInfo[];
+  account: AIScopeStatus;
+  /** Present when the status was asked for a vault. */
+  vault: AIScopeStatus | null;
+  effective_scope: "vault" | "account" | null;
   providers: AIProviderInfo[];
 }
 
@@ -251,6 +266,15 @@ export interface AIChatReply {
   title: string;
 }
 
+/** One server-sent event of a streamed vault chat turn. */
+export type AIStreamEvent =
+  | { type: "status"; text: string; tool?: string }
+  | { type: "delta"; text: string }
+  | { type: "action"; action: AIAction }
+  | { type: "reset" }
+  | ({ type: "done" } & AIChatReply)
+  | { type: "error"; code?: string; message: string };
+
 export interface AIConversationMeta {
   id: string;
   title: string;
@@ -269,4 +293,23 @@ export interface AIConversationDetail {
   title: string;
   updated_at: string;
   messages: AIConversationMessage[];
+}
+
+// ── MCP tokens ───────────────────────────────────────────────────────────────
+
+/** A minted token, minus the token itself (only the create response has it). */
+export interface McpToken {
+  id: string;
+  kind: string;
+  name: string;
+  hint: string;
+  created_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface McpTokenList {
+  tokens: McpToken[];
+  /** The URL an MCP client should be pointed at. */
+  endpoint: string;
 }

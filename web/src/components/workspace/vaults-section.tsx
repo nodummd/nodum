@@ -4,10 +4,11 @@
  *  Opening another vault is a link, not a button — see vault-switcher.tsx. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { confirmDelete } from "./confirm-dialog";
+import { useCreateDemoWorkspace } from "./demo-workspace-offer";
 import { NewVaultDialog } from "./vault-switcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ export function VaultsSection({ vaultId }: { vaultId: string }) {
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
   const [creating, setCreating] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
+  const createDemo = useCreateDemoWorkspace();
 
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => vaultApi.update(id, { name }),
@@ -105,10 +107,25 @@ export function VaultsSection({ vaultId }: { vaultId: string }) {
           </li>
         ))}
       </ul>
-      <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
-        <Plus className="mr-1 size-3.5" strokeWidth={2} />
-        New vault
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
+          <Plus className="mr-1 size-3.5" strokeWidth={2} />
+          New vault
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={createDemo.isPending}
+          onClick={() => createDemo.mutate()}
+        >
+          <Sparkles className="mr-1 size-3.5" strokeWidth={2} />
+          {createDemo.isPending ? "Creating demo…" : "Create a demo workspace"}
+        </Button>
+      </div>
+      <p className="text-[12px] text-ob-faint">
+        The demo is a separate vault with 200+ linked notes, coloured folders and graph groups —
+        a safe place to try things.
+      </p>
       <NewVaultDialog open={creating} onOpenChange={setCreating} />
     </section>
   );

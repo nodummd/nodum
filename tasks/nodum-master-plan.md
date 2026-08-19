@@ -223,6 +223,30 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-19 (account recovery and closure)** — Three flows now hang off the
+  signup OTP work: forgotten-password reset, password change from settings
+  (the endpoint and UI already existed — it needed coverage, not code), and
+  account deletion behind its own emailed code.
+  `email_verifications` gained a `purpose` column, and every lookup is scoped
+  by it, so the code sitting in an inbox from signing up cannot be spent on a
+  password reset — the purpose is mixed into the HMAC too, belt and braces.
+  Reset drops every session that existed before it: a reset is what someone
+  does when they suspect they have lost control of the account, so leaving the
+  intruder's refresh token alive would defeat the exercise. It also marks the
+  address verified, since reaching a mailed code proves the mailbox as surely
+  as signup does.
+  Deletion is *not* gated on the password as well as the code: accounts made
+  through Google sign-in carry a random password their owner has never seen
+  (oauth_service mints one), so requiring it would lock exactly those people
+  out of closing their own account. It purges each vault's S3 prefix before
+  the row goes, because a DB cascade cannot reach into the bucket and orphaned
+  attachments are precisely what someone closing an account expects to be
+  gone; the purge is best-effort so a sulking bucket cannot strand a
+  half-deleted account.
+  9 new backend tests + 3 new e2e; 171 backend and the full e2e suite green.
+  Note for later: the one-shot backend failure seen mid-run was Redis still
+  coming up with Docker, not a regression — two clean runs after.
+
 - **2026-08-19 (smoke.sh caught up with verification)** — The first production
   deploy reported `✗ signup failed: {"status":"verification_required"…}`. The
   deploy was healthy: that 201 proves the API answered, the user and code rows
@@ -722,3 +746,68 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     provenance, and an MV3 extension under clipper/.
   - Graph also gained an Obsidian-grade layout pass, richer interactions, and a
     guard so a failed WebGL context can no longer take down the workspace.
+
+- **2026-08-19: First run, docs, MCP.** Five chained branches, all merged to dev
+  (`tasks/nodum-onboarding-docs-mcp-goal.md`):
+  - *Branching* — `<kind>/<N>.<slug>_<contributor>_<DDMMYYYYHHMM>`, cut as a chain.
+  - *Demo Workspace* — the "Second Brain" vault is a repo fixture (207 notes +
+    manifest of folder colours by path, 13 graph groups); `POST /vaults/demo`
+    imports it through `import_zip` and maps colours onto the created folders.
+    Offered once (the tour's last step; a dialog on phones), creatable any time
+    from Settings → Vault.
+  - *Onboarding* — a spotlight tour over the real interface, keyboard driven,
+    Skip/×/Esc route through the one demo question, re-runnable from a new Help
+    "?" in the ribbon. Fixed a real layout leak between vaults in one tab and a
+    lost-update race on `PATCH /auth/me`.
+  - *Docs* — `/docs`: 21 articles, each with a "where" line and screenshots
+    captured from the running app by `npm run docs:shots`. Reached from Help,
+    the palette, the tour, Settings, the site nav.
+  - *MCP* — Nodum is an MCP server at `/api/v1/mcp` (Streamable HTTP, stateless
+    JSON), 36 tools over the same services and ownership checks as the app,
+    per-user hashed revocable tokens (Settings → MCP with copy-paste configs for
+    Claude Code / Claude Desktop / Cursor). Verified with raw JSON-RPC, the
+    official client SDK and `claude mcp add` (✔ Connected).
+  - *Review pass* — a 39-agent adversarial review confirmed 34 findings, all
+    fixed on `bug/7.review-fixes_…`: an MCP cross-tenant read by note title
+    (ownership check now precedes every lookup; exact title match), silent
+    misfiling on invalid folder names (`ensure_folder_path` → ServiceResponse),
+    the 4 MiB MCP body cap, tour focus/keyboard/inert/resize defects, lost
+    first-run answers after token expiry, the deleted-vault dead end, and a
+    dozen doc claims the app did not honour. Details in the goal doc.
+  - *Second review pass* — 22 more on `bug/8.review-fixes-2_…`, including two
+    regressions from the first fix (stale-list redirect, unverified-token
+    rate-limit bucket), MCP tokens surviving password reset/change (revoked
+    now), `list_attachments` crash, prepend-above-frontmatter, ⌘E double
+    binding, and eight more doc claims. Details in the goal doc.
+  - *Third review pass* — 13 more on `bug/10.review-fixes-3_…`, headline: a
+    pre-existing cross-account leak in one browser (query cache + persisted
+    vault survived logout) — fixed and e2e-covered; Claude Desktop config via
+    env; token cap lock; demo-creation race; daily notes on the user's clock.
+  - *Fourth pass (regressions only)* — backend dry; two web follow-ups from the
+    sign-out change (boot-time cache clear vs. public pages; keep the open
+    vault across sign-out) on `bug/11.review-fixes-4_…`. Loop closed.
+
+- **2026-08-19: the backlog-and-release cycle → v3.3.0** (`tasks/nodum-release-cycle-goal.md`).
+  Ten chained branches off `dev`, each gated and merged `--no-ff`:
+  - *Collab under `--workers 4`* — shared seed (atomic Lua), heartbeat
+    liveness, late-join catch-up that never resets over a live holder, single
+    persist owner, per-save reset lock, presence relay across workers, local
+    undo. Verified 6× against a real 4-worker API.
+  - *Undo/redo* survives tab and mode switches (Compartments + per-pane/note
+    history snapshots); Windows redo chord.
+  - *Explorer click opens in the current tab*; `[[Note#Heading]]` lands on
+    the heading (both views).
+  - *AI*: streamed replies with live tool status; per-vault keys.
+  - *Docs* full-text search with snippets.
+  - *Tables*: per-cell undo, grid paste, arrow navigation, move row, focus
+    follow-through, collab cell tints; unescape/escape made inverse.
+  - *MCP*: SSE responses with progress on long tools; `packages/nodum-mcp`
+    stdio bridge (not on npm yet).
+  - The two long-standing e2e flakes had one cause (the switcher acting on
+    stale results) — fixed in the product.
+  - A 19-agent review of the cycle found 14 real defects (incl. a collab
+    duplication on a slow holder and backslash doubling in tables) — fixed.
+  - Prod image: bounded graceful shutdown (8 s) — open SSE streams kept
+    workers alive on SIGTERM.
+  - Gates at the release point: `make verify`, 155 backend integration,
+    211 Playwright, all green.

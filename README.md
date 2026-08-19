@@ -97,7 +97,20 @@ zip back whenever you want to leave.
   presence.
 - **Publish** — public share links per note and a public site view per vault.
 
+### 🧭 Getting your bearings
+- **First-run tour** — a spotlight walk through the real interface, skippable, re-runnable from Help.
+- **Demo Workspace** — 200 linked notes with coloured folders and graph groups, one click, so you can explore before you write.
+- **Documentation at `/docs`** — every button and panel explained, with screenshots captured from the app itself.
+
+### 🤝 Editing together
+- **Live collaboration** that works across API workers — one shared document seed, presence everywhere, your own undo.
+- **Tables you type into**: cells, rows and columns, paste a grid from a spreadsheet, move rows, per-cell undo.
+
+### 🤖 AI, your key
+- **An assistant you bring your own key for** — Claude, OpenAI, Gemini or Qwen, encrypted at rest — that searches, reads, creates and extends notes in your vault, streams its replies, keeps per-vault chat history, and can use a different key per vault.
+
 ### 🧩 Extending
+- **MCP server** — Nodum speaks the Model Context Protocol: point Claude Code, Claude Desktop or Cursor at `/api/v1/mcp` with a token and the AI can create vaults, write and link notes, colour folders, search, import and export — 36 tools, same rules as the app, progress on long imports. A stdio bridge lives in `packages/nodum-mcp`.
 
 - **Plugins** — a capability-scoped API inside an opaque-origin sandboxed iframe
   (`sandbox="allow-scripts"`, no `allow-same-origin`, `connect-src 'none'`), permission
@@ -117,17 +130,15 @@ zip back whenever you want to leave.
   provider chain (Brevo → Mailjet → Resend → Mailgun → any SMTP relay), which both
   survives one provider's bad hour and stacks their free tiers. Outside production
   nothing is mailed and the code is always `123456`.
+- **Account recovery and closure** — forgotten-password reset by mailed code (which
+  drops every existing session, since that is what a reset is *for*), password change
+  from settings, and account deletion behind its own emailed code, taking the vaults,
+  notes and stored files with it. Codes are scoped by purpose, so a reset code cannot
+  delete an account.
 - **Built to scale** — async I/O end to end, Redis caching with targeted invalidation,
   Celery for import/export and background scans, WebGL rendering, CDN-friendly frontend.
 - **Operationally honest** — structured logging, request-id middleware, security headers,
   CORS, deep `/health`, and an API that *refuses to boot* on placeholder secrets.
-
-### Coming next
-
-On `dev`, shipping in the next release: an **AI assistant** you bring your own key for —
-Claude, OpenAI, Gemini or Qwen, encrypted at rest with Fernet — that can search, read,
-create and append to notes in your vault, with per-vault chat history; **multi-vault
-browser tabs**; and **directly editable tables**.
 
 ## Stack
 
@@ -210,8 +221,14 @@ live-preview math, and trash/restore.
 
 ## Contributing
 
-- **Branch model** — `main` (production) ← `dev` (integration) ← `feature/*`, merged back
-  with `--no-ff`. [Conventional commits](https://www.conventionalcommits.org/).
+- **Branch model** — `main` (production) ← `dev` (integration) ← work branches, merged
+  back with `--no-ff`. Branches are named
+  `<kind>/<N>.<slug>_<contributor>_<DDMMYYYYHHMM>` — `<kind>` is `feature`, `hotfix`,
+  `chore` or `bug`; `<N>` numbers the branch in its chain; the timestamp is 24-hour —
+  and are cut **as a chain**: the first from `dev`, each next from the previous one
+  (`dev → feature/1.demo-workspace_maqbool_190820260150 →
+  feature/2.onboarding_maqbool_190820260430`).
+  [Conventional commits](https://www.conventionalcommits.org/).
 - **Green before commit** — `uv run pytest tests/unit` and `uv run ruff check .` for the
   backend; `npm run build` and `npm run lint` for the web app.
 - **Never commit secrets.** `.env` is gitignored; only `.env.example` with placeholders

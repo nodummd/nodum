@@ -197,3 +197,19 @@ async def test_note_create_with_folder_path_creates_missing_folders(client: Asyn
     tree = (await client.get(f"/api/v1/vaults/{vault_id}/tree", headers=auth)).json()["data"]
     top = {i["name"] for i in tree["items"] if i["type"] == "folder"}
     assert "Projects" in top
+
+
+async def test_note_create_with_bad_folder_path_is_refused(client: AsyncClient, auth: dict) -> None:
+    """A folder path with a forbidden character used to file the note silently
+    at the root (or under the last valid parent). It is a 4xx now."""
+    vault_id = (await client.get("/api/v1/vaults", headers=auth)).json()["data"][0]["id"]
+    resp = await client.post(
+        f"/api/v1/vaults/{vault_id}/notes",
+        json={"title": "Misfiled", "folder_path": "Projects/Bad|Name"},
+        headers=auth,
+    )
+    assert resp.status_code in (400, 422), resp.text
+    assert "Bad|Name" in resp.json()["error"]["message"]
+    tree = (await client.get(f"/api/v1/vaults/{vault_id}/tree", headers=auth)).json()["data"]
+    folders = [i["name"] for i in tree["items"] if i["type"] == "folder"]
+    assert "Projects" not in folders, "nothing is created for an invalid path"

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.auth import Session, User
+from app.services import api_token_service
 from app.services.service_response import ServiceResponse
 from app.settings import get_settings
 from app.utils.jwt_utils import create_access_token, create_refresh_token, decode_token, new_jti
@@ -266,8 +267,14 @@ async def update_profile(
     avatar_url: str | None = None,
     settings_patch: dict | None = None,
 ) -> ServiceResponse[User]:
-    """Update profile fields; settings are shallow-merged."""
-    user = await db.get(User, user_id)
+    """Update profile fields; settings are shallow-merged.
+
+    The merge is read-modify-write, so the row is locked for it: two PATCHes in
+    flight at once (the first-run tour finishing and the demo answered in the
+    same click) each read the settings before the other wrote, and the last
+    commit silently dropped the other's key.
+    """
+    user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
     if user is None:
         return ServiceResponse.fail("unauthorized", "Account is not available.")
     if name is not None:
@@ -289,12 +296,17 @@ async def change_password(
     if user is None:
         return ServiceResponse.fail("unauthorized", "Account is not available.")
     if not await verify_password_async(current_password, user.password_hash):
-        return ServiceResponse.fail("unauthorized", "Current password is incorrect.")
+        # 403, not 401: the session is fine, the answer is wrong. A 401 would
+        # make the client refresh its token and retry with the same password.
+        return ServiceResponse.fail("forbidden", "Current password is incorrect.")
 
     user.password_hash = await hash_password_async(new_password)
     result = await db.execute(select(Session).where(Session.user_id == user_id, Session.is_active.is_(True)))
     for s in result.scalars():
         s.invalidate("password_changed")
+    # MCP tokens are passwords for one program each — a password change is
+    # the moment to cut them, exactly like the other sessions.
+    await api_token_service.revoke_all(db, user_id, reason="password_changed")
     await db.commit()
     try:
         from app.core.redis import redis_control

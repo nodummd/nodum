@@ -8,6 +8,7 @@
  */
 
 import type { StateCommand } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, StateEffect, type EditorState } from "@codemirror/state";
 
 import {
@@ -142,6 +143,9 @@ function tableCommand(
         changes: { from: table.from, to: table.to, insert: text },
         selection: EditorSelection.cursor(table.from),
         userEvent: "input.format",
+        // Its own undo step: typing right after Delete row must not be
+        // pulled into the same group as the deletion.
+        annotations: isolateHistory.of("full"),
         effects: next.caret ? [focusTableCell.of(next.caret)] : [],
       }),
     );
@@ -182,6 +186,19 @@ export const tableInsertRowBelow = tableCommand((t) => {
   rows.splice(t.row + 1, 0, emptyRow(t.rows[0]?.length ?? 1));
   return { rows, aligns: t.aligns, caret: { row: t.row + 1, col: t.col } };
 });
+
+/** Swap the caret's row with its neighbour. The header never moves. */
+function moveRow(delta: -1 | 1): StateCommand {
+  return tableCommand((t) => {
+    const target = t.row + delta;
+    if (t.row === 0 || target === 0 || target >= t.rows.length) return null;
+    const rows = [...t.rows];
+    [rows[t.row], rows[target]] = [rows[target], rows[t.row]];
+    return { rows, aligns: t.aligns, caret: { row: target, col: t.col } };
+  });
+}
+export const tableMoveRowUp = moveRow(-1);
+export const tableMoveRowDown = moveRow(1);
 
 export const tableDeleteRow = tableCommand((t) => {
   if (t.rows.length <= 1 || t.row === 0) return null; // keep the header

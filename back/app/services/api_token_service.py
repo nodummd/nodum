@@ -1,0 +1,147 @@
+"""Long-lived API tokens (the MCP credential): mint, list, revoke, verify.
+
+The plaintext is `nodum_<kind>_<43 urlsafe chars>` — the prefix so a leaked one
+is recognisable in a log or a secret scanner, the rest 256 bits of CSPRNG. Only
+its SHA-256 is stored.
+"""
+
+import hashlib
+import secrets
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.logging import get_logger
+from app.models.auth import ApiToken, User
+from app.services.service_response import ServiceResponse
+
+MAX_TOKENS_PER_USER = 10
+logger = get_logger(__name__)
+_TOUCH_INTERVAL = timedelta(minutes=1)
+
+
+def _hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _public(token: ApiToken) -> dict[str, Any]:
+    return {
+        "id": str(token.id),
+        "kind": token.kind,
+        "name": token.name,
+        "hint": token.hint,
+        "created_at": token.created_at.isoformat() if token.created_at else None,
+        "last_used_at": token.last_used_at.isoformat() if token.last_used_at else None,
+        "revoked_at": token.revoked_at.isoformat() if token.revoked_at else None,
+    }
+
+
+async def list_tokens(db: AsyncSession, user_id: UUID, kind: str = "mcp") -> ServiceResponse[list[dict[str, Any]]]:
+    rows = (
+        await db.execute(
+            select(ApiToken)
+            .where(ApiToken.user_id == user_id, ApiToken.kind == kind)
+            .order_by(ApiToken.created_at.desc())
+        )
+    ).scalars()
+    return ServiceResponse.ok([_public(t) for t in rows])
+
+
+async def create_token(
+    db: AsyncSession, user_id: UUID, *, name: str, kind: str = "mcp"
+) -> ServiceResponse[dict[str, Any]]:
+    """Mint a token. The plaintext is in the response exactly once."""
+    name = (name or "").strip()[:100] or "MCP client"
+    # Count and insert in one serialised step per user, or parallel creates
+    # all see the same count and the cap is exceeded.
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:u))"), {"u": f"api_tokens:{user_id}"})
+    live = (
+        (
+            await db.execute(
+                select(ApiToken).where(
+                    ApiToken.user_id == user_id, ApiToken.kind == kind, ApiToken.revoked_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(live) >= MAX_TOKENS_PER_USER:
+        return ServiceResponse.fail(
+            "validation_failed", f"You already have {MAX_TOKENS_PER_USER} active tokens — revoke one first."
+        )
+    plaintext = f"nodum_{kind}_{secrets.token_urlsafe(32)}"
+    row = ApiToken(user_id=user_id, kind=kind, name=name, token_hash=_hash(plaintext), hint=plaintext[-4:])
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return ServiceResponse.ok({**_public(row), "token": plaintext})
+
+
+async def revoke_token(db: AsyncSession, user_id: UUID, token_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    row = await db.scalar(select(ApiToken).where(ApiToken.id == token_id, ApiToken.user_id == user_id))
+    if row is None:
+        return ServiceResponse.fail("not_found", "Token not found.")
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now(UTC)
+        await db.commit()
+    return ServiceResponse.ok(_public(row))
+
+
+async def revoke_all(db: AsyncSession, user_id: UUID, *, reason: str) -> int:
+    """Revoke every live token the user holds — what a password reset or change
+    must do, since a token is a password for one program. The caller commits."""
+    result = await db.execute(select(ApiToken).where(ApiToken.user_id == user_id, ApiToken.revoked_at.is_(None)))
+    rows = list(result.scalars())
+    now = datetime.now(UTC)
+    for row in rows:
+        row.revoked_at = now
+    if rows:
+        logger.info("api_tokens_revoked", user_id=str(user_id), count=len(rows), reason=reason)
+    return len(rows)
+
+
+VERIFIED_MARKER_TTL_SECONDS = 120
+
+
+def verified_marker_key(plaintext: str) -> str:
+    """Redis key that says "this token verified recently" — what lets the rate
+    limiter give a *valid* token its own bucket while a made-up `nodum_…`
+    string stays on the per-IP bucket. Keyed by hash; the token is never stored."""
+    return f"mcp_tok_ok:{_hash(plaintext.strip())[:32]}"
+
+
+async def mark_verified(plaintext: str) -> None:
+    try:
+        from app.core.redis import redis_control
+
+        await redis_control.set(verified_marker_key(plaintext), "1", ex=VERIFIED_MARKER_TTL_SECONDS)
+    except Exception:  # Redis down — the limiter falls back to per-IP, which is safe
+        logger.warning("mcp_token_marker_failed")
+
+
+async def verify_token(db: AsyncSession, plaintext: str, *, kind: str = "mcp") -> UUID | None:
+    """The user a live token belongs to, or None. Touches last_used_at at most
+    once a minute — a chatty client should not turn every call into a write."""
+    if not plaintext or not plaintext.startswith(f"nodum_{kind}_"):
+        return None
+    row = await db.scalar(
+        select(ApiToken)
+        .join(User, User.id == ApiToken.user_id)
+        .where(
+            ApiToken.token_hash == _hash(plaintext),
+            ApiToken.kind == kind,
+            ApiToken.revoked_at.is_(None),
+            User.is_active.is_(True),  # a deactivated account's tokens die with its sessions
+        )
+    )
+    if row is None:
+        return None
+    now = datetime.now(UTC)
+    if row.last_used_at is None or now - row.last_used_at > _TOUCH_INTERVAL:
+        row.last_used_at = now
+        await db.commit()
+    return row.user_id

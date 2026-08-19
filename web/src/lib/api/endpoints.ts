@@ -1,8 +1,9 @@
 /** Typed API endpoint functions — the only place the app touches the network. */
 
-import { api, apiJson } from "./client";
+import { api, ApiError, apiJson, apiStream } from "./client";
 import type {
   AIChatReply,
+  AIStreamEvent,
   AIConversationDetail,
   AIConversationMeta,
   AIStatus,
@@ -13,6 +14,8 @@ import type {
   CanvasMeta,
   FolderInfo,
   Graph,
+  McpToken,
+  McpTokenList,
   Note,
   NoteMeta,
   OutgoingLink,
@@ -41,6 +44,14 @@ export const authApi = {
     apiJson<TokenPair>("/auth/verify-email", "POST", body),
   resendVerification: (body: { email: string }) =>
     apiJson<{ message: string }>("/auth/resend-verification", "POST", body),
+  forgotPassword: (body: { email: string }) =>
+    apiJson<{ message: string }>("/auth/forgot-password", "POST", body),
+  resetPassword: (body: { email: string; code: string; new_password: string }) =>
+    apiJson<TokenPair>("/auth/reset-password", "POST", body),
+  requestAccountDeletion: () =>
+    apiJson<{ message: string; expires_in_minutes: number }>("/auth/delete-account/request", "POST"),
+  deleteAccount: (body: { code: string }) =>
+    apiJson<{ message: string }>("/auth/delete-account", "POST", body),
   refresh: () => apiJson<TokenPair>("/auth/refresh", "POST"),
   logout: () => apiJson<{ message: string }>("/auth/logout", "POST"),
   me: () => api<User>("/auth/me"),
@@ -55,6 +66,11 @@ export const authApi = {
 
 export const vaultApi = {
   list: () => api<Vault[]>("/vaults"),
+  /** What the Demo Workspace is — public, for the onboarding card. */
+  describeDemo: () => api<{ name: string; description: string; note_count: number }>("/vaults/demo"),
+  /** Create the populated demo vault for this user. */
+  createDemo: () =>
+    apiJson<{ vault: Vault; open_note_id: string | null; imported: number }>("/vaults/demo", "POST"),
   create: (name: string) => apiJson<Vault>("/vaults", "POST", { name }),
   update: (vaultId: string, body: { name?: string; settings?: Record<string, unknown> }) =>
     apiJson<Vault>(`/vaults/${vaultId}`, "PATCH", body),
@@ -165,12 +181,22 @@ export const bookmarkApi = {
 
 // ── Daily notes & templates ──────────────────────────────────────────────────
 
+/** The browser's wall clock as a naive local ISO string — "today" and
+ *  {{time}} are the person's, not the server's (which runs in UTC). */
+export function localNowIso(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 export const dailyApi = {
-  openDailyNote: (vaultId: string) => apiJson<Note>(`/vaults/${vaultId}/daily-note`, "POST"),
+  openDailyNote: (vaultId: string) =>
+    apiJson<Note>(`/vaults/${vaultId}/daily-note`, "POST", { now: localNowIso() }),
   listTemplates: (vaultId: string) =>
     api<{ id: string; title: string; path: string }[]>(`/vaults/${vaultId}/templates`),
   insertTemplate: (vaultId: string, noteId: string, templateId: string) =>
-    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST"),
+    apiJson<Note>(`/vaults/${vaultId}/notes/${noteId}/insert-template/${templateId}`, "POST", {
+      now: localNowIso(),
+    }),
 };
 
 // ── Canvases ─────────────────────────────────────────────────────────────────
@@ -246,17 +272,32 @@ export const attachmentApi = {
 // ── AI (bring your own key) ──────────────────────────────────────────────────
 
 export const aiApi = {
-  status: () => api<AIStatus>("/ai/status"),
+  /** With a vault id: that vault's own keys too, and which scope chat there uses. */
+  status: (vaultId?: string) =>
+    api<AIStatus>(vaultId ? `/ai/status?vault_id=${vaultId}` : "/ai/status"),
   saveCredential: (body: {
     provider: string;
     api_key?: string;
     model?: string;
     base_url?: string;
-  }) => apiJson<{ provider: string; model: string; key_hint: string }>("/ai/credentials", "PUT", body),
-  removeCredential: (provider: string) =>
-    apiJson<{ message: string }>(`/ai/credentials/${provider}`, "DELETE"),
-  test: (provider: string) =>
-    apiJson<{ provider: string; model: string; reply: string }>(`/ai/test/${provider}`, "POST"),
+    /** Set = a key for this vault only (it wins there); omitted = the account's. */
+    vault_id?: string;
+  }) =>
+    apiJson<{ provider: string; model: string; key_hint: string; scope: "vault" | "account" }>(
+      "/ai/credentials",
+      "PUT",
+      body,
+    ),
+  removeCredential: (provider: string, vaultId?: string) =>
+    apiJson<{ message: string }>(
+      `/ai/credentials/${provider}${vaultId ? `?vault_id=${vaultId}` : ""}`,
+      "DELETE",
+    ),
+  test: (provider: string, vaultId?: string) =>
+    apiJson<{ provider: string; model: string; reply: string }>(
+      `/ai/test/${provider}${vaultId ? `?vault_id=${vaultId}` : ""}`,
+      "POST",
+    ),
   chat: (body: { messages: { role: string; content: string }[]; context?: string }) =>
     apiJson<AIChatReply>("/ai/chat", "POST", body),
   /** Chat that can search, read, create and extend notes in this vault.
@@ -265,6 +306,44 @@ export const aiApi = {
     vaultId: string,
     body: { message: string; conversation_id?: string; context?: string },
   ) => apiJson<AIChatReply>(`/ai/vaults/${vaultId}/chat`, "POST", body),
+  /** The same turn, streamed: `onEvent` sees status / delta / action / reset
+   *  events as they happen; the promise resolves with the stored reply (the
+   *  `done` event) or rejects with the `error` event's message. */
+  vaultChatStream: (
+    vaultId: string,
+    body: { message: string; conversation_id?: string; context?: string },
+    onEvent: (event: AIStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<AIChatReply> =>
+    new Promise<AIChatReply>((resolve, reject) => {
+      let settled = false;
+      apiStream(
+        `/ai/vaults/${vaultId}/chat/stream`,
+        body,
+        (raw) => {
+          const event = raw as unknown as AIStreamEvent;
+          if (event.type === "done") {
+            settled = true;
+            const { type: _type, ...reply } = event;
+            void _type;
+            resolve(reply as AIChatReply);
+          } else if (event.type === "error") {
+            settled = true;
+            reject(new ApiError(200, "ai_stream", event.message));
+          } else {
+            onEvent(event);
+          }
+        },
+        signal,
+      ).then(
+        () => {
+          if (!settled) reject(new ApiError(200, "ai_stream", "The provider closed the stream early."));
+        },
+        (err) => {
+          if (!settled) reject(err);
+        },
+      );
+    }),
   conversations: (vaultId: string) =>
     api<AIConversationMeta[]>(`/ai/vaults/${vaultId}/conversations`),
   conversation: (vaultId: string, id: string) =>
@@ -277,4 +356,13 @@ export const aiApi = {
     ),
   deleteConversation: (vaultId: string, id: string) =>
     apiJson<{ message: string }>(`/ai/vaults/${vaultId}/conversations/${id}`, "DELETE"),
+};
+
+// ── MCP tokens ───────────────────────────────────────────────────────────────
+
+export const mcpApi = {
+  tokens: () => api<McpTokenList>("/mcp-tokens"),
+  /** The token is in THIS response only — show it once. */
+  createToken: (name: string) => apiJson<McpToken & { token: string }>("/mcp-tokens", "POST", { name }),
+  revokeToken: (id: string) => apiJson<McpToken>(`/mcp-tokens/${id}`, "DELETE"),
 };

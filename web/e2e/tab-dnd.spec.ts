@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-import { openNoteFromExplorer, signupFreshUser } from "./helpers";
+import { openNoteFromExplorer, openNoteInNewTab, signupFreshUser } from "./helpers";
 
 /** S13.2 — tab drag-and-drop: reorder, move between panes, edge-split. */
 test.describe("tab drag-and-drop", () => {
   test("dragging a tab to the right edge splits side-by-side", async ({ page }) => {
     await signupFreshUser(page, "dnd-right");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Linking your thinking");
     await expect(page.locator(".cm-content")).toHaveCount(1, { timeout: 10_000 });
 
     const tab = page.getByRole("tab", { name: /Linking your thinking/ });
@@ -27,7 +27,7 @@ test.describe("tab drag-and-drop", () => {
   test("dragging a tab to the bottom edge splits stacked", async ({ page }) => {
     await signupFreshUser(page, "dnd-bottom");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Linking your thinking");
     await expect(page.locator(".cm-content")).toHaveCount(1, { timeout: 10_000 });
 
     const tab = page.getByRole("tab", { name: /Linking your thinking/ });
@@ -46,8 +46,8 @@ test.describe("tab drag-and-drop", () => {
   test("reordering a tab within its strip", async ({ page }) => {
     await signupFreshUser(page, "dnd-reorder");
     await openNoteFromExplorer(page, "Welcome to Nodum");
-    await openNoteFromExplorer(page, "Linking your thinking");
-    await openNoteFromExplorer(page, "Formatting showcase");
+    await openNoteInNewTab(page, "Linking your thinking");
+    await openNoteInNewTab(page, "Formatting showcase");
 
     const tabs = page.getByRole("tab");
     await expect(tabs).toHaveCount(3);

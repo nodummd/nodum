@@ -92,6 +92,28 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, code, message, details);
 }
 
+// Endpoints whose own 401 means "wrong credentials", not "token expired":
+// refreshing and retrying those would be wrong (and, for login, would log the
+// person out of nothing). Everything else under /auth — /auth/me, change
+// password, delete-account — is a normal authenticated call and gets the
+// refresh-and-retry like any other, so an answer given after the access token
+// expired (the first-run tour, left open for a while) is not silently lost.
+const CREDENTIAL_PATHS = [
+  "/auth/refresh",
+  "/auth/login",
+  "/auth/signup",
+  "/auth/logout",
+  "/auth/verify-email",
+  "/auth/resend-verification",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  // not /auth/change-password: a wrong current password is a 403 there, so an
+  // expired token is the only 401 it can return — and that must refresh.
+];
+function isCredentialPath(path: string): boolean {
+  return CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(`${p}?`));
+}
+
 export async function api<T>(
   path: string,
   init: RequestInit = {},
@@ -99,7 +121,7 @@ export async function api<T>(
 ): Promise<T> {
   let res = await rawRequest(path, init);
 
-  if (res.status === 401 && retryOn401 && !path.startsWith("/auth/")) {
+  if (res.status === 401 && retryOn401 && !isCredentialPath(path)) {
     if (await tryRefresh()) {
       res = await rawRequest(path, init);
     } else {
@@ -131,4 +153,59 @@ export function apiJson<T>(
     headers: payload === undefined ? {} : { "Content-Type": "application/json" },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
+}
+
+/** POST and read a server-sent-event stream: each `data:` payload is parsed as
+ *  JSON and handed to `onEvent` as it arrives. Same auth and refresh-and-retry
+ *  as `api()`; a non-2xx before the stream starts throws the usual ApiError. */
+export async function apiStream(
+  path: string,
+  payload: unknown,
+  onEvent: (event: Record<string, unknown>) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const init: RequestInit = {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify(payload),
+    signal,
+  };
+  let res = await rawRequest(path, init);
+  if (res.status === 401 && !isCredentialPath(path)) {
+    if (await tryRefresh()) {
+      res = await rawRequest(path, init);
+    } else {
+      accessToken = null;
+      authExpiredHandler?.();
+    }
+  }
+  if (!res.ok) throw await parseError(res);
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const flush = (block: string) => {
+    const data = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+    try {
+      onEvent(JSON.parse(data) as Record<string, unknown>);
+    } catch {
+      /* a malformed frame is dropped, the stream goes on */
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let at: number;
+    while ((at = buffer.indexOf("\n\n")) >= 0) {
+      flush(buffer.slice(0, at));
+      buffer = buffer.slice(at + 2);
+    }
+  }
+  if (buffer.trim()) flush(buffer);
 }

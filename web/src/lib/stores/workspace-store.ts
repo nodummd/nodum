@@ -199,7 +199,12 @@ const vaultScopedStorage: PersistStorage<Persisted> = {
       version: record.version,
       state: {
         ...(state as unknown as Persisted),
-        panes: layout?.panes ?? legacy ?? [],
+        // The in-memory panes and activeVaultId must always agree: setItem
+        // files panes under activeVaultId, so hydrating B's layout while
+        // claiming to be A would write B's tabs over A's on the first change.
+        activeVaultId: vaultId,
+        // Never []: the workspace indexes panes[activePane] on first render.
+        panes: layout?.panes ?? legacy ?? [emptyPane()],
         activePane: layout?.activePane ?? 0,
       },
     };
@@ -207,7 +212,11 @@ const vaultScopedStorage: PersistStorage<Persisted> = {
   setItem: (_name, value) => {
     if (typeof window === "undefined") return;
     const { panes, activePane, ...chrome } = value.state;
-    const vaultId = vaultIdFromPath() ?? value.state.activeVaultId ?? null;
+    // Keyed by the vault the in-memory panes BELONG to — not by the URL. On a
+    // client-side move from vault A to vault B, child effects write to the
+    // store before the page's setActiveVault runs; keying by URL then filed
+    // A's tabs under B and B "restored" a layout it never had.
+    const vaultId = value.state.activeVaultId ?? null;
     // Re-read rather than trusting what we last wrote: the other tab may have
     // saved its own vault's layout since.
     const layouts = { ...(readRecord()?.state?.layouts ?? {}) };
@@ -250,6 +259,9 @@ interface WorkspaceState {
   /** Explorer reveal request: {kind, id, nonce}. The nonce makes repeat
    *  reveals of the SAME item distinct events, so asking twice works. */
   revealTarget: { kind: "note" | "folder"; id: string; nonce: number } | null;
+  /** A [[Note#Heading]] was followed: the note's editor scrolls to the heading
+   *  once it is on screen. Consumed by the pane that shows the note. */
+  pendingHeading: { noteId: string; heading: string; nonce: number } | null;
   editorMode: EditorMode;
   /** User's "default view for new tabs" pref (runtime mirror, not persisted). */
   defaultEditorMode: EditorMode;
@@ -261,6 +273,8 @@ interface WorkspaceState {
    *  (the vault switcher's "Manage vaults…", the AI panel's "set this up"). */
   settingsOpen: boolean;
   settingsTab: string | null;
+  /** The onboarding tour, re-opened on request (first run opens it itself). */
+  tourOpen: boolean;
   leftPane: "files" | "search" | "bookmarks";
   /** One-shot query seed for the search pane (tag pane click-to-search). */
   searchSeed: string | null;
@@ -304,6 +318,13 @@ interface WorkspaceState {
   /** Same, for a folder. */
   revealFolder: (folderId: string) => void;
   setSplitOrientation: (orientation: "row" | "column") => void;
+  setPendingHeading: (noteId: string, heading: string) => void;
+  clearPendingHeading: (nonce: number) => void;
+  /** Sign-out hygiene: close every transient overlay and drop the note-bound
+   *  state, so the next account (same browser) starts clean. The remembered
+   *  vault stays — the same person logging back in returns to it, and for a
+   *  different account the dispatcher never finds it in their list. */
+  resetForSignOut: () => void;
   /** Reorder a tab within its pane. */
   reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
   /** Move a tab to another existing pane (falls back to reorder if same pane). */
@@ -319,6 +340,7 @@ interface WorkspaceState {
   /** Open settings, optionally straight to a named tab. */
   openSettings: (tab?: string) => void;
   setSettingsOpen: (open: boolean) => void;
+  setTourOpen: (open: boolean) => void;
   setLeftPane: (pane: "files" | "search" | "bookmarks") => void;
   setSearchSeed: (q: string | null) => void;
 }
@@ -358,6 +380,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       dragging: null,
       graphFocusNoteId: null,
       revealTarget: null,
+      pendingHeading: null,
       editorMode: "live",
       defaultEditorMode: "live",
       explorerSort: "title-asc",
@@ -366,6 +389,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       versionsOpen: false,
       settingsOpen: false,
       settingsTab: null,
+      tourOpen: false,
       leftPane: "files",
       searchSeed: null,
 
@@ -626,6 +650,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       revealFolder: (folderId) =>
         set({ revealTarget: { kind: "folder", id: folderId, nonce: (get().revealTarget?.nonce ?? 0) + 1 } }),
       setSplitOrientation: (orientation) => set({ splitOrientation: orientation }),
+      setPendingHeading: (noteId, heading) =>
+        set({ pendingHeading: { noteId, heading, nonce: (get().pendingHeading?.nonce ?? 0) + 1 } }),
+      clearPendingHeading: (nonce) => {
+        if (get().pendingHeading?.nonce === nonce) set({ pendingHeading: null });
+      },
+      resetForSignOut: () =>
+        set({
+          settingsOpen: false,
+          settingsTab: null,
+          paletteOpen: false,
+          switcherOpen: false,
+          versionsOpen: false,
+          tourOpen: false,
+          searchSeed: null,
+          graphFocusNoteId: null,
+          revealTarget: null,
+        }),
 
       reorderTab: (tabId, paneIndex, toIndex) => {
         set({
@@ -727,6 +768,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setVersionsOpen: (open) => set({ versionsOpen: open }),
       openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab ?? null }),
       setSettingsOpen: (open) => set({ settingsOpen: open, settingsTab: open ? get().settingsTab : null }),
+      setTourOpen: (open) => set({ tourOpen: open }),
       setLeftPane: (pane) => set({ leftPane: pane }),
       setSearchSeed: (q) => set({ searchSeed: q }),
     }),
@@ -767,7 +809,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       // duplicate; this drops the extras, keeping the first.
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<WorkspaceState>;
-        const rawPanes = p.panes ?? current.panes;
+        const rawPanes = p.panes && p.panes.length > 0 ? p.panes : current.panes;
         const panes = rawPanes.map((pane) => {
           const seen = new Set<string>();
           const tabs = (pane.tabs ?? []).filter((t) => {

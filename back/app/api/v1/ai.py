@@ -5,10 +5,13 @@ are configured and a hint like `sk-ant…7f2a`; that is all a client needs to sh
 the settings screen, and all it is allowed to know.
 """
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies.auth import CurrentUserId
@@ -25,6 +28,8 @@ class CredentialRequest(BaseModel):
     model: str = Field(default="", max_length=128)
     # Self-hosted / regional endpoints.
     base_url: str | None = Field(default=None, max_length=500)
+    # Omitted = the account's key (every vault); set = this vault's own key.
+    vault_id: UUID | None = None
 
 
 class ChatMessage(BaseModel):
@@ -53,13 +58,16 @@ class RenameConversationRequest(BaseModel):
 
 
 @router.get("/status")
-async def ai_status(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
-    """Which providers this user has configured — never the keys themselves."""
-    return {"data": (await ai_service.get_status(db, user_id)).unwrap()}
+async def ai_status(user_id: CurrentUserId, db: SessionDep, vault_id: UUID | None = None) -> dict[str, Any]:
+    """Which providers this user has configured — never the keys themselves.
+    With `vault_id`, also that vault's own keys and which scope chat there uses."""
+    return {"data": (await ai_service.get_status(db, user_id, vault_id)).unwrap()}
 
 
 @router.put("/credentials")
 async def save_credential(body: CredentialRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Store a key for the account, or — with `vault_id` — for one vault, whose
+    own key then wins for chat in that vault."""
     data = (
         await ai_service.save_credential(
             db,
@@ -68,21 +76,26 @@ async def save_credential(body: CredentialRequest, user_id: CurrentUserId, db: S
             api_key=body.api_key,
             model=body.model,
             base_url=body.base_url,
+            vault_id=body.vault_id,
         )
     ).unwrap()
     return {"data": data}
 
 
 @router.delete("/credentials/{provider}")
-async def delete_credential(provider: str, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
-    (await ai_service.delete_credential(db, user_id, provider)).unwrap()
+async def delete_credential(
+    provider: str, user_id: CurrentUserId, db: SessionDep, vault_id: UUID | None = None
+) -> dict[str, Any]:
+    (await ai_service.delete_credential(db, user_id, provider, vault_id)).unwrap()
     return {"data": {"message": "Removed."}}
 
 
 @router.post("/test/{provider}")
-async def test_credential(provider: str, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+async def test_credential(
+    provider: str, user_id: CurrentUserId, db: SessionDep, vault_id: UUID | None = None
+) -> dict[str, Any]:
     """Ask the provider for one word, so a bad key fails where it was pasted."""
-    return {"data": (await ai_service.test_credential(db, user_id, provider)).unwrap()}
+    return {"data": (await ai_service.test_credential(db, user_id, provider, vault_id)).unwrap()}
 
 
 @router.get("/vaults/{vault_id}/conversations")
@@ -138,6 +151,40 @@ async def chat_in_vault(
         )
     ).unwrap()
     return {"data": data}
+
+
+@router.post("/vaults/{vault_id}/chat/stream")
+async def chat_in_vault_stream(
+    vault_id: UUID, body: VaultChatRequest, user_id: CurrentUserId, db: SessionDep
+) -> StreamingResponse:
+    """`chat_in_vault`, streamed as server-sent events so the panel can show the
+    reply as it is written and what the assistant is doing in between:
+
+        data: {"type":"status","text":"Searching the vault…"}
+        data: {"type":"delta","text":"…"}
+        data: {"type":"action","action":{…}}
+        data: {"type":"done", …same payload as the JSON endpoint…}
+        data: {"type":"error","message":"…"}
+
+    Always HTTP 200 once the stream starts; a failure before the first event
+    is still an ordinary error envelope (401, 404, 422)."""
+
+    async def events() -> AsyncIterator[bytes]:
+        async for event in ai_service.chat_with_vault_events(
+            db,
+            user_id,
+            vault_id,
+            message=body.message,
+            conversation_id=body.conversation_id,
+            context=body.context,
+        ):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/chat")

@@ -23,8 +23,45 @@ export async function passEmailVerification(page: Page): Promise<void> {
   if (shown) await field.fill(DEV_OTP); // six digits submits on its own
 }
 
-/** Sign up a fresh user and wait for the workspace to load the welcome vault. */
-export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<string> {
+/**
+ * A brand-new account gets the first-run experience: the Demo Workspace
+ * question (and the onboarding tour). Almost every test wants a plain, quiet
+ * workspace, so this answers them the way a person in a hurry would — but
+ * through the real UI, never by poking flags into the database.
+ */
+export async function dismissFirstRun(page: Page): Promise<void> {
+  // Desktop: the tour. Skip jumps to the demo question, which "Not now" ends.
+  const tour = page.getByTestId("tour");
+  const tourShown = await tour
+    .waitFor({ state: "visible", timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (tourShown) {
+    await tour.getByRole("button", { name: "Skip" }).click();
+    await tour.getByRole("button", { name: "Not now" }).click();
+    await tour.getByRole("button", { name: "Finish" }).click();
+    await expect(tour).toHaveCount(0, { timeout: 10_000 });
+    return;
+  }
+  // Mobile (no tour): the demo question comes as a dialog.
+  const notNow = page.getByRole("button", { name: "Not now" });
+  const shown = await notNow
+    .waitFor({ state: "visible", timeout: 2_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (shown) {
+    await notNow.click();
+    await expect(page.getByTestId("demo-offer")).toHaveCount(0, { timeout: 10_000 });
+  }
+}
+
+/** Sign up a fresh user and wait for the workspace to load the welcome vault.
+ *  Pass `{ keepFirstRun: true }` to leave the first-run prompts up. */
+export async function signupFreshUser(
+  page: Page,
+  prefix = "e2e",
+  opts: { keepFirstRun?: boolean } = {},
+): Promise<string> {
   const email = uniqueEmail(prefix);
   await page.goto("/signup");
   await page.getByLabel("Name").fill("E2E Tester");
@@ -33,20 +70,37 @@ export async function signupFreshUser(page: Page, prefix = "e2e"): Promise<strin
   await page.getByRole("button", { name: "Sign up" }).click();
   await passEmailVerification(page);
   await expect(page).toHaveURL(/\/vault\//, { timeout: 15_000 });
+  // First: the first-run prompt is a modal, and while it is up everything
+  // behind it is aria-hidden — the checks below would not find the workspace.
+  if (!opts.keepFirstRun) await dismissFirstRun(page);
   // Welcome vault is seeded — explorer shows the notes (desktop) or the
   // mobile top bar renders (drawer explorer starts closed)
+  // (…or, when the first-run prompts were kept, the prompt itself — it is
+  // modal and aria-hides the workspace behind it.)
   await expect(
     page
       .getByText("Welcome to Nodum")
       .first()
-      .or(page.getByRole("button", { name: "Open navigation" })),
+      .or(page.getByRole("button", { name: "Open navigation" }))
+      .or(page.getByTestId("tour"))
+      .or(page.getByTestId("demo-offer"))
+      .first(),
   ).toBeVisible({ timeout: 15_000 });
   return email;
 }
 
-/** Open a note via the file explorer. */
+/** Open a note via the file explorer — in the current tab, as a plain click
+ *  does (Obsidian; a pinned tab is never taken over). */
 export async function openNoteFromExplorer(page: Page, title: string): Promise<void> {
   await page.getByText(title, { exact: true }).first().click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(title, {
+    timeout: 10_000,
+  });
+}
+
+/** ⌘/Ctrl-click a note in the explorer: a NEW tab beside the current one. */
+export async function openNoteInNewTab(page: Page, title: string): Promise<void> {
+  await page.getByText(title, { exact: true }).first().click({ modifiers: ["ControlOrMeta"] });
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(title, {
     timeout: 10_000,
   });

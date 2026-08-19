@@ -94,8 +94,9 @@ export const HOTKEYS: HotkeyEntry[] = [
   { section: "Quick switcher", keys: "⌘↵", action: "Open in a background tab" },
 
   // ── Canvas ────────────────────────────────────────────────────────────────
-  { section: "Canvas", keys: "Double-click", action: "Create a card" },
-  { section: "Canvas", keys: "⌫ / Delete", action: "Delete the selected card or edge" },
+  { section: "Canvas", keys: "Toolbar", action: "Add a text or note card" },
+  { section: "Canvas", keys: "⇧ Click", action: "Connect the selected card to another" },
+  { section: "Canvas", keys: "⌫ / Delete", action: "Delete the selected card (and its lines)" },
   { section: "Canvas", keys: "Esc", action: "Finish editing a card" },
 ];
 

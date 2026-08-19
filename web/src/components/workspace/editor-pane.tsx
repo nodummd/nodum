@@ -18,7 +18,7 @@ import { createCollabSession, presenceColor, type CollabSession } from "@/lib/ed
 import { getAccessToken } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { vaultApi } from "@/lib/api/endpoints";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 import { ReadingView } from "@/components/editor/reading-view";
 import { BacklinksInDocument } from "./backlinks-in-document";
@@ -68,6 +68,39 @@ export function EditorPane({
   return <EditorBody key={noteId} vaultId={vaultId} note={note} paneIndex={paneIndex} />;
 }
 
+/** Heading text the way a link would spell it: no markdown markers, no case,
+ *  collapsed whitespace. */
+function normalizeHeading(text: string): string {
+  return text
+    .replace(/[*_`~[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** The document line of the first heading whose text matches — ATX or setext,
+ *  never a `#` inside a fenced code block; a closing `#` run only counts when
+ *  a space precedes it (CommonMark), so `## C#` keeps its name. */
+function findHeadingLine(view: EditorView, heading: string): { from: number } | null {
+  const want = normalizeHeading(heading);
+  const doc = view.state.doc;
+  let inFence = false;
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    if (/^\s{0,3}(```|~~~)/.test(line.text)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const atx = /^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line.text);
+    if (atx && normalizeHeading(atx[1]) === want) return { from: line.from };
+    if (n < doc.lines && line.text.trim() && /^\s{0,3}(=+|-+)\s*$/.test(doc.line(n + 1).text)) {
+      if (normalizeHeading(line.text) === want) return { from: line.from };
+    }
+  }
+  return null;
+}
+
 function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note; paneIndex: number }) {
   const queryClient = useQueryClient();
   const renameTab = useWorkspaceStore((s) => s.renameTab);
@@ -84,6 +117,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
   const titleRef = useRef<HTMLInputElement>(null);
   // The live CodeMirror view, so the ⋯ menu can run editor commands.
   const editorViewRef = useRef<EditorView | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // Obsidian's "Backlinks in document": the same list the right panel shows,
   // pinned under the note body instead of in the sidebar.
   const [backlinksInDocument, setBacklinksInDocument] = useState(false);
@@ -309,12 +343,65 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
     });
   }, [queryClient, vaultId, note.id]);
 
+  // [[Note#Heading]]: once this note is the one asked for, scroll its editor
+  // (or reading view) to the heading. Retried over a few frames because the
+  // editor may still be mounting when the request lands.
+  const pendingHeading = useWorkspaceStore((s) => s.pendingHeading);
+  useEffect(() => {
+    if (!pendingHeading || pendingHeading.noteId !== note.id) return;
+    const { heading, nonce } = pendingHeading;
+    const started = performance.now();
+    let frame = 0;
+    const attempt = (): boolean => {
+      const view = editorViewRef.current;
+      if (view) {
+        const line = findHeadingLine(view, heading);
+        if (line === null) return false;
+        view.dispatch({
+          selection: { anchor: line.from },
+          effects: EditorView.scrollIntoView(line.from, { y: "start", yMargin: 24 }),
+          scrollIntoView: false,
+        });
+        return true;
+      }
+      const reading = bodyRef.current?.querySelector(".nodum-reading");
+      if (reading) {
+        const want = normalizeHeading(heading);
+        const el = Array.from(reading.querySelectorAll("h1,h2,h3,h4,h5,h6")).find(
+          (h) => normalizeHeading(h.textContent ?? "") === want,
+        );
+        if (!el) return false;
+        el.scrollIntoView({ block: "start" });
+        return true;
+      }
+      return false;
+    };
+    // A time budget rather than a frame count: a collab-enabled note shows
+    // "Connecting live session…" for up to 4 s before its editor exists.
+    const tick = () => {
+      if (attempt() || performance.now() - started > 6000) {
+        useWorkspaceStore.getState().clearPendingHeading(nonce);
+        return;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(frame);
+    // activeCollab/waitingForCollab: the effect restarts when the editor that
+    // will actually stay on screen mounts (the local one is replaced by the
+    // collab-keyed one once the session syncs).
+  }, [pendingHeading, note.id, activeCollab, waitingForCollab]);
+
   /** Follow a [[wikilink]]: open by path/title, or create the note (Obsidian behavior).
-   *  A plain click reads the note in THIS tab; ⌘/Ctrl-click opens another one. */
+   *  A plain click reads the note in THIS tab; ⌘/Ctrl-click opens another one.
+   *  A `heading` ([[Note#Heading]]) is handed to whichever pane shows the note,
+   *  which scrolls to it once the editor is on screen. */
   const navigate = useCallback(
-    async (target: string, opts?: { newTab?: boolean }) => {
-      const open = (tab: { id: string; kind: "note"; title: string }) =>
+    async (target: string, opts?: { newTab?: boolean; heading?: string }) => {
+      const open = (tab: { id: string; kind: "note"; title: string }) => {
         openTab(tab, { adoptDefaultMode: false, replace: !opts?.newTab });
+        if (opts?.heading) useWorkspaceStore.getState().setPendingHeading(tab.id, opts.heading);
+      };
       try {
         const found = await noteApi.getByPath(vaultId, target);
         open({ id: found.id, kind: "note", title: found.title });
@@ -344,6 +431,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
 
   return (
     <div
+      ref={bodyRef}
       className="flex h-full flex-col"
       // "The note you are working in" for the graph's breathing highlight — it
       // means the caret is HERE, so it starts when focus enters this pane and
@@ -458,6 +546,7 @@ function EditorBody({ vaultId, note, paneIndex }: { vaultId: string; note: Note;
             <MarkdownEditor
               key={activeCollab ? `collab-${note.id}-${collabEpoch}` : editorEpoch}
               vaultId={vaultId}
+              historyKey={`${paneIndex}:${note.id}`}
               initialContent={draft}
               mode={mode}
               onChange={onChange}

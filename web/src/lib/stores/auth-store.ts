@@ -7,6 +7,7 @@ import { create } from "zustand";
 import { authApi } from "@/lib/api/endpoints";
 import { onAuthExpired, setAccessToken } from "@/lib/api/client";
 import type { TokenPair, User } from "@/lib/api/types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
 
@@ -24,6 +25,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => {
   // Hard 401 (refresh failed mid-use) → drop to anonymous; route guards redirect.
   onAuthExpired(() => {
+    useWorkspaceStore.getState().resetForSignOut();
     set({ status: "anonymous", user: null });
   });
 
@@ -56,6 +58,9 @@ export const useAuthStore = create<AuthState>((set) => {
       /* logout must always succeed client-side */
     }
     setAccessToken(null);
+    // Whoever logs in next on this browser must not inherit this account's
+    // open vault, open dialogs or the tour's state.
+    useWorkspaceStore.getState().resetForSignOut();
     set({ status: "anonymous", user: null });
   },
   };

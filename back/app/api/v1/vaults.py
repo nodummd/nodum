@@ -8,7 +8,7 @@ from fastapi import APIRouter, status
 from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
 from app.schemas.vaults import VaultCreateRequest, VaultOut, VaultUpdateRequest
-from app.services import vault_service
+from app.services import demo_service, vault_service
 
 router = APIRouter()
 
@@ -23,6 +23,33 @@ async def list_vaults(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
 async def create_vault(body: VaultCreateRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     vault = (await vault_service.create_vault(db, user_id, name=body.name)).unwrap()
     return {"data": VaultOut.model_validate(vault).model_dump()}
+
+
+@router.get("/demo")
+async def describe_demo() -> dict[str, Any]:
+    """What the Demo Workspace is, for the onboarding card — public shape only."""
+    manifest = demo_service.load_manifest()
+    return {
+        "data": {
+            "name": manifest.get("name", "Demo Workspace"),
+            "description": manifest.get("description", ""),
+            "note_count": sum(1 for _ in demo_service.FIXTURE_DIR.rglob("*.md")),
+        }
+    }
+
+
+@router.post("/demo", status_code=status.HTTP_201_CREATED)
+async def create_demo_vault(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Create a populated demo vault: 200+ linked notes with folder colours and
+    graph groups already set, so a new user can explore before writing."""
+    result = (await demo_service.create_demo_vault(db, user_id)).unwrap()
+    return {
+        "data": {
+            "vault": VaultOut.model_validate(result["vault"]).model_dump(),
+            "open_note_id": result["open_note_id"],
+            "imported": result["imported"],
+        }
+    }
 
 
 @router.patch("/{vault_id}")

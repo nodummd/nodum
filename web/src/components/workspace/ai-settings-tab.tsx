@@ -20,10 +20,19 @@ import type { AIProviderInfo } from "@/lib/api/types";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { cn } from "@/lib/utils";
 
-export function AiSettingsTab() {
+export function AiSettingsTab({ vaultId, vaultName }: { vaultId: string; vaultName?: string }) {
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.push);
-  const { data: status } = useQuery({ queryKey: ["ai-status"], queryFn: aiApi.status });
+  const { data: status } = useQuery({
+    queryKey: ["ai-status", vaultId],
+    queryFn: () => aiApi.status(vaultId),
+  });
+
+  // Keys live in two scopes: the account's (every vault) and this vault's own,
+  // which wins here when it has any. The form edits one scope at a time.
+  const [scope, setScope] = useState<"account" | "vault">("account");
+  const scoped = scope === "vault" ? status?.vault : status?.account;
+  const scopeVaultId = scope === "vault" ? vaultId : undefined;
 
   const [provider, setProvider] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -31,13 +40,22 @@ export function AiSettingsTab() {
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
 
   const providers = status?.providers ?? [];
+  // With nothing chosen yet, start from the scope's active provider — or the
+  // account's, so a vault key for the same provider is one paste away.
   const selected: AIProviderInfo | undefined =
-    providers.find((p) => p.id === (provider ?? status?.active_provider)) ?? providers[0];
-  const existing = status?.credentials.find((c) => c.provider === selected?.id);
+    providers.find(
+      (p) => p.id === (provider ?? scoped?.active_provider ?? status?.account.active_provider),
+    ) ?? providers[0];
+  const existing = scoped?.credentials.find((c) => c.provider === selected?.id);
   const modelValue = model ?? existing?.model ?? selected?.default_model ?? "";
   const baseUrlValue = baseUrl ?? existing?.base_url ?? "";
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["ai-status"] });
+  const resetForm = () => {
+    setModel(null);
+    setBaseUrl(null);
+    setApiKey("");
+  };
 
   const save = useMutation({
     mutationFn: () =>
@@ -46,23 +64,24 @@ export function AiSettingsTab() {
         api_key: apiKey.trim() || undefined,
         model: modelValue,
         base_url: baseUrlValue.trim() || undefined,
+        vault_id: scopeVaultId,
       }),
     onSuccess: () => {
       setApiKey("");
       void refresh();
-      toast("AI settings saved.", "info");
+      toast(scope === "vault" ? "AI settings saved for this vault." : "AI settings saved.", "info");
     },
     onError: (e) => toastError(e, "Could not save the AI settings."),
   });
 
   const test = useMutation({
-    mutationFn: () => aiApi.test(selected?.id ?? ""),
+    mutationFn: () => aiApi.test(selected?.id ?? "", scopeVaultId),
     onSuccess: (data) => toast(`${data.model} answered — the key works.`, "info"),
     onError: (e) => toastError(e, "The provider did not accept that key."),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => aiApi.removeCredential(id),
+    mutationFn: (id: string) => aiApi.removeCredential(id, scopeVaultId),
     onSuccess: () => {
       void refresh();
       toast("Key removed.", "info");
@@ -93,9 +112,46 @@ export function AiSettingsTab() {
         </p>
       </div>
 
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">Keys for</p>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Scope of the AI key">
+          {(
+            [
+              ["account", "Your account (every vault)"],
+              ["vault", `Only this vault${vaultName ? ` — ${vaultName}` : ""}`],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={scope === id}
+              onClick={() => {
+                setScope(id);
+                setProvider(null);
+                resetForm();
+              }}
+              className={cn(
+                "rounded-md border px-2.5 py-1.5 text-[12px] transition-colors",
+                scope === id
+                  ? "border-ob-accent bg-ob-active text-ob-text"
+                  : "border-ob-border text-ob-muted hover:bg-ob-hover hover:text-ob-text",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[12px] text-ob-faint">
+          {scope === "vault"
+            ? "A key saved here is used for chat in this vault only, instead of the account's."
+            : "Used in every vault that has no key of its own."}
+        </p>
+      </div>
+
       <div className="flex flex-wrap gap-1.5">
         {providers.map((p) => {
-          const configured = status?.credentials.some((c) => c.provider === p.id);
+          const configured = scoped?.credentials.some((c) => c.provider === p.id);
           const active = p.id === selected?.id;
           return (
             <button
@@ -104,9 +160,7 @@ export function AiSettingsTab() {
               aria-pressed={active}
               onClick={() => {
                 setProvider(p.id);
-                setModel(null);
-                setBaseUrl(null);
-                setApiKey("");
+                resetForm();
               }}
               className={cn(
                 "flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors",
@@ -220,10 +274,11 @@ export function AiSettingsTab() {
       )}
 
       {status?.configured && (
-        <p className="text-[12px] text-ob-faint">
-          Chat uses <span className="text-ob-muted">{status.active_provider}</span> ·{" "}
-          <span className="text-ob-muted">{status.active_model}</span>. Saving a key makes that
-          provider the active one.
+        <p className="text-[12px] text-ob-faint" data-testid="ai-effective">
+          Chat in this vault uses <span className="text-ob-muted">{status.active_provider}</span> ·{" "}
+          <span className="text-ob-muted">{status.active_model}</span>
+          {status.effective_scope === "vault" ? " (this vault's own key)" : " (the account key)"}.
+          Saving a key makes that provider the active one for its scope.
         </p>
       )}
     </section>

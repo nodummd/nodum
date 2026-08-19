@@ -16,6 +16,7 @@ export default function WorkspacePage() {
   const router = useRouter();
   const status = useAuthStore((s) => s.status);
   const setActiveVault = useWorkspaceStore((s) => s.setActiveVault);
+  const activeVaultId = useWorkspaceStore((s) => s.activeVaultId);
 
   useEffect(() => {
     if (status === "anonymous") router.replace("/login");
@@ -24,15 +25,30 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (vaultId) setActiveVault(vaultId);
   }, [vaultId, setActiveVault]);
+  // The store must point at THIS vault before the workspace mounts. Child
+  // effects run before a parent's, so a workspace mounted early would write
+  // its first tabs (the ?note= open, the default-mode mirror) under the vault
+  // we just came from — and the layout swap below would then wipe them.
+  const storeReady = activeVaultId === vaultId;
 
-  const { data: vaults } = useQuery({
+  const { data: vaults, isFetching: vaultsFetching } = useQuery({
     queryKey: ["vaults"],
     queryFn: vaultApi.list,
     enabled: status === "authenticated",
   });
   const vault = vaults?.find((v) => v.id === vaultId);
 
-  if (status !== "authenticated" || !vault) {
+  // The vault is gone — deleted from Settings in this tab, over MCP, or the
+  // URL was stale. Hand the tab to the dispatcher, which lands on a vault that
+  // exists, instead of leaving it on "Loading vault…" forever. Only once the
+  // list is known-fresh: right after creating a vault the cached list is
+  // still the old one while its refetch is in flight, and bouncing on that
+  // would send a brand-new vault's first visit back to the previous vault.
+  useEffect(() => {
+    if (status === "authenticated" && vaults && !vault && !vaultsFetching) router.replace("/vault");
+  }, [status, vaults, vault, vaultsFetching, router]);
+
+  if (status !== "authenticated" || !vault || !storeReady) {
     return (
       <main className="flex h-screen items-center justify-center bg-ob-bg">
         <p className="text-[13px] text-ob-faint">Loading vault…</p>

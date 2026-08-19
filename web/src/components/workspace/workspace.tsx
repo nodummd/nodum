@@ -41,6 +41,8 @@ import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { Menu, PanelRight, Settings as SettingsIcon } from "lucide-react";
 
 import { ConfirmDialog, confirmDelete } from "./confirm-dialog";
+import { DemoWorkspaceOffer } from "./demo-workspace-offer";
+import { OnboardingTour } from "./onboarding-tour";
 import { FONT_CHOICES, useEditorSettings, useUserPrefs } from "@/lib/hooks/use-editor-settings";
 import { useIsMobile } from "@/lib/hooks/use-is-mobile";
 import { resolveNewNoteFolder } from "@/lib/new-note-location";
@@ -150,8 +152,11 @@ export function Workspace({ vault }: { vault: Vault }) {
   const activeNoteId = activeTab?.kind === "note" ? activeTab.id : null;
 
   const openNote = useCallback(
-    (noteId: string, title: string) => {
-      openTab({ id: noteId, kind: "note", title });
+    (noteId: string, title: string, opts?: { inCurrentTab?: boolean }) => {
+      // Obsidian: a click in the explorer reads the note in the current tab
+      // (a pinned one is never taken over); ⌘-click, panels and new notes
+      // open another tab.
+      openTab({ id: noteId, kind: "note", title }, { replace: opts?.inCurrentTab === true });
       // The open note is the one the graph accents as "selected".
       setGraphFocus(noteId);
       setMobileLeftOpen(false);
@@ -449,6 +454,7 @@ export function Workspace({ vault }: { vault: Vault }) {
 
       <main
         ref={mainRef}
+        data-tour="editor"
         className={cn(
           "relative flex min-h-0 min-w-0 flex-1 border-l border-ob-border",
           isColumnSplit ? "flex-col" : "flex-row",
@@ -583,6 +589,8 @@ export function Workspace({ vault }: { vault: Vault }) {
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <DemoWorkspaceOffer />
+      <OnboardingTour />
       <ConfirmDialog />
       <input
         ref={importInputRef}
