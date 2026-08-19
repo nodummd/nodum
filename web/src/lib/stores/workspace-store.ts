@@ -315,8 +315,10 @@ interface WorkspaceState {
   /** Same, for a folder. */
   revealFolder: (folderId: string) => void;
   setSplitOrientation: (orientation: "row" | "column") => void;
-  /** Sign-out hygiene: forget which vault was open and close every transient
-   *  overlay, so the next account (same browser) starts clean. */
+  /** Sign-out hygiene: close every transient overlay and drop the note-bound
+   *  state, so the next account (same browser) starts clean. The remembered
+   *  vault stays — the same person logging back in returns to it, and for a
+   *  different account the dispatcher never finds it in their list. */
   resetForSignOut: () => void;
   /** Reorder a tab within its pane. */
   reorderTab: (tabId: string, paneIndex: number, toIndex: number) => void;
@@ -644,9 +646,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setSplitOrientation: (orientation) => set({ splitOrientation: orientation }),
       resetForSignOut: () =>
         set({
-          activeVaultId: null,
-          panes: [emptyPane()],
-          activePane: 0,
           settingsOpen: false,
           settingsTab: null,
           paletteOpen: false,

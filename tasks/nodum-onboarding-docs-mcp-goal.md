@@ -276,6 +276,23 @@ confirmed, all fixed:
 - Docs: publish (`publish: false`, slug), web clipper (the token can list
   vaults), canvas background label.
 
+## Fourth pass (2026-08-19, `bug/11.review-fixes-4_…`) — regressions only
+
+Backend lens: **dry**. Web lens: two, both from the sign-out hygiene change,
+both fixed:
+
+- The identity-change cache clear also fired on the boot-time
+  loading → authenticated step, silently destroying queries already in flight
+  on public pages — a signed-in visitor of `/p/<token>` could sit on
+  "Loading…" forever. The first resolution is no longer treated as a change.
+  e2e delays the public note past the session refresh.
+- Sign-out no longer forgets the open vault: the same person logging back in
+  returns to it (a different account never finds it in their list, and the
+  cache is cleared anyway). e2e covers the round trip.
+
+The loop is dry after this: three full passes plus a regressions-only pass;
+the last found nothing outside its own predecessor's diff.
+
 ## Deliberately not done
 
 - MCP over stdio as an installable package (`npx nodum-mcp`) — Streamable HTTP
