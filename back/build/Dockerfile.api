@@ -95,7 +95,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 
 ENTRYPOINT ["./scripts/pre-start.sh"]
 
+# Graceful shutdown is bounded: open server-sent-event streams (an AI reply,
+# an MCP client's standing GET) would otherwise keep a worker alive until the
+# orchestrator's SIGKILL, and a rolling restart would wait the whole grace
+# period every time.
 CMD ["uv", "run", "uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
-     "--workers", "4"]
+     "--workers", "4", \
+     "--timeout-graceful-shutdown", "8"]
