@@ -36,48 +36,102 @@ MAX_MESSAGES = 40
 MAX_MESSAGE_CHARS = 20_000
 
 
-async def _credential(db: AsyncSession, user_id: UUID, provider: str) -> AICredential | None:
+def _scope_clause(vault_id: UUID | None) -> Any:
+    """Account-level rows have vault_id NULL; a vault's own rows carry its id."""
+    return AICredential.vault_id.is_(None) if vault_id is None else AICredential.vault_id == vault_id
+
+
+async def _credential(
+    db: AsyncSession, user_id: UUID, provider: str, vault_id: UUID | None = None
+) -> AICredential | None:
     result = await db.execute(
-        select(AICredential).where(AICredential.user_id == user_id, AICredential.provider == provider)
+        select(AICredential).where(
+            AICredential.user_id == user_id, AICredential.provider == provider, _scope_clause(vault_id)
+        )
     )
     return result.scalar_one_or_none()
 
 
-async def _all_credentials(db: AsyncSession, user_id: UUID) -> list[AICredential]:
+async def _all_credentials(db: AsyncSession, user_id: UUID, vault_id: UUID | None = None) -> list[AICredential]:
     result = await db.execute(
-        select(AICredential).where(AICredential.user_id == user_id).order_by(AICredential.created_at)
+        select(AICredential)
+        .where(AICredential.user_id == user_id, _scope_clause(vault_id))
+        .order_by(AICredential.created_at)
     )
     return list(result.scalars().all())
 
 
-async def get_status(db: AsyncSession, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
+async def _active_provider(db: AsyncSession, user: User, vault_id: UUID | None) -> str | None:
+    """The provider a scope points at: `users.settings.aiProvider` for the
+    account, `vault.settings.aiProvider` for a vault."""
+    if vault_id is None:
+        return (user.settings or {}).get(ACTIVE_PROVIDER_KEY)
+    vault = await get_owned_vault(db, vault_id, user.id)
+    return (vault.settings or {}).get(ACTIVE_PROVIDER_KEY) if vault is not None else None
+
+
+def _pick(credentials: list[AICredential], wanted: str | None) -> AICredential | None:
+    configured = {c.provider: c for c in credentials}
+    if wanted in configured:
+        return configured[wanted]
+    # A provider whose key was deleted must not stay "active", or chat would
+    # keep failing with a confusing "not configured".
+    return next(iter(configured.values()), None)
+
+
+def _scope_status(credentials: list[AICredential], wanted: str | None) -> dict[str, Any]:
+    active = _pick(credentials, wanted)
+    return {
+        "configured": bool(credentials),
+        "active_provider": active.provider if active else None,
+        "active_model": active.model if active else "",
+        "credentials": [
+            {
+                "provider": c.provider,
+                "model": c.model,
+                "key_hint": c.key_hint,
+                "base_url": c.base_url or "",
+            }
+            for c in credentials
+        ],
+    }
+
+
+async def get_status(db: AsyncSession, user_id: UUID, vault_id: UUID | None = None) -> ServiceResponse[dict[str, Any]]:
     """What the client is allowed to know: which providers have a key, which one
-    is active, and a hint that identifies each key without revealing it."""
+    is active, and a hint that identifies each key without revealing it.
+
+    With a `vault_id`, also that vault's own keys, and which scope chat in it
+    actually uses (`effective_scope`: "vault" when the vault has a key of its
+    own, "account" otherwise, null when neither has one)."""
     user = await db.get(User, user_id)
     if user is None:
         return ServiceResponse.fail("not_found", "User not found.")
-    credentials = await _all_credentials(db, user_id)
-    configured = {c.provider: c for c in credentials}
-    active = (user.settings or {}).get(ACTIVE_PROVIDER_KEY)
-    if active not in configured:
-        # A provider whose key was deleted must not stay "active", or chat would
-        # keep failing with a confusing "not configured".
-        active = next(iter(configured), None)
+    account = _scope_status(await _all_credentials(db, user_id), (user.settings or {}).get(ACTIVE_PROVIDER_KEY))
+    vault_scope: dict[str, Any] | None = None
+    effective_scope: str | None = "account" if account["configured"] else None
+    if vault_id is not None:
+        if await get_owned_vault(db, vault_id, user_id) is None:
+            return ServiceResponse.fail("not_found", "Vault not found.")
+        vault_scope = _scope_status(
+            await _all_credentials(db, user_id, vault_id), await _active_provider(db, user, vault_id)
+        )
+        if vault_scope["configured"]:
+            effective_scope = "vault"
+    effective = vault_scope if effective_scope == "vault" else account
     return ServiceResponse.ok(
         {
             "available": encryption_available(),
-            "configured": bool(configured),
-            "active_provider": active,
-            "active_model": configured[active].model if active else "",
-            "credentials": [
-                {
-                    "provider": c.provider,
-                    "model": c.model,
-                    "key_hint": c.key_hint,
-                    "base_url": c.base_url or "",
-                }
-                for c in credentials
-            ],
+            # Top level = what chat in this context will use (the vault's own
+            # keys when it has any, the account's otherwise) — the panel's
+            # "is AI set up?" question in one field.
+            "configured": bool(effective["configured"]),
+            "active_provider": effective["active_provider"],
+            "active_model": effective["active_model"],
+            "credentials": account["credentials"],
+            "account": account,
+            "vault": vault_scope,
+            "effective_scope": effective_scope,
             "providers": [
                 {
                     "id": p.id,
@@ -101,9 +155,11 @@ async def save_credential(
     model: str,
     base_url: str | None,
     make_active: bool = True,
+    vault_id: UUID | None = None,
 ) -> ServiceResponse[dict[str, Any]]:
-    """Store (or update) a provider key. An omitted key keeps the stored one, so
-    the model can be changed without re-pasting it."""
+    """Store (or update) a provider key — for the account, or for one vault
+    (`vault_id`), whose own key then wins for chat in that vault. An omitted
+    key keeps the stored one, so the model can be changed without re-pasting it."""
     if provider not in PROVIDERS:
         return ServiceResponse.fail("validation_failed", "Unknown provider.")
     if not encryption_available():
@@ -114,8 +170,13 @@ async def save_credential(
     user = await db.get(User, user_id)
     if user is None:
         return ServiceResponse.fail("not_found", "User not found.")
+    vault = None
+    if vault_id is not None:
+        vault = await get_owned_vault(db, vault_id, user_id)
+        if vault is None:
+            return ServiceResponse.fail("not_found", "Vault not found.")
 
-    existing = await _credential(db, user_id, provider)
+    existing = await _credential(db, user_id, provider, vault_id)
     key = (api_key or "").strip()
     if not key and existing is None:
         return ServiceResponse.fail("validation_failed", "An API key is required.")
@@ -135,6 +196,7 @@ async def save_credential(
     if existing is None:
         existing = AICredential(
             user_id=user_id,
+            vault_id=vault_id,
             provider=provider,
             key_ciphertext=encrypt_secret(key),
             key_hint=mask_secret(key),
@@ -150,36 +212,68 @@ async def save_credential(
         existing.base_url = endpoint
 
     if make_active:
-        user.settings = {**(user.settings or {}), ACTIVE_PROVIDER_KEY: provider}
+        if vault is not None:
+            vault.settings = {**(vault.settings or {}), ACTIVE_PROVIDER_KEY: provider}
+        else:
+            user.settings = {**(user.settings or {}), ACTIVE_PROVIDER_KEY: provider}
     await db.commit()
-    return ServiceResponse.ok({"provider": provider, "model": chosen_model, "key_hint": existing.key_hint})
+    return ServiceResponse.ok(
+        {
+            "provider": provider,
+            "model": chosen_model,
+            "key_hint": existing.key_hint,
+            "scope": "vault" if vault_id is not None else "account",
+        }
+    )
 
 
-async def delete_credential(db: AsyncSession, user_id: UUID, provider: str) -> ServiceResponse[None]:
-    credential = await _credential(db, user_id, provider)
+async def delete_credential(
+    db: AsyncSession, user_id: UUID, provider: str, vault_id: UUID | None = None
+) -> ServiceResponse[None]:
+    credential = await _credential(db, user_id, provider, vault_id)
     if credential is None:
         return ServiceResponse.fail("not_found", "No key stored for that provider.")
     await db.delete(credential)
-    user = await db.get(User, user_id)
-    if user is not None and (user.settings or {}).get(ACTIVE_PROVIDER_KEY) == provider:
-        settings = {**(user.settings or {})}
-        settings.pop(ACTIVE_PROVIDER_KEY, None)
-        user.settings = settings
+    if vault_id is not None:
+        vault = await get_owned_vault(db, vault_id, user_id)
+        if vault is not None and (vault.settings or {}).get(ACTIVE_PROVIDER_KEY) == provider:
+            settings = {**(vault.settings or {})}
+            settings.pop(ACTIVE_PROVIDER_KEY, None)
+            vault.settings = settings
+    else:
+        user = await db.get(User, user_id)
+        if user is not None and (user.settings or {}).get(ACTIVE_PROVIDER_KEY) == provider:
+            settings = {**(user.settings or {})}
+            settings.pop(ACTIVE_PROVIDER_KEY, None)
+            user.settings = settings
     await db.commit()
     return ServiceResponse.ok(None)
 
 
 async def resolve(
-    db: AsyncSession, user_id: UUID, provider: str | None = None
+    db: AsyncSession, user_id: UUID, provider: str | None = None, vault_id: UUID | None = None
 ) -> ServiceResponse[tuple[AICredential, str]]:
     """The credential to use plus its decrypted key. Never leaves this module's
-    callers — the key must not reach a response body."""
+    callers — the key must not reach a response body.
+
+    With a `vault_id`, the vault's own keys win: its active provider, else any
+    key it has; only a vault with no key of its own falls through to the
+    account's. With a `provider`, that provider in the narrowest scope that
+    has it."""
     user = await db.get(User, user_id)
     if user is None:
         return ServiceResponse.fail("not_found", "User not found.")
-    wanted = provider or (user.settings or {}).get(ACTIVE_PROVIDER_KEY)
-    credential = await _credential(db, user_id, wanted) if wanted else None
+    credential: AICredential | None = None
+    if vault_id is not None:
+        wanted = provider or await _active_provider(db, user, vault_id)
+        credential = await _credential(db, user_id, wanted, vault_id) if wanted else None
+        if credential is None and provider is None:
+            own = await _all_credentials(db, user_id, vault_id)
+            credential = own[0] if own else None
     if credential is None:
+        wanted = provider or (user.settings or {}).get(ACTIVE_PROVIDER_KEY)
+        credential = await _credential(db, user_id, wanted) if wanted else None
+    if credential is None and provider is None:
         # Fall back to any stored key: better than refusing because the active
         # pointer went stale.
         credentials = await _all_credentials(db, user_id)
@@ -195,9 +289,11 @@ async def resolve(
     return ServiceResponse.ok((credential, key))
 
 
-async def test_credential(db: AsyncSession, user_id: UUID, provider: str) -> ServiceResponse[dict[str, Any]]:
+async def test_credential(
+    db: AsyncSession, user_id: UUID, provider: str, vault_id: UUID | None = None
+) -> ServiceResponse[dict[str, Any]]:
     """One cheap round-trip, so a wrong key is caught where it was pasted."""
-    resolved = await resolve(db, user_id, provider)
+    resolved = await resolve(db, user_id, provider, vault_id)
     if not resolved.success:
         return ServiceResponse.fail(resolved.error_code or "not_found", resolved.message)
     credential, key = resolved.data
@@ -427,7 +523,7 @@ async def chat_with_vault_events(
 
     messages = [*prior, {"role": "user", "content": message}]
 
-    resolved = await resolve(db, user_id)
+    resolved = await resolve(db, user_id, vault_id=vault_id)
     if not resolved.success:
         yield {"type": "error", "code": resolved.error_code or "not_found", "message": resolved.message}
         return

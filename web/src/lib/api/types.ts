@@ -224,13 +224,28 @@ export interface AICredentialInfo {
   base_url: string;
 }
 
-export interface AIStatus {
-  /** False when the server has no encryption key, so keys cannot be stored. */
-  available: boolean;
+/** One scope's keys: the account's (every vault) or one vault's own. */
+export interface AIScopeStatus {
   configured: boolean;
   active_provider: string | null;
   active_model: string;
   credentials: AICredentialInfo[];
+}
+
+export interface AIStatus {
+  /** False when the server has no encryption key, so keys cannot be stored. */
+  available: boolean;
+  /** What chat in the asked-for context uses: the vault's own keys when it
+   *  has any, the account's otherwise. */
+  configured: boolean;
+  active_provider: string | null;
+  active_model: string;
+  /** The account's keys (kept at the top level for older callers). */
+  credentials: AICredentialInfo[];
+  account: AIScopeStatus;
+  /** Present when the status was asked for a vault. */
+  vault: AIScopeStatus | null;
+  effective_scope: "vault" | "account" | null;
   providers: AIProviderInfo[];
 }
 

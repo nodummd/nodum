@@ -49,7 +49,10 @@ export function AiChatPane({
 }) {
   const queryClient = useQueryClient();
   const openSettings = useWorkspaceStore((s) => s.openSettings);
-  const { data: status, isLoading } = useQuery({ queryKey: ["ai-status"], queryFn: aiApi.status });
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["ai-status", vaultId],
+    queryFn: () => aiApi.status(vaultId),
+  });
 
   // Which thread is showing, as an intent rather than an id — so "the most
   // recent one" survives the list loading, and "new chat" is not immediately

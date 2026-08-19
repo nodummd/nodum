@@ -9,7 +9,7 @@ the key column holds ciphertext, never the key itself (see `crypto_utils`).
 
 from uuid import UUID as UUIDType
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,7 +17,8 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 
 class AICredential(UUIDMixin, TimestampMixin, Base):
-    """One stored provider key per user per provider."""
+    """One stored provider key per user per provider — at account level
+    (`vault_id` NULL, used by every vault) or for one vault."""
 
     __tablename__ = "ai_credentials"
 
@@ -25,6 +26,13 @@ class AICredential(UUIDMixin, TimestampMixin, Base):
         PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    # NULL = the account's key; set = this vault's own key, which wins for it.
+    vault_id: Mapped[UUIDType | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("vaults.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     # "anthropic" | "openai" | "gemini" | "qwen" — validated at the schema edge
@@ -38,7 +46,23 @@ class AICredential(UUIDMixin, TimestampMixin, Base):
     # Self-hosted, proxied or regional endpoints (Qwen has several).
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
-    __table_args__ = (UniqueConstraint("user_id", "provider", name="uq_ai_credentials_user_provider"),)
+    __table_args__ = (
+        Index(
+            "uq_ai_credentials_account",
+            "user_id",
+            "provider",
+            unique=True,
+            postgresql_where=text("vault_id IS NULL"),
+        ),
+        Index(
+            "uq_ai_credentials_vault",
+            "user_id",
+            "provider",
+            "vault_id",
+            unique=True,
+            postgresql_where=text("vault_id IS NOT NULL"),
+        ),
+    )
 
     def __repr__(self) -> str:
         return f"<AICredential {self.provider} user={self.user_id}>"

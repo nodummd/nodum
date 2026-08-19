@@ -177,7 +177,7 @@ so history survives reloads and devices and a client cannot rewrite what the
 model was told. A failed turn rolls back rather than leaving a half-written
 thread.
 
-Streaming replies landed 2026-08-19 (`feature/4.ai-streaming`); per-vault AI keys are next (see `tasks/nodum-release-cycle-goal.md`).
+Streaming replies (`feature/4.ai-streaming`) and per-vault AI keys (`feature/5.ai-vault-keys`) landed 2026-08-19 — see `tasks/nodum-release-cycle-goal.md`.
 
 ## Carried over from the previous goal doc
 

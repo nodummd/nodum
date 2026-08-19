@@ -289,7 +289,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
 
           <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             {tab === "Plugins" && <PluginsTab vaultId={vaultId} />}
-            {tab === "AI" && <AiSettingsTab />}
+            {tab === "AI" && <AiSettingsTab vaultId={vaultId} vaultName={vault?.name} />}
             {tab === "MCP" && <McpSettingsTab />}
 
             {tab === "Web Clipper" && <ClipperTab />}
