@@ -45,5 +45,34 @@ test.describe("whole-vault publishing", () => {
     // publish:false note is not reachable
     await page.goto(`/s/${slug}/Hidden`);
     await expect(page.getByText(/part of the published site/)).toBeVisible({ timeout: 10_000 });
+
+    // ── The crawler's view ────────────────────────────────────────────
+    // These pages fetched their content in the browser once, which meant the
+    // HTML a search engine or a link unfurler received said "Loading…" and
+    // nothing else. Read the raw response, with no JavaScript, and assert the
+    // note is actually in it.
+    const raw = await page.request.get(`/s/${slug}/Guide`);
+    const html = await raw.text();
+    expect(html).toContain("Read the ");
+    expect(html).toContain("<h1");
+    expect(html).toContain("Guide");
+    // A per-note title and description, not the site's generic blurb.
+    expect(html).toMatch(/<title>Guide[^<]*<\/title>/);
+    expect(html).toContain(`<link rel="canonical" href="`);
+    // Published sites are indexable: publishing a vault is an explicit "this
+    // is public", unlike the unlisted /p/ token links.
+    expect(html).not.toMatch(/<meta name="robots" content="noindex/);
+    // Article structured data, so the note can be understood as a document.
+    expect(html).toContain('"@type":"Article"');
+    // The whole nav is server-rendered too, so one crawled note reaches all.
+    expect(html).toContain("Extras");
+
+    const sitemap = await page.request.get(`/s/${slug}/sitemap.xml`);
+    expect(sitemap.status()).toBe(200);
+    const xml = await sitemap.text();
+    expect(xml).toContain("<urlset");
+    expect(xml).toContain(`/s/${slug}/Guide`);
+    // A note excluded with `publish: false` must not be advertised either.
+    expect(xml).not.toContain("Hidden");
   });
 });

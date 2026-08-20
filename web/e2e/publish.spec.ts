@@ -27,6 +27,19 @@ test.describe("publish", () => {
     });
     await expect(anonPage.getByText("linked knowledge base")).toBeVisible();
 
+    // A shared link has to preview properly in a chat client, and unfurlers
+    // read the raw HTML without running JavaScript — so the title and the
+    // Open Graph card must be in the response, not added after hydration.
+    const raw = await anonPage.request.get(url);
+    const html = await raw.text();
+    expect(html).toMatch(/<title>Welcome to Nodum[^<]*<\/title>/);
+    expect(html).toContain('property="og:title"');
+    expect(html).toContain('property="og:description"');
+    expect(html).toContain("linked knowledge base");
+    // ...but a token link is unlisted, not published to the world: robots.txt
+    // excludes /p/ and the page carries its own noindex as the second lock.
+    expect(html).toMatch(/<meta name="robots" content="noindex/);
+
     // Unpublish → the public page 404s
     await page.getByRole("button", { name: "Unpublish" }).click();
     await expect(page.getByText("Publish note")).toBeVisible({ timeout: 10_000 });

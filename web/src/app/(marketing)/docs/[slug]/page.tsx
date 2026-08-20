@@ -4,7 +4,11 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { Breadcrumbs } from "@/components/seo/page-parts";
+import { JsonLd } from "@/components/seo/json-ld";
 import { loadDoc, loadDocs } from "@/lib/docs";
+import * as ld from "@/lib/seo/jsonld";
+import { pageMetadata } from "@/lib/seo/metadata";
 
 export async function generateStaticParams() {
   return (await loadDocs()).map((d) => ({ slug: d.slug }));
@@ -15,10 +19,15 @@ export async function generateMetadata({
 }: {
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
-  const doc = await loadDoc((await params).slug);
-  return doc
-    ? { title: `${doc.title} · Nodum docs`, description: doc.summary }
-    : { title: "Not found · Nodum docs" };
+  const { slug } = await params;
+  const doc = await loadDoc(slug);
+  if (!doc) return { title: "Not found", robots: { index: false, follow: true } };
+  return pageMetadata({
+    title: doc.title,
+    description: doc.summary,
+    path: `/docs/${doc.slug}`,
+    type: "article",
+  });
 }
 
 export default async function DocPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -30,9 +39,34 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
   const prev = docs[index - 1];
   const next = docs[index + 1];
 
+  const path = `/docs/${doc.slug}`;
+  const trail = [
+    { name: "Nodum", path: "/" },
+    { name: "Documentation", path: "/docs" },
+    { name: doc.title, path },
+  ];
+
   return (
     <article className="mk-docs-article">
-      <p className="mk-eyebrow">{doc.section}</p>
+      <JsonLd
+        data={ld.graph(
+          ld.webPage({
+            path,
+            name: doc.title,
+            description: doc.summary,
+            breadcrumbId: ld.breadcrumbId(path),
+          }),
+          ld.breadcrumbs(trail),
+          ld.article({
+            path,
+            headline: doc.title,
+            description: doc.summary,
+            section: doc.section,
+          }),
+        )}
+      />
+      <Breadcrumbs trail={trail} />
+      <p className="mk-eyebrow mt-4">{doc.section}</p>
       <h1 className="mk-display text-[2rem] sm:text-[2.4rem]">{doc.title}</h1>
       <p className="mk-docs-lede">{doc.summary}</p>
       {doc.where && (
