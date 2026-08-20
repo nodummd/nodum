@@ -824,3 +824,447 @@ body:has([data-marketing]) {
 .mk-docs-pager-link:hover span:last-child {
   color: var(--mk-violet);
 }
+
+/* ============================================================
+   Editorial pages — /alternatives, the topic pages, /glossary,
+   /faq. One column, generous measure, and an answer block at
+   the top of every one that is meant to be read (and quoted)
+   on its own.
+   ============================================================ */
+
+.mk-seo-page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+@media (min-width: 640px) {
+  .mk-seo-page {
+    padding: 3.5rem 2rem 5rem;
+  }
+}
+.mk-seo-page--wide {
+  max-width: 68rem;
+}
+
+/* Breadcrumbs */
+.mk-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--mk-faint);
+}
+.mk-crumbs li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.mk-crumbs a:hover {
+  color: var(--mk-violet);
+}
+.mk-crumb-sep {
+  opacity: 0.5;
+}
+
+/* Hero */
+.mk-seo-hero {
+  margin-top: 1.4rem;
+}
+.mk-seo-meta {
+  margin-top: 1rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: var(--mk-faint);
+}
+
+/* The answer block: first text on the page, written to stand alone. The
+   strand runs down its edge because this is the sentence that matters. */
+.mk-answer {
+  position: relative;
+  margin-top: 1.6rem;
+  padding: 1.1rem 1.2rem 1.1rem 1.5rem;
+  border: 1px solid var(--mk-line);
+  border-radius: 14px;
+  background: var(--mk-ink-raised);
+  overflow: hidden;
+}
+.mk-answer::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--mk-strand);
+}
+.mk-answer p {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: var(--mk-paper);
+}
+.mk-answer code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.86em;
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: rgba(164, 151, 255, 0.12);
+}
+
+/* Sections */
+.mk-seo-section {
+  margin-top: 2.75rem;
+  scroll-margin-top: 5rem;
+}
+.mk-seo-h2 {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(1.35rem, 2.6vw, 1.7rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--mk-paper);
+  text-wrap: balance;
+}
+.mk-seo-h3 {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mk-paper);
+}
+.mk-seo-section .mk-prose {
+  margin-top: 0.9rem;
+}
+
+.mk-seo-list {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--mk-muted);
+  font-size: 0.975rem;
+  line-height: 1.7;
+}
+.mk-seo-list li {
+  position: relative;
+  padding-left: 1.4rem;
+  margin-top: 0.7rem;
+}
+.mk-seo-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mk-violet);
+  opacity: 0.75;
+}
+.mk-seo-list strong {
+  color: var(--mk-paper);
+  font-weight: 600;
+}
+.mk-seo-list a {
+  color: var(--mk-violet);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mk-seo-list code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.86em;
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: rgba(164, 151, 255, 0.1);
+  color: var(--mk-paper);
+}
+.mk-seo-list--tight li {
+  margin-top: 0.55rem;
+  font-size: 0.925rem;
+}
+
+/* they-win / we-win */
+.mk-seo-cols {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+@media (min-width: 820px) {
+  .mk-seo-cols {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.mk-card--accent {
+  border-color: var(--mk-line-strong);
+  background: linear-gradient(
+    180deg,
+    rgba(164, 151, 255, 0.07),
+    rgba(164, 151, 255, 0.02) 40%,
+    transparent
+  );
+}
+
+/* Checklist */
+.mk-seo-check {
+  margin: 1.1rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--mk-muted);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+.mk-seo-check li {
+  position: relative;
+  padding: 0.55rem 0 0.55rem 1.9rem;
+  border-bottom: 1px solid var(--mk-line);
+}
+.mk-seo-check li:last-child {
+  border-bottom: 0;
+}
+.mk-seo-check li::before {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  top: 1.05em;
+  width: 0.62rem;
+  height: 0.34rem;
+  border-left: 2px solid var(--mk-azure);
+  border-bottom: 2px solid var(--mk-azure);
+  transform: rotate(-45deg);
+}
+
+/* Facts table */
+.mk-facts {
+  margin-top: 1.2rem;
+  border: 1px solid var(--mk-line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.mk-facts table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.mk-facts th,
+.mk-facts td {
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--mk-line);
+}
+.mk-facts tr:last-child th,
+.mk-facts tr:last-child td {
+  border-bottom: 0;
+}
+.mk-facts thead th {
+  background: var(--mk-ink-raised);
+  color: var(--mk-paper);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+.mk-facts tbody th {
+  width: 8.5rem;
+  color: var(--mk-faint);
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+.mk-facts td {
+  color: var(--mk-muted);
+  line-height: 1.5;
+}
+.mk-facts td.mk-facts-ours {
+  color: var(--mk-paper);
+}
+.mk-facts-scroll {
+  overflow-x: auto;
+}
+
+/* FAQ */
+.mk-faq {
+  margin-top: 1.2rem;
+}
+.mk-faq-item {
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--mk-line);
+}
+.mk-faq-item:last-child {
+  border-bottom: 0;
+}
+.mk-faq-q {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--mk-paper);
+}
+.mk-faq-a {
+  margin-top: 0.35rem !important;
+  font-size: 0.94rem;
+}
+.mk-faq-a p:first-child {
+  margin-top: 0;
+}
+
+/* Related */
+.mk-seo-related {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 640px) {
+  .mk-seo-related {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.mk-seo-related a {
+  display: block;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--mk-line);
+  border-radius: 10px;
+  background: var(--mk-ink-raised);
+  color: var(--mk-paper);
+  font-size: 0.9rem;
+}
+.mk-seo-related a:hover {
+  border-color: var(--mk-line-strong);
+  color: var(--mk-violet);
+}
+
+/* Closing CTA */
+.mk-seo-cta {
+  margin-top: 4rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--mk-line);
+  text-align: center;
+}
+
+/* Index / hub cards */
+.mk-hub-grid {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+@media (min-width: 700px) {
+  .mk-hub-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.mk-hub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  height: 100%;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--mk-line);
+  border-radius: 12px;
+  background: var(--mk-ink-raised);
+}
+.mk-hub-card:hover {
+  border-color: var(--mk-line-strong);
+}
+.mk-hub-name {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mk-paper);
+}
+.mk-hub-card:hover .mk-hub-name {
+  color: var(--mk-violet);
+}
+.mk-hub-note {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--mk-muted);
+}
+.mk-hub-tag {
+  margin-top: 0.35rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mk-faint);
+}
+
+/* Glossary */
+.mk-gloss-group {
+  margin-top: 2.75rem;
+}
+.mk-gloss-term {
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--mk-line);
+  scroll-margin-top: 5rem;
+}
+.mk-gloss-term:last-child {
+  border-bottom: 0;
+}
+.mk-gloss-name {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mk-paper);
+}
+.mk-gloss-aka {
+  margin-left: 0.5rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--mk-faint);
+}
+.mk-gloss-def {
+  margin-top: 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--mk-muted);
+}
+.mk-gloss-def + .mk-gloss-def {
+  margin-top: 0.55rem;
+}
+.mk-gloss-more {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--mk-violet);
+}
+.mk-gloss-more:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.mk-gloss-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+.mk-gloss-jump a {
+  display: inline-block;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--mk-line);
+  border-radius: 999px;
+  background: var(--mk-ink-raised);
+  font-size: 0.78rem;
+  color: var(--mk-muted);
+}
+.mk-gloss-jump a:hover {
+  border-color: var(--mk-line-strong);
+  color: var(--mk-violet);
+}
+
+/* Numbered migration steps carry their own numeral in the text, so the
+   shared list's bullet would be a second marker on the same line. */
+.mk-migrate li::before {
+  display: none;
+}
+.mk-migrate li {
+  padding-left: 0;
+}

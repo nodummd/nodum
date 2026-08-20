@@ -1,16 +1,37 @@
-"use client";
-
+import type { Metadata } from "next";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 
 import { DemoVault } from "@/components/marketing/demo-vault";
 import { Knot } from "@/components/marketing/knot";
+import { RedirectAuthenticated } from "@/components/marketing/redirect-authed";
 import { Reveal } from "@/components/marketing/reveal";
 import { SiteFooter, SiteNav } from "@/components/marketing/site-chrome";
-import { useAuthStore } from "@/lib/stores/auth-store";
+import { JsonLd } from "@/components/seo/json-ld";
+import { FaqList } from "@/components/seo/page-parts";
+import { ALTERNATIVES_BY_RANK } from "@/content/seo/alternatives";
+import { FEATURED_FAQS } from "@/content/seo/faq";
+import { TOPICS_BY_RANK } from "@/content/seo/topics";
+import * as ld from "@/lib/seo/jsonld";
+import { pageMetadata } from "@/lib/seo/metadata";
+import { PRIMARY } from "@/lib/seo/keywords";
 
 const GITHUB = "https://github.com/nodummd/nodum";
+
+/**
+ * The front door. A server component — it was a client component for one
+ * `useEffect` redirect, which is now its own island, and the difference is
+ * that the whole page is in the initial HTML rather than assembled after
+ * hydration.
+ */
+export const metadata: Metadata = pageMetadata({
+  title: "Nodum — the open-source Obsidian alternative for your browser",
+  absoluteTitle: true,
+  description:
+    "Free, open-source knowledge base in your browser: markdown notes, [[wikilinks]], automatic backlinks and a GPU knowledge graph. MIT licensed, self-hostable.",
+  path: "/",
+  keywords: PRIMARY,
+  imageAlt: "Nodum — notes are the knots",
+});
 
 /** The five marks you actually type. The syntax *is* the product, so it gets
  *  to speak for itself rather than being described in prose. */
@@ -23,15 +44,20 @@ const SYNTAX = [
 ];
 
 export default function LandingPage() {
-  const status = useAuthStore((s) => s.status);
-  const router = useRouter();
-
-  useEffect(() => {
-    if (status === "authenticated") router.replace("/vault");
-  }, [status, router]);
-
   return (
     <>
+      <JsonLd
+        data={ld.graph(
+          ld.webPage({
+            path: "/",
+            name: "Nodum — the open-source Obsidian alternative for your browser",
+            description: metadata.description as string,
+            primaryImage: "/og.jpg",
+          }),
+          ld.faqPage("/", FEATURED_FAQS),
+        )}
+      />
+      <RedirectAuthenticated />
       <SiteNav />
 
       <main>
@@ -227,6 +253,69 @@ export default function LandingPage() {
                 </pre>
               </div>
             </Reveal>
+          </div>
+        </section>
+
+        {/* ── Where to go next ─────────────────────────────────
+             The landing page holds most of this domain's authority, so it is
+             the right place to hand it on. These links are the entry points
+             into the comparison and concept clusters — for a reader deciding
+             between tools, and for a crawler working out what the site is
+             about. ─────────────────────────────────────────────── */}
+        <section
+          id="compare"
+          className="mx-auto max-w-6xl border-t border-[var(--mk-line)] px-5 py-24 sm:px-8 sm:py-28"
+        >
+          <Reveal className="max-w-2xl">
+            <p className="mk-eyebrow">Coming from somewhere else</p>
+            <h2 className="mk-display mt-4 text-[clamp(1.9rem,4vw,3rem)]">
+              How it compares, honestly.
+            </h2>
+            <p className="mt-5 leading-relaxed text-[var(--mk-muted)]">
+              Every comparison below says what the other tool does better, because a page that
+              claims to win on everything is worth nothing to someone actually deciding.
+            </p>
+          </Reveal>
+
+          <div className="mt-12 grid gap-10 md:grid-cols-2">
+            <Reveal>
+              <p className="mk-eyebrow">Versus</p>
+              <ul className="mk-seo-related mt-4">
+                {ALTERNATIVES_BY_RANK.slice(0, 6).map((a) => (
+                  <li key={a.slug}>
+                    <Link href={`/alternatives/${a.slug}`}>Nodum vs {a.name}</Link>
+                  </li>
+                ))}
+              </ul>
+              <p className="mk-hub-note mt-4">
+                <Link href="/alternatives">All {ALTERNATIVES_BY_RANK.length} comparisons →</Link>
+              </p>
+            </Reveal>
+
+            <Reveal delay={90}>
+              <p className="mk-eyebrow">Start from the idea</p>
+              <ul className="mk-seo-related mt-4">
+                {TOPICS_BY_RANK.slice(0, 6).map((t) => (
+                  <li key={t.slug}>
+                    <Link href={`/learn/${t.slug}`}>{t.title.split("—")[0].trim()}</Link>
+                  </li>
+                ))}
+              </ul>
+              <p className="mk-hub-note mt-4">
+                <Link href="/glossary">The glossary</Link> defines the vocabulary; the{" "}
+                <Link href="/faq">FAQ</Link> answers the rest.
+              </p>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ── Questions ────────────────────────────────────────── */}
+        <section className="border-t border-[var(--mk-line)]">
+          <div className="mk-seo-page">
+            <FaqList faqs={FEATURED_FAQS} heading="The short answers" />
+            <p className="mk-hub-note mt-6">
+              <Link href="/faq">Every question, including the ones we answer with no →</Link>
+            </p>
           </div>
         </section>
 

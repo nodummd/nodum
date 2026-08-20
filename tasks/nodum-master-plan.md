@@ -812,6 +812,46 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
   - Gates at the release point: `make verify`, 155 backend integration,
     211 Playwright, all green.
 
+- **2026-08-21: search and answer-engine visibility (SEO + GEO)**
+  (`tasks/nodum-seo-geo-goal.md`), on `feature/1.seo-geo_maqbool_200820262350`.
+  The site had a title, a description and an OG card, and nothing else — no
+  robots.txt, no sitemap, no canonicals, no structured data, and no page
+  answering any query a person actually types. That is now built, aimed at
+  both classical search and the generative engines that answer before the
+  links appear.
+  - *Technical floor* — `app/robots.ts` (an argued AI-crawler policy: the
+    training crawlers and the answer agents both get Googlebot-level access,
+    because for MIT-licensed software both are distribution; Bytespider is the
+    one exclusion), `app/sitemap.ts` generated from the content model,
+    canonicals on every public page via a `pageMetadata()` factory,
+    `max-snippet:-1`, keyword-alias redirects, `noindex` layouts over `/vault`
+    and `/clip`.
+  - *Structured data* — one `@id`-consolidated entity graph (Organization,
+    WebSite, SoftwareApplication) declared once in the marketing layout, plus
+    per-page WebPage/Article/BreadcrumbList/FAQPage/HowTo/ItemList/DefinedTerm.
+  - *GEO* — `/llms.txt` and `/llms-full.txt`, generated from the same content
+    the pages render, including an explicit list of what Nodum does **not** do
+    so a model does not invent it. Advertised by `<link rel="describedby">`
+    and an HTTP `Link:` header.
+  - *Content* — 18 comparison pages (`/alternatives/*`), each stating what the
+    other tool does better and who should not switch; 10 concept pages
+    (`/learn/*`) written to stand without the product; a 36-term `/glossary`
+    on one page rather than 36 thin ones; a 22-question `/faq`. 70 static
+    pages, 57 sitemap URLs.
+  - *Bugs found on the way* — published pages (`/s/`, `/p/`) were client-fetched
+    and therefore **invisible to crawlers and link unfurlers**, now server
+    components with per-note metadata (sites indexable, token links noindex);
+    `/docs` rendered as "Documentation · Nodum · Nodum" from a layout title
+    colliding with the root template; the landing page was a client component
+    for one redirect; the first `/s/` implementation cached public reads for
+    five minutes, which would have kept an unpublished note readable.
+  - Gates: `make verify` green, plus `e2e/seo.spec.ts` (18 assertions, several
+    reading the raw HTTP response rather than the DOM) and crawler-view
+    assertions added to `publish.spec.ts` and `vault-site.spec.ts`.
+  - Left for a human: claim Search Console / Bing (env vars are wired), submit
+    the sitemap, and do the off-site work — third-party mentions outweigh
+    owned content in AI citation, and no amount of code produces them.
+    
 - **2026-08-20: Claude CI workflows** (`chore/1.claude-workflows_maqbool_…`).
   Three new GitHub Actions workflows wired to `anthropics/claude-code-action`:
   - `claude-code-review.yml` — `@claude /review [extra focus]` on a PR runs a
