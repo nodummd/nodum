@@ -1,0 +1,132 @@
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    # NOTE: a comment STARTING WITH "@claude /review" is handled by claude-code-review.yml,
+    # and "@claude /security-review" by claude-security-review.yml — exclude exactly those
+    # two prefixes here. The conditions are exact complements: each dedicated workflow fires
+    # on its own startsWith(...), this one on everything else. startsWith (no trailing space)
+    # tolerates anything after the command — a newline, extra instructions, or nothing — which
+    # is what previously leaked multiple workflows. A comment that merely mentions "/review"
+    # later (e.g. "@claude fix the /review endpoint") still lands here.
+    #
+    # author_association gating (OWNER/MEMBER/COLLABORATOR) is defense-in-depth on top of
+    # claude-code-action's own collaborator gate: this job holds contents: write, so don't
+    # even start the runner for an untrusted actor.
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.body, '@claude /review') && !startsWith(github.event.comment.body, '@claude /security-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.body, '@claude /review') && !startsWith(github.event.comment.body, '@claude /security-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+    runs-on: ubuntu-latest
+    # Avoid stacking duplicate runs on the same issue/PR; let the newest @claude win.
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    # Hard ceiling so a runaway task can't burn the runner indefinitely.
+    timeout-minutes: 30
+    # Write scopes are required for Claude to actually act on a mention: post its
+    # answer/comment (issues + pull-requests) and, for implementation requests, push a
+    # feature branch and open a PR (contents). The action gates execution on the commenter
+    # being a repo collaborator/admin, so only trusted actors can trigger it.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read # Required for Claude to read CI results on PRs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        id: claude
+        uses: anthropics/claude-code-action@v1.0.185
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # CRITICAL: without this the action runs headless on a mention — it computes an
+          # answer but never posts it (surfaces as permission_denials). track_progress forces
+          # tag mode so Claude posts a live progress comment and its final reply.
+          track_progress: true
+
+          # This is an optional setting that allows Claude to read CI results on PRs
+          additional_permissions: |
+            actions: read
+
+          # Task-dispatch prompt: this responder fires on any @claude mention (new issue,
+          # PR comment, or review), so it must handle questions / implementation / review —
+          # not assume a PR diff.
+          prompt: |
+            You are Claude Code operating in CI for nodum — an open-source,
+            multi-tenant, web-based Obsidian alternative (FastAPI backend in back/,
+            Next.js frontend in web/, compose stacks in deploy/) — triggered by an
+            @claude mention on an issue, PR, or review comment. Do exactly what that
+            comment asks — it may be a question, an implementation request, or a
+            code review. Identify the intent first, then act; do not default to
+            "writing a review" when you were asked to implement or explain
+            something.
+
+            Ground rules (every task):
+            - The root CLAUDE.md is authoritative and auto-loaded. Deeper
+              conventions live in-repo: backend →
+              .claude/skills/nodum-backend/SKILL.md, frontend → web/AGENTS.md,
+              deploy → .claude/skills/nodum-deploy/SKILL.md, testing →
+              .claude/skills/nodum-testing/SKILL.md. Consult the ones relevant to
+              the task instead of re-deriving the rules. Project state lives in
+              tasks/nodum-master-plan.md — trust its Progress Log over the checkbox
+              inventory at the top.
+            - Backend: routers thin / services fat (`ServiceResponse.unwrap()`);
+              responses `{"data": ...}`, errors `{"error": {"code","message"}}`;
+              numbered Alembic migrations. Every vault-scoped operation resolves
+              ownership via `get_owned_vault(db, vault_id, user_id)` — never trust
+              a vault_id/user_id from a request body.
+            - Frontend: workspace state in Zustand, server data via TanStack Query,
+              backend access only through web/src/lib/api/; markdown rendering
+              stays inside the strict inline-HTML allowlist
+              (web/src/lib/editor/inline-html.ts).
+            - Keep the change minimal and scoped to the request. Before concluding
+              code changes, run the checks that need no live infra:
+              `make back-lint back-test` for back/ changes, `make web-typecheck
+              web-lint` for web/ changes. Note CI also runs `ruff format --check` —
+              `ruff check` alone is not enough. Integration tests and e2e need the
+              docker stack; say so explicitly rather than skipping silently.
+            - Never commit to dev or main. If code changes are needed, work on a
+              branch named `<kind>/<N>.<slug>_claude_<DDMMYYYYHHMM>` (kind:
+              feature | hotfix | chore | bug; 24-hour timestamp) and open a PR
+              targeting dev.
+            - This repo is PUBLIC: never add a secret, token, or real credential —
+              only `.env*.example` placeholders. Compose host ports bind 127.0.0.1.
+
+            By task type:
+            - Question → answer directly and concisely, citing file:line; make no
+              code changes.
+            - Implementation / fix → follow project conventions, keep the diff
+              tight, verify it.
+            - Review → prioritise by severity: correctness and vault-tenancy /
+              security first. Note that `@claude /review` and
+              `@claude /security-review` have dedicated workflows — a plain mention
+              asking for eyes on something should stay focused on what was asked.
+
+          # Claude Code SDK passthrough args.
+          # - Opus 5 with the [1m] suffix opts into the 1M-token context window
+          #   (Claude Code CLI defaults to 200k; the suffix is the documented opt-in —
+          #   it stays required even though 1M is the API-side default for Opus 5).
+          # - --max-turns bounds agentic loops so a single mention can't run away.
+          # See https://code.claude.com/docs/en/model-config (Extended context)
+          #     https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          claude_args: |
+            --model claude-opus-5[1m]
+            --max-turns 30
