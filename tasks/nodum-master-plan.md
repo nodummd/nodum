@@ -223,6 +223,43 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-21 (the public API: scoped keys, REST surface, Scalar reference)** —
+  Nodum now has a third door beside the app and MCP: a public REST API at
+  `/api/public/v1` for programs users write, authenticated by `nodum_key_…`
+  API keys minted in Settings → API keys with coarse scopes
+  (read / write / delete / ai). The keys share the `api_tokens` table (kind
+  `"key"`, migration `0020` adds `scopes`), the 10-per-kind cap, the
+  password-change/reset revocation and the per-token rate-limit bucket with
+  MCP tokens; `verify_token` now returns a `TokenIdentity` and scopes are
+  enforced only in the sub-app's dependency — services stay unrestricted for
+  the session path. The surface is 20 endpoints: vaults, tree, notes CRUD
+  (append/prepend below frontmatter, optimistic 409 with
+  `server_updated_at`), paginated list/search (`total` via a window count),
+  quick-switch, link and **unlink** (new `remove_wikilinks` splices matching
+  `[[links]]` out of the markdown — embeds, code and frontmatter protected),
+  backlinks, unlinked mentions, tags (nested via a `:path` param), graph +
+  local graph, attachments, and `POST …/ai/ask` over the stored credential.
+  It is a separate FastAPI app mounted on the main one — own OpenAPI document
+  (only public endpoints, `ApiKey` bearer scheme, servers pinned to the
+  mount), own exception handlers (a mount inherits middleware but not
+  handlers), no lifespan. The reference docs are the OpenAPI document
+  rendered by Scalar (`@scalar/api-reference-react`, bundled — no CDN) at
+  `/api-reference`, try-it client included: verified live by pasting a key
+  into its Auth box in a browser and watching `GET /vaults` return 200
+  through the Next proxy. Settings → API keys hands the user a ready-made
+  curl with their fresh key filled in; `docs/api` is the human article;
+  `deploy/smoke.sh` gained a mint-call-revoke step. Caddy needed nothing —
+  `/api/*` already covers the mount. Tests: `test_api_keys` (cap is
+  per-kind), `test_public_api` (only keys authenticate — sessions and MCP
+  tokens 401 here and keys 401 at `/api/v1/mcp`; scopes 403 by name;
+  cross-tenant 404s that never echo content; the OpenAPI document leaks no
+  internal path and padlocks every operation), unit tests for scope
+  defaulting and wikilink removal, and an e2e that drives the vault over
+  REST with a key minted through the UI. Two inherited breakages in the
+  docs-screenshot pipeline fixed in passing: it opened "Home" through the
+  virtualized explorer (not in the DOM when scrolled away — now via ⌘O), and
+  its AI stub predated streaming (now answers SSE when `stream: true`).
+
 - **2026-08-19 (account recovery and closure)** — Three flows now hang off the
   signup OTP work: forgotten-password reset, password change from settings
   (the endpoint and UI already existed — it needed coverage, not code), and
