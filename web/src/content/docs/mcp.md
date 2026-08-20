@@ -2,7 +2,7 @@
 title: MCP — use Nodum from any AI client
 section: Extending
 order: 4
-summary: Nodum is an MCP server. Point Claude Code, Claude Desktop, Cursor or any MCP client at it with a token, and the AI can do everything you can — vaults, notes, links, colours, search, import, export.
+summary: Nodum is an MCP server. Point Claude Code, Claude Desktop or Cursor at it with a token and the AI can do what you can — notes, links, search, import, export.
 where: Settings → MCP for the token and the copy-paste setup
 ---
 

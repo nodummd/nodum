@@ -1,0 +1,164 @@
+name: Claude Code Review
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    # Trigger gating (defense-in-depth):
+    # 1. issue_comment fires for BOTH issues and PRs — require github.event.issue.pull_request
+    #    (only present on PR comments) so `@claude /review` on a plain issue, which has no
+    #    diff to review, doesn't spin up a review with empty context.
+    # 2. Restrict to trusted authors via author_association (OWNER/MEMBER/COLLABORATOR).
+    #    This workflow is secret-backed with pull-requests: write and reads the full diff,
+    #    so gate at the YAML level and don't even start the runner for an untrusted
+    #    commenter — on top of claude-code-action's own collaborator gate.
+    # startsWith (no trailing space) tolerates anything after the command — a newline,
+    # extra focus instructions ("@claude /review focus on the migration"), or nothing.
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '@claude /review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '@claude /review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+
+    runs-on: ubuntu-latest
+    # Cancel a superseded review run if a new /review lands on the same PR.
+    concurrency:
+      group: claude-review-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read # required by the github_ci MCP server to read CI results on PRs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1.0.185
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # CRITICAL: forces tag-mode tracking comments. Without this the action runs
+          # headless — no live "todo list" progress comment AND the final review is never
+          # posted (Claude can't reach the comment MCP tool, surfacing as permission_denials).
+          track_progress: true
+          # Reuse a single sticky comment: the live progress comment becomes the final review.
+          use_sticky_comment: true
+          # Let Claude read CI results to factor them into the review.
+          additional_permissions: |
+            actions: read
+          prompt: |
+            # Nodum Pull Request Review
+
+            You are a senior engineer reviewing this PR for nodum — an open-source,
+            multi-tenant, web-based Obsidian alternative (markdown knowledge base with
+            wikilinks, backlinks, and an interactive knowledge graph).
+            - back/  — FastAPI (Python, uv), SQLAlchemy 2 async + asyncpg, PostgreSQL
+              (pgvector + tsvector), Alembic, Redis, Celery, S3/MinIO attachments.
+            - web/   — Next.js App Router, TypeScript, Tailwind v4, CodeMirror 6
+              live-preview editor, Yjs collab, @cosmos.gl/graph graph view.
+            - deploy/ — docker compose stacks (dev/test/staging/prod).
+
+            The triggering comment may carry extra instructions after `/review`
+            (e.g. `@claude /review focus on the new migration`). Honour them — they
+            narrow or redirect the review focus, but never relax the project rules
+            below.
+
+            ## Project conventions (enforce these — they are the house rules)
+            - Root CLAUDE.md is authoritative. Backend conventions live in
+              .claude/skills/nodum-backend/SKILL.md; frontend conventions in
+              web/AGENTS.md. Consult them for whatever areas the diff touches.
+            - Backend: routers thin / services fat (`ServiceResponse.unwrap()`
+              pattern); success responses `{"data": ...}`, errors
+              `{"error": {"code","message"}}`; Alembic migrations numbered and
+              sequential (`0012_...`); formatting matters — CI runs
+              `ruff format --check`, not just `ruff check`.
+            - Multi-tenancy: the tenant unit is the vault (`vaults.user_id`; child
+              tables scope by `vault_id`). There is NO row-level security — every
+              service operation must establish ownership via
+              `get_owned_vault(db, vault_id, user_id)`
+              (back/app/services/vault_service.py) and re-scope child queries by
+              `vault_id`. Flag ANY new query or endpoint that skips this: it is a
+              cross-tenant read/write, the most serious class of bug in this
+              codebase.
+            - Frontend: workspace state in Zustand, server data via TanStack Query;
+              backend access ONLY through web/src/lib/api/ — flag ad-hoc fetch()
+              calls. Rendered markdown must stay inside the strict inline-HTML
+              allowlist (web/src/lib/editor/inline-html.ts) — flag anything that
+              widens it or introduces dangerouslySetInnerHTML / rehype-raw.
+            - This repo is public: never any secret in the tree (only
+              `.env*.example` placeholders); compose host ports bind 127.0.0.1;
+              containers run non-root in prod.
+
+            ## Review areas
+            1. **Correctness & logic** — does the change do what the PR claims;
+               edge cases; error paths return the project error envelope; async
+               pitfalls (blocking calls in async routes, missed awaits, DB session
+               misuse across tasks).
+            2. **Tenancy & security** — vault ownership checks as above; authz on
+               new routes; input validation via Pydantic DTOs (no mass assignment
+               of `user_id`/`vault_id` from request bodies); LIKE-pattern escaping;
+               raw SQL construction.
+            3. **Concurrency & caching** — row locks / ON CONFLICT where services
+               rely on them; races on caps, counters, and rename/move paths; Redis
+               cache invalidation (vault tree + graph caches) kept in sync with
+               writes.
+            4. **Performance** — N+1 queries, missing indexes for new query shapes,
+               unbounded result sets; needless re-renders or query invalidations in
+               web/.
+            5. **Tests** — new behaviour has unit coverage; ownership/authz changes
+               have integration coverage; tests assert response envelopes, not just
+               status codes.
+            6. **Docs & plan** — user-visible or architectural changes reflected
+               where the repo documents them (docs/, tasks/nodum-master-plan.md
+               Progress Log).
+            Factor CI results on this PR into the review if any jobs failed.
+
+            ## Review format
+            For each issue found, provide:
+            1. **Location:** file and line number
+            2. **Severity:** Critical, Major, Minor, or Suggestion
+            3. **Issue:** clear description
+            4. **Fix:** specific recommendation or example
+            5. **Rationale:** why this change matters
+
+            ## Summary format
+            At the end of your review, provide:
+            1. **Overall assessment:** general quality and readiness
+            2. **Critical issues:** must be fixed before merging
+            3. **Suggestions:** nice-to-have improvements
+            4. **Positive highlights:** what was done well
+            5. **Merge recommendation:** ready to merge, needs changes, or requires
+               discussion
+            Be constructive and specific. If the diff is clean, say so plainly
+            rather than inventing findings.
+
+          # Opus 5 + [1m] → 1M-token context window. A whole-PR review benefits most from
+          # the largest context, so KEEP the suffix.
+          #
+          # Do not drop it on the grounds that Opus 4.7+ "always runs at 1M": that is true of
+          # the API default, but [1m] is a Claude Code CLI construct and the CLI still starts
+          # at 200k. In the CLI bundle the suffix is gated per model by an explicit set that
+          # enumerates claude-opus-4-6/4-7/4-8/5 and claude-sonnet-4-0/4-5/4-6 — Opus 5 is in
+          # it, and a per-model gate would be pointless if 1M were automatic. The bundle also
+          # ships strip1mTag() and swapShrinksContextWindow(), which only exist because the
+          # window is not uniformly 1M. Dropping the suffix silently reviews at 200k: no
+          # error, just worse results on exactly the large diffs that need the context.
+          #
+          # Review-only run → read-only tool surface. Only `gh pr view` / `gh pr diff` /
+          # `gh pr checks` are allowed — NOT the broad `gh pr:*`, which would let a
+          # prompt-injected diff run mutating commands (gh pr close/edit/review/merge)
+          # under pull-requests: write. Posting stays confined to the comment MCP tool.
+          # See https://code.claude.com/docs/en/model-config (Extended context)
+          claude_args: |
+            --model claude-opus-5[1m]
+            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Read,Glob,Grep,mcp__github_comment__update_claude_comment"
