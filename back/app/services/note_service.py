@@ -138,6 +138,84 @@ async def get_note_by_path(db: AsyncSession, vault_id: UUID, user_id: UUID, path
     return ServiceResponse.ok(note)
 
 
+async def resolve_note_ref(db: AsyncSession, vault_id: UUID, user_id: UUID, ref: str) -> ServiceResponse[Note]:
+    """A note by id, exact path, or exact title (case-insensitive).
+
+    How a caller who is not a UI — the public API, an AI client — says which
+    note they mean. Ambiguous titles are an error naming a disambiguating
+    path, never a silent pick.
+    """
+    ref = (ref or "").strip()
+    if not ref:
+        return ServiceResponse.fail(
+            "validation_failed", 'Say which note: its id, its path ("Folder/Name") or its title.'
+        )
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    try:
+        note_id = UUID(ref)
+    except (ValueError, TypeError):
+        note_id = None
+    if note_id is not None:
+        note = await _note_in_vault(db, note_id, vault_id)
+        if note is not None:
+            return ServiceResponse.ok(note)
+    note = await db.scalar(select(Note).where(Note.vault_id == vault_id, Note.path == ref))
+    if note is not None:
+        return ServiceResponse.ok(note)
+    from sqlalchemy import func
+
+    matches = (
+        (
+            await db.execute(
+                select(Note)
+                .where(Note.vault_id == vault_id, func.lower(Note.title) == ref.lower())
+                .order_by(Note.path)
+                .limit(2)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(matches) == 1:
+        return ServiceResponse.ok(matches[0])
+    if len(matches) > 1:
+        return ServiceResponse.fail(
+            "validation_failed",
+            f"Several notes are called {ref!r} — give the path (e.g. {matches[0].path!r}).",
+        )
+    return ServiceResponse.fail("not_found", f"No note called {ref!r}.")
+
+
+async def list_notes(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    *,
+    folder: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> ServiceResponse[dict[str, Any]]:
+    """Notes without their bodies, most recently updated first, paginated."""
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    from sqlalchemy import func
+
+    stmt = select(Note, func.count().over().label("total")).where(Note.vault_id == vault_id)
+    prefix = (folder or "").strip().strip("/")
+    if prefix:
+        stmt = stmt.where(Note.path.startswith(prefix + "/", autoescape=True))
+    rows = (await db.execute(stmt.order_by(Note.updated_at.desc()).limit(limit).offset(offset))).all()
+    return ServiceResponse.ok(
+        {
+            "items": [row[0] for row in rows],
+            "total": int(rows[0].total) if rows else 0,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
 async def update_content(
     db: AsyncSession,
     vault_id: UUID,

@@ -201,6 +201,87 @@ def _snippets_for(content: str, needle_forms: list[str], limit: int = 3) -> list
     return snippets
 
 
+async def link_notes(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    source_id: UUID,
+    *,
+    target: str,
+    context: str = "",
+) -> ServiceResponse[dict[str, Any]]:
+    """Connect two notes by appending a ``[[wikilink]]`` to the source.
+
+    Idempotent without ``context``: when the source already links to the
+    target nothing is written (``already_linked`` says so). ``context`` is an
+    optional sentence to put the link in; ``{link}`` inside it is replaced by
+    the wikilink, which is otherwise appended.
+    """
+    from app.services import note_service
+
+    src_res = await note_service.get_note(db, vault_id, user_id, source_id)
+    if not src_res.success:
+        return src_res  # type: ignore[return-value]
+    dst_res = await note_service.resolve_note_ref(db, vault_id, user_id, target)
+    if not dst_res.success:
+        return dst_res  # type: ignore[return-value]
+    src, dst = src_res.data, dst_res.data
+    assert src is not None and dst is not None
+    if src.id == dst.id:
+        return ServiceResponse.fail("validation_failed", "A note cannot link to itself.")
+
+    link = f"[[{dst.title}]]"
+    targets = {dst.title.lower(), dst.path.lower()}
+    already = any(w.target.strip().lower() in targets for w in extract_wikilinks(src.content))
+    if already and not context.strip():
+        return ServiceResponse.ok({"from": str(src.id), "to": str(dst.id), "inserted": None, "already_linked": True})
+    line = context.strip().replace("{link}", link) if context.strip() else f"- {link}"
+    if link not in line:
+        line = f"{line} {link}"
+    body = f"{src.content.rstrip()}\n\n{line}\n"
+    saved = await note_service.update_content(db, vault_id, user_id, src.id, content=body)
+    if not saved.success:
+        return saved  # type: ignore[return-value]
+    return ServiceResponse.ok({"from": str(src.id), "to": str(dst.id), "inserted": line, "already_linked": already})
+
+
+async def unlink_notes(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    source_id: UUID,
+    *,
+    target: str,
+) -> ServiceResponse[dict[str, Any]]:
+    """Remove every ``[[wikilink]]`` from the source that points at the target.
+
+    Links are derived from the markdown, so unlinking edits the markdown —
+    matching spans are spliced out (embeds and links inside code stay).
+    Removing nothing is success: the notes end up unlinked either way.
+    """
+    from app.services import note_service
+    from app.utils.markdown_parse import frontmatter_aliases, remove_wikilinks
+
+    src_res = await note_service.get_note(db, vault_id, user_id, source_id)
+    if not src_res.success:
+        return src_res  # type: ignore[return-value]
+    dst_res = await note_service.resolve_note_ref(db, vault_id, user_id, target)
+    if not dst_res.success:
+        return dst_res  # type: ignore[return-value]
+    src, dst = src_res.data, dst_res.data
+    assert src is not None and dst is not None
+    if src.id == dst.id:
+        return ServiceResponse.fail("validation_failed", "A note cannot link to itself.")
+
+    names = {dst.title, dst.path, *frontmatter_aliases(dst.properties or {})}
+    new_content, removed = remove_wikilinks(src.content, names)
+    if removed:
+        saved = await note_service.update_content(db, vault_id, user_id, src.id, content=new_content)
+        if not saved.success:
+            return saved  # type: ignore[return-value]
+    return ServiceResponse.ok({"from": str(src.id), "to": str(dst.id), "removed": removed})
+
+
 async def get_backlinks(
     db: AsyncSession, vault_id: UUID, user_id: UUID, note_id: UUID
 ) -> ServiceResponse[dict[str, Any]]:

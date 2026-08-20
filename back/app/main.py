@@ -120,6 +120,13 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix="/api/v1")
 
+    # The public API (bearer-key auth, own OpenAPI document) as a mounted
+    # sub-app. NB: distinct from the unauthenticated /api/v1/public/...
+    # publish routes — different prefix, different job.
+    from app.api.public.app import public_app
+
+    app.mount("/api/public/v1", public_app)
+
     # Nodum as an MCP server — bearer-token gated, Streamable HTTP, JSON
     # responses. Under /api so the web app's proxy and the production reverse
     # proxy both carry it without extra routes.
