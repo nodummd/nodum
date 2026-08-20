@@ -1,0 +1,448 @@
+name: Claude Security Review
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  claude-security-review:
+    # Trigger gating (defense-in-depth):
+    # 1. issue_comment fires for BOTH issues and PRs — require github.event.issue.pull_request
+    #    (only present on PR comments) so `@claude /security-review` on a plain issue, which
+    #    has no diff to review, doesn't spin up a review with empty context.
+    # 2. Restrict to trusted authors via author_association (OWNER/MEMBER/COLLABORATOR). This
+    #    workflow is secret-backed with pull-requests: write and reads the full diff, so we
+    #    gate at the YAML level and don't even start the runner for an untrusted commenter —
+    #    on top of claude-code-action's own collaborator gate. Blocks CONTRIBUTOR/NONE (e.g.
+    #    fork-PR authors) from triggering a privileged, cost-bearing job via prompt injection.
+    if: |
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '@claude /security-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '@claude /security-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+
+    runs-on: ubuntu-latest
+    # Cancel a superseded review run if a new /security-review lands on the same PR.
+    concurrency:
+      group: claude-security-review-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read # required by the github_ci MCP server to read CI results on PRs
+
+    env:
+      # The security-review prompt lives here once so BOTH the initial run and the
+      # retry step can reference it via ${{ env.SECURITY_REVIEW_PROMPT }} without
+      # duplicating it.
+      SECURITY_REVIEW_PROMPT: |
+            # Static Application Security Review — nodum
+
+            You are performing a STATIC, read-only security review of the diff on this
+            pull request for nodum, an open-source, multi-tenant, web-based Obsidian
+            alternative (markdown knowledge base with wikilinks, backlinks, graph):
+            - Backend (back/): Python / FastAPI, SQLAlchemy 2 async + asyncpg,
+              PostgreSQL (pgvector + tsvector), Alembic, Redis (cache, rate limits,
+              token revocation, collab), Celery, S3/MinIO (attachments via presigned
+              URLs). Layered: thin routers → fat services (`ServiceResponse`);
+              responses `{"data": ...}`, errors `{"error": {"code","message"}}`.
+            - Multi-tenant model: user → vault. Child tables (notes, folders, links,
+              tags, attachments, canvases, bookmarks, versions, aliases) scope by
+              `vault_id`. There is NO row-level security — every operation must
+              resolve ownership via `get_owned_vault(db, vault_id, user_id)`
+              (back/app/services/vault_service.py) and re-scope by `vault_id`.
+            - Auth: short-lived JWT access token (PyJWT; held in memory on the web
+              client, never localStorage) + httpOnly refresh cookie `nodum_refresh`
+              (path=/api/v1/auth, rotation with reuse detection that kills the whole
+              session family); Redis revocation markers (deliberately fail-open when
+              Redis is down); argon2 password hashing; Google OAuth with state in
+              Redis. API/MCP tokens (`nodum_<kind>_...`) and the clipper token are
+              stored SHA-256-hashed, plaintext shown once.
+            - Public surface: unauthenticated publish endpoints
+              (back/app/api/v1/publish.py) serving per-note share tokens and
+              per-vault public sites — the token/slug is the only secret.
+            - AI/LLM: user-supplied provider keys (Anthropic/OpenAI/Qwen/Ollama)
+              encrypted at rest with Fernet (`AI_ENCRYPTION_KEY`); user-configurable
+              `base_url` override guarded by back/app/utils/url_guard.py; SSE
+              streaming; tool-calling over the user's vault (ai_tools); embeddings in
+              pgvector; MCP server sub-app gated by BearerTokenGate
+              (back/app/mcp/auth.py).
+            - Frontend (web/): Next.js / React / TypeScript; CodeMirror 6 live
+              preview + react-markdown reading view. Inline HTML is a strict
+              allowlist by construction (web/src/lib/editor/inline-html.ts: 5 tags,
+              style-only, value re-serialised) — no rehype-raw, no
+              dangerouslySetInnerHTML, no sanitizer needed because raw HTML is never
+              parsed. Mermaid, KaTeX, shiki. Published pages web/src/app/p/[token]/
+              and web/src/app/s/[slug]/ render untrusted vault content to anonymous
+              visitors.
+            - This repo is PUBLIC. Other CI already covers dependency advisories
+              (pip-audit / npm audit / dependency-review), pattern-level SAST
+              (CodeQL security-extended), and secret history scanning (gitleaks) —
+              your value is the logic-level review those tools cannot do. Still flag
+              any literal secret you see in the diff as defense-in-depth.
+
+            This is DEFENSIVE and read-only. You are NOT authorized to and must not
+            attempt live exploitation, port scanning, or any network call against a
+            deployed target. Read only the diff and surrounding code. Do not invent
+            findings to justify the review — if the diff is clean, say so.
+
+            Methodology: use the built-in `security-review` skill as your base, then
+            apply the nodum-specific checklist below (distilled from OWASP Top 10 /
+            OWASP API Security Top 10 / OWASP LLM Top 10 and adapted to this
+            codebase). Weight your effort: **the highest-value clusters for nodum are
+            §2 (vault-scope tenancy), §4 (publish/share surface + SSRF) and §6
+            (AI/LLM/MCP), followed by §3 (auth/session).** Only report issues
+            actually reachable from the changed code; cite `file:line`.
+
+            ## 1. Injection (backend)
+            - SQL: flag any SQLAlchemy query built with an f-string, `%`, `.format()`,
+              `+`, or `text("..." + var)` — require bound params or Core expressions.
+              Flag dynamic column/table/`order_by` names from input (identifiers
+              can't be bound → allowlist). LIKE/ILIKE patterns built from user input
+              must escape `%`/`_` (the codebase has an escaping convention — flag
+              unescaped passthrough).
+            - Full-text / vector: flag user input flowing into `to_tsquery` or raw
+              tsquery strings (`websearch_to_tsquery` with a bound param is the safe
+              form); pgvector similarity queries must stay parameterised AND
+              vault-scoped.
+            - Command / deserialisation: flag `subprocess(..., shell=True)`,
+              `os.system`, `eval`/`exec`; `pickle.loads`, `yaml.load` without
+              `SafeLoader`, `marshal` on user/cache/queue-sourced bytes
+              (Celery/Redis payloads in scope).
+            - Path handling: zip import is the big surface — every archive entry path
+              must go through `validate_segment` (back/app/utils/path_utils.py).
+              Flag any join of raw archive names into filesystem paths or S3 keys
+              (zip-slip), and note-path/folder-path writes that bypass the existing
+              path validation.
+
+            ## 2. Broken access control / multi-tenant (HIGHEST PRIORITY)
+            - Flag ANY service or query that fetches/mutates notes, folders, links,
+              tags, attachments, canvases, bookmarks, versions, or aliases WITHOUT
+              first resolving vault ownership via `get_owned_vault(...)` and scoping
+              by `vault_id` — a forgotten ownership check is a cross-tenant
+              read/write and the most likely real vulnerability in any diff here.
+            - Flag `user_id`/`vault_id` taken from the request body or query string
+              instead of the authenticated token (`get_current_user_id`). Nested
+              resources must verify the parent-child link (note belongs to vault,
+              attachment belongs to note), not just the leaf id.
+            - Mass assignment: flag `Model(**data)`, setattr loops, or
+              `.update(payload)` without an allowlist; write DTOs must not accept
+              `user_id`, `vault_id`, or internal columns; flag any sensitive column
+              newly added to an input schema.
+            - Excessive exposure: flag responses serialising internal fields
+              (`token_hash`, `key_ciphertext`, revocation state, other users' rows)
+              or an internal schema imported into the public/publish routes.
+
+            ## 3. Auth & session
+            - JWT: flag `jwt.decode` without pinned `algorithms=[...]`, disabled
+              signature verification, missing `exp` handling, a weak/hardcoded
+              secret, or new claims trusted without validation.
+            - Refresh flow: flag changes that weaken rotation or reuse detection
+              (a reused refresh token must keep invalidating the whole session
+              family), that loosen cookie flags (`httponly`, `secure` in
+              prod/staging, `path=/api/v1/auth`, `samesite`), or that move tokens
+              into localStorage on the web side.
+            - Revocation and rate limiting deliberately fail OPEN when Redis is down
+              — flag changes that widen that window or make a NEW security check
+              silently depend on Redis. Rate limiting: `client_ip_from()` counts
+              X-Forwarded-For from the right using `TRUSTED_PROXY_HOPS`, gated by
+              `TRUST_PROXY_HEADERS` — a spoofing bypass here was fixed once; guard
+              the regression.
+            - API/MCP tokens: must remain SHA-256 hash lookups — flag raw-key
+              comparison, plaintext persisted anywhere, hints revealing more than
+              the documented prefix, or the per-user cap losing its advisory-lock
+              protection. The clipper token stays scoped to note-create only — flag
+              scope creep.
+            - Secure randomness: any new token/slug/share secret must come from
+              `secrets`/`os.urandom`, never `random.*`/`Math.random()`. Passwords
+              stay argon2. OAuth: exact redirect validation; `state` verified
+              against Redis.
+            - WebSocket collab authenticates via a query-param token (browsers
+              can't set WS headers) — flag anything that logs full request URLs on
+              that path, and any new WS/SSE endpoint that skips token validation.
+
+            ## 4. Public/publish surface & SSRF
+            - publish.py routes are unauthenticated by design: flag any handler that
+              resolves content by `vault_id`/`note_id` rather than by the share
+              token/slug, or that serves unpublished content (drafts, deleted notes,
+              unpublished siblings in the same vault) through a published entry
+              point. Flag token/slug comparison done with user-controlled filters,
+              and missing rate limiting on token/slug lookup (enumeration).
+            - Attachments on public pages: presigned URLs must stay short-lived and
+              scoped to the exact object; flag S3 keys derived from user input
+              without the vault prefix.
+            - SSRF: the AI `base_url` override is the one server-side fetch of a
+              user-controlled URL — every such fetch must pass through url_guard
+              (`_checked_base_url`): DNS-resolve-then-validate, block loopback/
+              RFC1918/link-local/metadata (`169.254.169.254`), http(s) only. Flag
+              any NEW server-side fetch of a user-supplied URL that bypasses
+              url_guard, changes that weaken the guard, or
+              `AI_ALLOW_PRIVATE_BASE_URLS` defaulting on.
+
+            ## 5. XSS & frontend
+            - The inline-HTML allowlist (web/src/lib/editor/inline-html.ts — 5 tags,
+              `style` attr only, value re-serialised) is load-bearing for the editor
+              AND the public pages. Flag: any introduction of rehype-raw /
+              dangerouslySetInnerHTML / html-react-parser; new tags or attributes in
+              the allowlist (especially anything that can carry a URL or handler:
+              `href`, `src`, `on*`, style `url()`); markdown rendered outside the
+              shared pipeline.
+            - Published pages (`p/[token]`, `s/[slug]`) render OTHER PEOPLE'S vault
+              content to anonymous visitors — the strictest bar applies there.
+              Mermaid must keep a strict `securityLevel`; KaTeX must keep `trust`
+              off; shiki output must stay escaped.
+            - DOM-XSS: `location.hash/search` or `postMessage` data reaching
+              `innerHTML`/`eval`/`Function`; `postMessage` handlers without
+              `event.origin` checks; `target="_blank"` without `rel="noopener"`.
+            - The backend sends security headers but no CSP
+              (back/app/core/middlewares/security_headers_middleware.py:
+              `X-Frame-Options: DENY`, HSTS in prod) — flag changes that remove
+              headers without compensating elsewhere.
+
+            ## 6. AI / LLM / MCP
+            - Provider keys: `key_ciphertext` must never be decrypted into logs,
+              error messages, Sentry captures, or API responses (`key_hint` only).
+              Flag Fernet key-handling regressions (falling back to `SECRET_KEY`,
+              caching plaintext keys) in back/app/utils/crypto_utils.py and
+              ai_credential paths.
+            - Prompt injection: note content, frontmatter, and imported markdown are
+              UNTRUSTED when concatenated into model context. ai_tools give the
+              model tools over the vault — every tool must re-derive user/vault
+              scope server-side from the authenticated session, never from
+              model-supplied arguments alone. Flag new high-impact tools (delete,
+              publish, settings changes) without server-side authorization, and tool
+              descriptions carrying hidden instructions (tool poisoning — treat
+              description diffs as security-relevant).
+            - MCP server: every tool route stays behind `BearerTokenGate`; the token
+              check is the hash lookup; flag tools that can reach outside the token
+              owner's vaults.
+            - Cost/DoS: streaming endpoints keep per-user rate limits and size caps
+              (back/app/constants/limits.py); flag unbounded tool-call loops or
+              removed limits.
+
+            ## 7. Uploads, import/export & storage
+            - Attachment uploads keep the extension+MIME allowlist
+              (`ALLOWED_ATTACHMENT_TYPES`) and size caps — flag content-type trusted
+              from the client without validation, SVG/HTML added to the allowlist
+              (stored XSS via attachment), or serving untrusted types inline rather
+              than as download.
+            - Zip import: per-entry and total size limits (`MAX_IMPORT_ZIP_SIZE_BYTES`,
+              `MAX_NOTE_SIZE_BYTES` — zip bombs), `validate_segment` on every path,
+              link resolution never fetching anything remote. Export: no cross-vault
+              content leaking through shared Redis caches.
+
+            ## 8. Secrets, config & infra
+            - Flag hardcoded credentials/keys/tokens in the diff (defense-in-depth
+              beyond gitleaks) and secrets leaking into logs or Sentry captures.
+              The repo is public: `.env` stays gitignored; only `.env*.example` with
+              placeholders.
+            - Compose: host ports must bind 127.0.0.1; prod containers run non-root;
+              flag `--privileged`, docker.sock mounts, host network, secrets baked
+              into images (`ENV *_KEY=`, `COPY .` pulling `.env`), `:latest` bases.
+            - back/app/settings/production.py rejects default credentials — flag
+              changes weakening that guard or new settings with unsafe defaults.
+            - CORS: flag reflecting an arbitrary `Origin` (or `*`) together with
+              credentials, or wildcards added to cors_middleware.py.
+
+            ## Output
+            Post a single summary comment. Order findings by severity. For each:
+            - **Location:** `file:line`
+            - **Severity:** Critical / High / Medium / Low
+            - **Class:** the checklist section (or OWASP category)
+            - **Issue & impact:** the concrete exploit scenario reachable from this diff
+            - **Fix:** specific, minimal remediation (prefer an existing project
+              primitive: `get_owned_vault`, `validate_segment`, `url_guard`,
+              `ServiceResponse`, the inline-HTML allowlist)
+
+            End with an overall risk assessment and a merge recommendation (safe to
+            merge / fix before merge / needs discussion). If the diff has no
+            security-relevant changes, say so plainly rather than inventing findings.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The trigger comment's `/security-review` expands the CLI's BUILT-IN slash command,
+      # which eagerly runs `git status`, `git diff --name-only origin/HEAD...`,
+      # `git log --no-decorate origin/HEAD...` and `git diff origin/HEAD...` the moment it
+      # loads — BEFORE the first model turn. If any of them fails, the session dies at
+      # 0 turns / $0 with a "success" result and no review is ever posted.
+      #
+      # `actions/checkout` leaves origin/HEAD unset (only `git clone` sets it), and two
+      # claude-code-action behaviours then break the merge-base those commands need, even
+      # though this job checks out with full history (fetch-depth: 0):
+      #   1. The action checks out the PR branch via `git fetch --depth=<PR commits + margin>`,
+      #      which turns the full clone into a SHALLOW repo (.git/shallow) even when every
+      #      object is already local.
+      #   2. Its config-hardening step ("Restoring .claude … PR head is untrusted") then runs
+      #      `git fetch origin <base> --depth=1`, which records the BASE BRANCH TIP as a
+      #      parentless shallow boundary. From then on merge-base(origin/<base>, HEAD) is
+      #      unreachable whenever the base advanced past the PR's fork point — practically
+      #      always on dev — so `git diff origin/HEAD...` dies with "fatal: no merge base":
+      #      the deterministic 0-turn abort this step used to mis-fix with `set-head --auto`.
+      #
+      # Fix: while the clone is still complete, pin origin/HEAD to a synthetic ref frozen at
+      # the PR's MERGE-BASE. That commit stays reachable from the PR head inside the action's
+      # own fetch window (depth = PR commit count + margin), neither shallow fetch touches the
+      # synthetic ref, and `origin/HEAD...` then yields exactly the PR's diff and commits.
+      - name: Pin origin/HEAD to the PR merge-base (survives the action's shallow fetches)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          IFS=$'\t' read -r base head < <(
+            gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json baseRefName,headRefName -q '[.baseRefName, .headRefName] | @tsv'
+          )
+          if mb=$(git merge-base "origin/$base" "origin/$head" 2>/dev/null); then
+            git update-ref refs/remotes/origin/security-review-base "$mb"
+            git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/security-review-base
+            echo "origin/HEAD -> merge-base of origin/$base and origin/$head ($mb)"
+          else
+            # Fork PRs: the head branch does not exist on origin, so the merge-base is not
+            # computable locally. Fall back to the base tip — correct unless the action's
+            # --depth=1 base fetch cuts it off (see above), but fork PRs are already blocked
+            # by the author_association gate anyway.
+            git remote set-head origin "$base"
+            echo "origin/HEAD -> origin/$base (fallback: origin/$head not on origin)"
+          fi
+
+      - name: Run Claude Security Review
+        id: attempt1
+        uses: anthropics/claude-code-action@v1.0.185
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # CRITICAL: forces tag-mode tracking comments. Without this the action runs
+          # headless — no live progress comment AND the final review is never posted
+          # (Claude can't reach the comment MCP tool, surfacing as permission_denials).
+          track_progress: true
+          # Reuse a single sticky comment: the live progress comment becomes the final review.
+          use_sticky_comment: true
+          # Let Claude read CI results to factor them into the review.
+          additional_permissions: |
+            actions: read
+          # Prompt is defined once in the job `env` above so the retry step can reuse it.
+          prompt: ${{ env.SECURITY_REVIEW_PROMPT }}
+
+          # Opus 5 + [1m] suffix → 1M-token context window for reviewing the full diff.
+          # Read-only tool surface: only `gh pr view`/`gh pr diff` are allowed — NOT the broad
+          # `gh pr:*`, which would let a prompt-injected diff run mutating commands (gh pr close/
+          # edit/review/merge) under `pull-requests: write`. Posting stays confined to the single
+          # comment tool. No live exploitation, no network calls to any target.
+          claude_args: |
+            --model claude-opus-5[1m]
+            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Read,Glob,Grep,mcp__github_comment__update_claude_comment"
+
+      # Detect a silent 0-turn abort. Root causes seen so far:
+      #   - the eager `git … origin/HEAD...` expansion of the built-in /security-review
+      #     command failing (origin/HEAD unset, or the merge-base cut off by the action's
+      #     shallow fetches — both addressed by the "Pin origin/HEAD" step above);
+      #   - a transient rate/usage limit on the shared CLAUDE_CODE_OAUTH_TOKEN (observed:
+      #     2 of 3 concurrent reviews on different PRs aborting at 0 turns while the third
+      #     completed). A 0-turn abort is near-instant (~2s), so retrying it is cheap.
+      - name: Detect empty result (attempt 1)
+        id: check1
+        if: always()
+        env:
+          EXEC_FILE: ${{ steps.attempt1.outputs.execution_file }}
+        run: |
+          # A claude-code-action run that ends at num_turns:0 posts NO review: the
+          # sticky comment stays on the "I'll analyze this..." placeholder yet the job
+          # still reports success, so the failure is invisible. Read the SDK execution
+          # log and expose whether a real turn happened.
+          set -uo pipefail
+          f="${EXEC_FILE:-}"
+          if [ -z "$f" ] || [ ! -f "$f" ]; then
+            f="${RUNNER_TEMP}/claude-execution-output.json"
+          fi
+          turns=0
+          if [ -f "$f" ]; then
+            turns=$(jq -s -r '[.. | objects | select(.type? == "result") | .num_turns] | last // 0' "$f" 2>/dev/null || echo 0)
+          fi
+          case "$turns" in ""|*[!0-9]*) turns=0 ;; esac
+          if [ "$turns" -gt 0 ]; then
+            echo "empty=false" >> "$GITHUB_OUTPUT"
+            echo "Claude produced a review ($turns turns)."
+          else
+            echo "empty=true" >> "$GITHUB_OUTPUT"
+            echo "Claude ended at 0 turns - no review was posted."
+          fi
+
+      - name: Backoff before retry
+        if: always() && steps.check1.outputs.empty == 'true'
+        run: sleep 90
+
+      - name: Retry Claude Security Review
+        id: attempt2
+        if: always() && steps.check1.outputs.empty == 'true'
+        uses: anthropics/claude-code-action@v1.0.185
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          use_sticky_comment: true
+          additional_permissions: |
+            actions: read
+          prompt: ${{ env.SECURITY_REVIEW_PROMPT }}
+          claude_args: |
+            --model claude-opus-5[1m]
+            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Read,Glob,Grep,mcp__github_comment__update_claude_comment"
+
+      - name: Detect empty result (after retry)
+        id: check2
+        if: always() && steps.check1.outputs.empty == 'true'
+        env:
+          EXEC_FILE: ${{ steps.attempt2.outputs.execution_file }}
+        run: |
+          # A claude-code-action run that ends at num_turns:0 posts NO review: the
+          # sticky comment stays on the "I'll analyze this..." placeholder yet the job
+          # still reports success, so the failure is invisible. Read the SDK execution
+          # log and expose whether a real turn happened.
+          set -uo pipefail
+          f="${EXEC_FILE:-}"
+          if [ -z "$f" ] || [ ! -f "$f" ]; then
+            f="${RUNNER_TEMP}/claude-execution-output.json"
+          fi
+          turns=0
+          if [ -f "$f" ]; then
+            turns=$(jq -s -r '[.. | objects | select(.type? == "result") | .num_turns] | last // 0' "$f" 2>/dev/null || echo 0)
+          fi
+          case "$turns" in ""|*[!0-9]*) turns=0 ;; esac
+          if [ "$turns" -gt 0 ]; then
+            echo "empty=false" >> "$GITHUB_OUTPUT"
+            echo "Claude produced a review ($turns turns)."
+          else
+            echo "empty=true" >> "$GITHUB_OUTPUT"
+            echo "Claude ended at 0 turns - no review was posted."
+          fi
+
+      # Turn a silent 0-turn abort into a visible failure + an explicit PR comment,
+      # instead of a green "finished in 2s" that looks like a clean review.
+      - name: Fail loudly if the review never posted
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          EMPTY1: ${{ steps.check1.outputs.empty }}
+          EMPTY2: ${{ steps.check2.outputs.empty }}
+        run: |
+          if [ "$EMPTY1" != "true" ]; then
+            echo "Security review posted on the first attempt."
+            exit 0
+          fi
+          if [ "$EMPTY2" = "false" ]; then
+            echo "Security review posted on the retry."
+            exit 0
+          fi
+          echo "::error::Claude security review produced no output (0 turns) on both attempts. If this is consistent, the built-in /security-review command's eager git expansion is failing (check the 'Pin origin/HEAD' step and the run log); if sporadic, it is likely a transient rate/usage limit on CLAUDE_CODE_OAUTH_TOKEN. No review was posted."
+          if [ -n "${PR_NUMBER:-}" ]; then
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "🔒 **Security review didn't run.** Claude returned an empty result (0 turns) on two attempts, so nothing was posted. If this keeps happening on every attempt, the \`/security-review\` command's git context expansion is failing — check the workflow run logs. If it is occasional, the shared review token likely hit a transient rate/usage limit: re-trigger with \`@claude /security-review\` in a few minutes." || true
+          fi
+          exit 1

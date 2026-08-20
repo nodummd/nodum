@@ -851,3 +851,22 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
   - Left for a human: claim Search Console / Bing (env vars are wired), submit
     the sitemap, and do the off-site work — third-party mentions outweigh
     owned content in AI citation, and no amount of code produces them.
+    
+- **2026-08-20: Claude CI workflows** (`chore/1.claude-workflows_maqbool_…`).
+  Three new GitHub Actions workflows wired to `anthropics/claude-code-action`:
+  - `claude-code-review.yml` — `@claude /review [extra focus]` on a PR runs a
+    nodum-aware review (vault tenancy via `get_owned_vault`, ServiceResponse
+    envelope, ruff format gate, Zustand/TanStack/`src/lib/api` rules,
+    inline-HTML allowlist). Sticky progress comment; read-only `gh pr
+    view/diff/checks` tool surface.
+  - `claude-security-review.yml` — `@claude /security-review` runs a static
+    OWASP-style review with a nodum checklist (vault scoping, publish/share
+    tokens, url_guard SSRF, Fernet AI keys, MCP gate, zip-slip, XSS
+    allowlist); keeps the origin/HEAD merge-base pin + 0-turn retry/fail-loud
+    plumbing.
+  - `claude.yml` — any other `@claude` mention (issues, PR comments, reviews)
+    dispatches question/implement/review with the house rules baked in.
+  - All three YAML-gate on author_association (OWNER/MEMBER/COLLABORATOR) so
+    untrusted commenters never start the secret-backed runner; the two
+    `/review` prefixes are excluded from `claude.yml` as exact complements.
+  - Needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret to run.
