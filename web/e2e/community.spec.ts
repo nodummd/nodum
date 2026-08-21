@@ -133,4 +133,55 @@ test.describe("community", () => {
       .getByRole("button", { name: "Delete" }).click();
     await expect(page.getByText("#2 — removed")).toBeVisible({ timeout: 15_000 });
   });
+
+  test("likes, unread chips and search work for signed-in members", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    await signupFreshUser(page, "alice");
+    const marker = `eng${Date.now().toString(36)}`;
+    const topic = (await apiCall(page, "POST", "/community/topics", {
+      category: "help",
+      title: `Engage ${marker}`,
+      content: `Original ${marker} content with quokkas.`,
+    })) as { id: string; slug: string };
+
+    // Alice opens the thread — the beacon marks it read; she likes the OP.
+    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    const like = page.getByRole("button", { name: "Like" });
+    await expect(like).toBeVisible();
+    await like.click();
+    await expect(page.getByRole("button", { name: "Unlike" })).toHaveText("♥ 1");
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Unlike" })).toHaveText("♥ 1", { timeout: 10_000 });
+
+    // Bob replies from his own session.
+    const bobCtx = await browser.newContext();
+    const bob = await bobCtx.newPage();
+    await signupFreshUser(bob, "bob");
+    await apiCall(bob, "POST", `/community/topics/${topic.id}/posts`, { content: `Bob answers ${marker}.` });
+    await bobCtx.close();
+
+    // Alice's list shows the unread chip; opening the thread clears it.
+    await expect(async () => {
+      await page.goto("/community?limit=100");
+      const row = page.locator("li", { hasText: `Engage ${marker}` }).first();
+      await expect(row.getByTestId("unread-badge")).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 45_000 });
+    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await expect(page.getByText(`Bob answers ${marker}.`)).toBeVisible();
+    await page.goto("/community?limit=100");
+    const row = page.locator("li", { hasText: `Engage ${marker}` }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByTestId("unread-badge")).toHaveCount(0);
+
+    // Search finds title and body, snippet marked; body hit deep-links.
+    await page.goto("/community/search");
+    await page.getByLabel("Search the community").fill("quokkas");
+    await expect(page.locator("mark").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("link", { name: new RegExp(`Engage ${marker}`) }).first()).toBeVisible();
+
+    // The profile page shows Alice's topic.
+    const me = (await apiCall(page, "GET", "/auth/me")) as { id: string };
+    await page.goto(`/community/u/${me.id}`);
+    await expect(page.getByRole("link", { name: `Engage ${marker}` })).toBeVisible();
+  });
 });

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 
+import { LikeButton, ThreadEngagement } from "@/components/community/engagement";
 import { PostBody } from "@/components/community/post-body";
 import { PostControls, ReplyBox } from "@/components/community/thread-actions";
 import { getPosts, getTopic } from "@/lib/api/community-server";
@@ -65,6 +66,7 @@ export default async function TopicPage({
         {new Date(topic.created_at).toLocaleDateString()} · {topic.reply_count} replies · {topic.view_count} views
       </p>
 
+      <ThreadEngagement topicId={topic.id} maxPostNumber={posts.items.length ? posts.items[posts.items.length - 1].post_number : 1}>
       <ol className="space-y-6">
         {posts.items.map((post) => (
           <li key={post.id} id={`post-${post.post_number}`} className="mk-card px-4 py-3">
@@ -87,7 +89,8 @@ export default async function TopicPage({
                   {" · "}
                   {post.created_at && new Date(post.created_at).toLocaleDateString()}
                   {post.edited_at && <em> · edited</em>}
-                  {typeof post.like_count === "number" && post.like_count > 0 && <> · ♥ {post.like_count}</>}
+                  {" · "}
+                  <LikeButton postId={post.id} initialCount={post.like_count ?? 0} />
                 </p>
                 <PostBody content={post.content ?? ""} />
                 <PostControls
@@ -103,6 +106,7 @@ export default async function TopicPage({
           </li>
         ))}
       </ol>
+      </ThreadEngagement>
       <Pager
         base={`/community/t/${topic.id}/${topic.slug}`}
         page={page}

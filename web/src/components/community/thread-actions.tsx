@@ -124,7 +124,8 @@ export function PostControls({
           if (!window.confirm(postNumber === 1 ? "Delete this topic?" : "Delete this reply?")) return;
           if (postNumber === 1) {
             await communityApi.deleteTopic(topicId).catch(() => undefined);
-            window.location.href = "/community";
+            router.push("/community");
+            router.refresh();
             return;
           }
           await communityApi.deletePost(postId).catch(() => undefined);

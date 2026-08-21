@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { ListEngagement } from "@/components/community/engagement";
+
 import { getCategories, getTopics } from "@/lib/api/community-server";
 
 import { Pager, TopicRow } from "./topic-row";
@@ -40,11 +42,13 @@ export default async function CommunityIndex({
         <h2 className="mk-eyebrow mb-1">{top ? `Top · ${top}` : "Latest"}</h2>
         {topics && topics.items.length > 0 ? (
           <>
-            <ul>
-              {topics.items.map((t) => (
-                <TopicRow key={t.id} topic={t} />
-              ))}
-            </ul>
+            <ListEngagement query={`${top ? `top=${top}&` : ""}limit=${PAGE_SIZE}&offset=${(page - 1) * PAGE_SIZE}`}>
+              <ul>
+                {topics.items.map((t) => (
+                  <TopicRow key={t.id} topic={t} />
+                ))}
+              </ul>
+            </ListEngagement>
             <Pager
               base={top ? `/community?top=${top}` : "/community"}
               page={page}
