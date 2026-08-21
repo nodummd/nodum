@@ -18,7 +18,7 @@ curl -H "Authorization: Bearer $KEY" \
 ```
 
 ```json
-{ "data": { "query": "spaced repetition", "total": 7,
+{ "ok": true, "data": { "query": "spaced repetition", "total": 7,
   "results": [ { "id": "0198…", "title": "Learning", "path": "Topics/Learning",
                  "snippet": "…the case for <mark>spaced</mark> <mark>repetition</mark>…",
                  "rank": 0.61, "created_at": "…", "updated_at": "…" } ] } }
@@ -44,7 +44,7 @@ curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
 ```
 
 ```json
-{ "data": { "from": "0198…", "to": "0198…",
+{ "ok": true, "data": { "from": "0198…", "to": "0198…",
             "inserted": "- [[Learning]]", "already_linked": false } }
 ```
 

@@ -93,7 +93,7 @@ const api = async (method, path, body) => {
     body: body && JSON.stringify(body),
   });
   const j = await r.json();
-  if (!r.ok) throw new Error(j.error.message);
+  if (!j.ok) throw new Error(`${j.error.code}: ${j.error.details}`);
   return j.data;
 };
 
@@ -109,8 +109,11 @@ for (const m of unlinked_mentions ?? []) {
 
 - **One key per program**, named after it, with only the scopes it needs —
   revoking one never breaks the others.
-- **Treat 409 as information**: `already_exists` means create-once logic can
-  be a plain retry; `conflict` means re-read, merge, re-send.
+- **Branch on the body, not just the status**: every response carries `ok`,
+  so one helper (`if (!body.ok) throw new Error(body.error.message)`) covers
+  every call.
+- **Treat 409 as information**: `ALREADY_EXISTS` means create-once logic can
+  be a plain retry; `CONFLICT` means re-read, merge, re-send.
 - **Remember the password rule**: changing or resetting the account password
   revokes every key. Cron jobs fail with `401` — mint fresh keys after.
 - The [interactive reference](/api-reference) shows every endpoint with

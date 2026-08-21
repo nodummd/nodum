@@ -48,7 +48,7 @@ async def test_only_an_api_key_authenticates(client: AsyncClient) -> None:
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         resp = await client.get(f"{P}/vaults", headers=headers)
         assert resp.status_code == 401, (token, resp.text)
-        assert resp.json()["error"]["code"] == "unauthorized"
+        assert resp.json()["error"]["code"] == "UNAUTHORIZED"
 
     # …and the key does not work where the MCP token belongs.
     resp = await client.post(
@@ -158,7 +158,7 @@ async def test_note_crud_roundtrip(client: AsyncClient) -> None:
     assert note["path"] == "Projects/2026/Alpha"
 
     dup = await client.post(f"{P}/vaults/{v}/notes", json={"title": "Alpha", "folder": "Projects/2026"}, headers=h)
-    assert dup.status_code == 409 and dup.json()["error"]["code"] == "already_exists"
+    assert dup.status_code == 409 and dup.json()["error"]["code"] == "ALREADY_EXISTS"
 
     by_path = await client.get(f"{P}/vaults/{v}/notes/by-path", params={"path": "Projects/2026/Alpha"}, headers=h)
     assert by_path.status_code == 200 and by_path.json()["data"]["id"] == note["id"]
@@ -185,7 +185,7 @@ async def test_note_crud_roundtrip(client: AsyncClient) -> None:
     )
     assert stale.status_code == 409
     err = stale.json()["error"]
-    assert err["code"] == "conflict" and err["details"]["server_updated_at"]
+    assert err["code"] == "CONFLICT" and "server_updated_at=" in err["details"]
 
     moved = await client.patch(
         f"{P}/vaults/{v}/notes/{note['id']}", json={"title": "Alpha Two", "folder": "Archive"}, headers=h
@@ -360,9 +360,9 @@ async def test_openapi_is_public_and_only_public(client: AsyncClient) -> None:
 
     # Unknown paths and wrong methods keep the error envelope too.
     lost = await client.get(f"{P}/no/such/thing")
-    assert lost.status_code == 404 and lost.json()["error"]["code"] == "not_found"
+    assert lost.status_code == 404 and lost.json()["error"]["code"] == "NOT_FOUND"
     wrong = await client.delete(f"{P}/vaults")
-    assert wrong.status_code == 405 and wrong.json()["error"]["code"] == "method_not_allowed"
+    assert wrong.status_code == 405 and wrong.json()["error"]["code"] == "METHOD_NOT_ALLOWED"
 
 
 # ── The review's regressions, pinned ─────────────────────────────────────────
@@ -473,3 +473,68 @@ async def test_list_notes_total_is_honest_past_the_end(client: AsyncClient) -> N
         await client.get(f"{P}/vaults/{v}/notes", params={"folder": "Off", "limit": 2, "offset": 10}, headers=h)
     ).json()["data"]
     assert past["items"] == [] and past["total"] == 3
+
+
+async def test_every_response_speaks_the_public_envelope(client: AsyncClient) -> None:
+    """`{"ok": true, "data"}` on success, `{"ok": false, "error"}` on failure —
+    including the errors raised before the sub-app is reached."""
+    account = await _account(client, "envelope")
+    v, h = account["vault_id"], account["headers"]
+
+    listed = await client.get(f"{P}/vaults", headers=h)
+    body = listed.json()
+    assert body["ok"] is True and isinstance(body["data"], list)
+    assert set(body) == {"ok", "data"}, body.keys()
+
+    note = (await client.post(f"{P}/vaults/{v}/notes", json={"title": "Enveloped"}, headers=h)).json()
+    assert note["ok"] is True and note["data"]["title"] == "Enveloped"
+
+    # Routes with a response_model get `ok` from the schema default; these
+    # return a bare dict, so they prove the routers wrap it themselves.
+    for path in (f"/vaults/{v}/tree", f"/vaults/{v}/graph", f"/vaults/{v}/notes/{note['data']['id']}/backlinks"):
+        raw = (await client.get(f"{P}{path}", headers=h)).json()
+        assert raw["ok"] is True and "data" in raw, (path, raw.keys())
+        assert set(raw) == {"ok", "data"}, (path, raw.keys())
+
+    failures = [
+        (await client.get(f"{P}/vaults", headers={"Authorization": "Bearer nodum_key_nope"}), "UNAUTHORIZED"),
+        (await client.get(f"{P}/vaults/{v}/notes/{uuid.uuid4()}", headers=h), "NOT_FOUND"),
+        (await client.post(f"{P}/vaults/{v}/notes", json={"nope": 1}, headers=h), "VALIDATION_FAILED"),
+        (await client.get(f"{P}/no/such/route", headers=h), "NOT_FOUND"),
+        (await client.delete(f"{P}/vaults", headers=h), "METHOD_NOT_ALLOWED"),
+    ]
+    for resp, code in failures:
+        err = resp.json()
+        assert err["ok"] is False, err
+        assert set(err) == {"ok", "error"}, err.keys()
+        assert set(err["error"]) == {"code", "details", "message"}, err["error"].keys()
+        assert err["error"]["code"] == code, (resp.request.url, err)
+        assert isinstance(err["error"]["details"], str) and err["error"]["details"]
+        assert isinstance(err["error"]["message"], str) and err["error"]["message"]
+
+    # Validation details name the offending field rather than repeating the message.
+    bad = (await client.post(f"{P}/vaults/{v}/notes", json={}, headers=h)).json()
+    assert "title" in bad["error"]["details"], bad
+
+    # The app API is untouched: it keeps its own shape.
+    internal = await client.get("/api/v1/vaults", headers=account["session"])
+    assert "ok" not in internal.json() and "data" in internal.json()
+    missing = await client.get(f"/api/v1/vaults/{v}/notes/{uuid.uuid4()}", headers=account["session"])
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "not_found" and "ok" not in missing.json()
+
+
+async def test_middleware_errors_keep_the_public_envelope(client: AsyncClient) -> None:
+    """A 429 or 413 is produced before the mount — it must not leak the app
+    API's dialect into a public response."""
+    from app.api.public.errors import envelope_for
+
+    public = envelope_for("/api/public/v1/vaults", "RATE_LIMITED", "Too many requests.", "retry after 30 seconds")
+    assert public["ok"] is False
+    assert public["error"] == {
+        "code": "RATE_LIMITED",
+        "details": "retry after 30 seconds",
+        "message": "Too many requests.",
+    }
+    internal = envelope_for("/api/v1/vaults", "RATE_LIMITED", "Too many requests.")
+    assert "ok" not in internal and internal["error"]["code"] == "rate_limited"

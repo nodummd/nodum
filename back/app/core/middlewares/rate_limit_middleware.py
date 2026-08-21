@@ -122,9 +122,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 await redis_control.expire(key, window)
             if count > limit:
                 ttl = await redis_control.ttl(key)
+                from app.api.public.errors import envelope_for
+
                 return JSONResponse(
                     status_code=429,
-                    content={"error": {"code": "rate_limited", "message": "Too many requests."}},
+                    content=envelope_for(
+                        path, "RATE_LIMITED", "Too many requests.", f"retry after {max(ttl, 1)} seconds"
+                    ),
                     headers={"Retry-After": str(max(ttl, 1))},
                 )
         except Exception:  # Redis down — fail open

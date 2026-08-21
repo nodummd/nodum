@@ -43,4 +43,4 @@ async def quick_switch(
     limit: int = Query(default=10, ge=1, le=25),
 ) -> Any:
     """What the in-app Cmd+O switcher uses — cheap fuzzy matching on titles and aliases."""
-    return {"data": (await search_service.quick_switch(db, vault_id, user_id, q=q, limit=limit)).unwrap()}
+    return {"ok": True, "data": (await search_service.quick_switch(db, vault_id, user_id, q=q, limit=limit)).unwrap()}
