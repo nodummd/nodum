@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 
 import { PostBody } from "@/components/community/post-body";
+import { PostControls, ReplyBox } from "@/components/community/thread-actions";
 import { getPosts, getTopic } from "@/lib/api/community-server";
 
 import { Pager } from "../../../topic-row";
@@ -89,6 +90,14 @@ export default async function TopicPage({
                   {typeof post.like_count === "number" && post.like_count > 0 && <> · ♥ {post.like_count}</>}
                 </p>
                 <PostBody content={post.content ?? ""} />
+                <PostControls
+                  postId={post.id}
+                  postNumber={post.post_number}
+                  authorId={post.author?.id ?? null}
+                  topicId={topic.id}
+                  content={post.content ?? ""}
+                  locked={topic.is_locked}
+                />
               </>
             )}
           </li>
@@ -101,6 +110,7 @@ export default async function TopicPage({
         hasNext={posts.has_more}
       />
       {topic.is_locked && <p className="mt-6 opacity-60">This topic is locked — no new replies.</p>}
+      {!posts.has_more && <ReplyBox topicId={topic.id} locked={topic.is_locked} />}
     </article>
   );
 }

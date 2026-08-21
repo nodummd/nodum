@@ -85,4 +85,52 @@ test.describe("community", () => {
     await page.goto("/community");
     await expect(page.getByRole("heading", { name: "Talk Nodum" })).toBeVisible();
   });
+
+
+  test("signed-in users compose, reply, edit and delete through the UI", async ({ page, browser }) => {
+    test.setTimeout(90_000);
+    await signupFreshUser(page, "composer");
+    const marker = `ui${Date.now().toString(36)}`;
+
+    // Compose a topic through the form, preview first.
+    await page.goto("/community/new");
+    await page.getByLabel("Category").selectOption("help");
+    await page.getByLabel("Title").fill(`Composed ${marker}`);
+    await page.getByLabel("Markdown").fill(`**Bold** words from ${marker}.`);
+    await page.getByRole("button", { name: "preview" }).click();
+    await expect(page.locator(".mk-prose strong", { hasText: "Bold" })).toBeVisible();
+    await page.getByRole("button", { name: "write" }).click();
+    await page.getByRole("button", { name: "Create topic" }).click();
+    await expect(page).toHaveURL(/\/community\/t\//, { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: `Composed ${marker}` })).toBeVisible();
+    await expect(page.locator("article strong", { hasText: "Bold" })).toBeVisible();
+
+    // Reply, refresh-free.
+    await page.getByLabel("Markdown").fill(`A reply from ${marker}.`);
+    await page.getByRole("button", { name: "Post reply" }).click();
+    await expect(page.getByText(`A reply from ${marker}.`)).toBeVisible({ timeout: 15_000 });
+
+    // Edit the reply; the edited marker appears.
+    const replyCard = page.locator("li", { hasText: `A reply from ${marker}.` }).last();
+    await replyCard.getByRole("button", { name: "Edit" }).click();
+    await replyCard.getByLabel("Markdown").fill(`A better reply from ${marker}.`);
+    await replyCard.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(`A better reply from ${marker}.`)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("edited")).toBeVisible();
+
+    // A second user sees no controls on someone else's post.
+    const other = await browser.newContext();
+    const otherPage = await other.newPage();
+    await signupFreshUser(otherPage, "bystander");
+    await otherPage.goto(page.url());
+    await expect(otherPage.getByText(`A better reply from ${marker}.`)).toBeVisible();
+    await expect(otherPage.getByRole("button", { name: "Edit" })).toHaveCount(0);
+    await other.close();
+
+    // Delete the reply — a placeholder remains.
+    page.on("dialog", (d) => void d.accept());
+    await page.locator("li", { hasText: `A better reply from ${marker}.` }).last()
+      .getByRole("button", { name: "Delete" }).click();
+    await expect(page.getByText("#2 — removed")).toBeVisible({ timeout: 15_000 });
+  });
 });
