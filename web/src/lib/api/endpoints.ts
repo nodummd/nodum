@@ -372,6 +372,19 @@ export const mcpApi = {
 
 // ── API keys (the public REST API's credential) ──────────────────────────────
 
+// ── Community ────────────────────────────────────────────────────────────────
+
+export const communityApi = {
+  createTopic: (category: string, title: string, content: string) =>
+    apiJson<{ id: string; slug: string }>("/community/topics", "POST", { category, title, content }),
+  reply: (topicId: string, content: string) =>
+    apiJson<{ id: string; post_number: number }>(`/community/topics/${topicId}/posts`, "POST", { content }),
+  editPost: (postId: string, content: string) =>
+    apiJson<{ id: string }>(`/community/posts/${postId}`, "PATCH", { content }),
+  deletePost: (postId: string) => apiJson<{ deleted: string }>(`/community/posts/${postId}`, "DELETE"),
+  deleteTopic: (topicId: string) => apiJson<{ deleted: string }>(`/community/topics/${topicId}`, "DELETE"),
+};
+
 export const apiKeysApi = {
   list: () => api<ApiKeyList>("/api-keys"),
   /** The key is in THIS response only — show it once. */

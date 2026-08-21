@@ -6,6 +6,8 @@ export interface User {
   name: string;
   avatar_url: string | null;
   email_verified: boolean;
+  /** Community moderation rights (pin/lock/delete, staff-only categories). */
+  is_staff?: boolean;
   settings: Record<string, unknown>;
   created_at: string;
 }

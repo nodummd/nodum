@@ -83,11 +83,13 @@ export interface CommunityProfile {
   recent_topics: CommunityTopicItem[];
 }
 
-async function getCommunity<T>(path: string): Promise<T | null> {
+async function getCommunity<T>(path: string, fresh = false): Promise<T | null> {
   try {
     const res = await fetch(`${API_ORIGIN}/api/v1/community${path}`, {
       headers: { Accept: "application/json" },
-      next: { revalidate: 30 },
+      // Lists tolerate 30s of staleness; a thread you just replied to must
+      // show the reply on the very next render.
+      ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: 30 } }),
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
@@ -111,9 +113,9 @@ export const getTopics = (params: { category?: string; top?: string; limit?: num
   return getCommunity<CommunityTopicList>(`/topics?${q}`);
 };
 
-export const getTopic = (id: string) => getCommunity<CommunityTopicItem>(`/topics/${id}`);
+export const getTopic = (id: string) => getCommunity<CommunityTopicItem>(`/topics/${id}`, true);
 
 export const getPosts = (topicId: string, after = 0, limit = 50) =>
-  getCommunity<CommunityPostPage>(`/topics/${topicId}/posts?after=${after}&limit=${limit}`);
+  getCommunity<CommunityPostPage>(`/topics/${topicId}/posts?after=${after}&limit=${limit}`, true);
 
 export const getProfile = (userId: string) => getCommunity<CommunityProfile>(`/users/${userId}`);
