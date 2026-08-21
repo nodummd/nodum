@@ -223,6 +223,21 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-22 (v3.7.0 — the public API's response contract)** — External
+  responses become `{"ok": true, "data": …}` and `{"ok": false, "error":
+  {"code", "details", "message"}}` with SCREAMING_SNAKE codes, so a client
+  branches on the body through one helper. The envelope lives in one module
+  and the rate-limit and body-size middleware reuse it — they answer before
+  the mount and would otherwise leak the app API's dialect. `/api/v1` is
+  untouched (the web client speaks it) and a test pins the separation. Also
+  in this release: the Developers navbar link (#47) and a deploy guard that
+  understands an external TLS terminator (#46) — the topology production
+  actually runs, where naming section hosts inside the stack turns on
+  automatic HTTPS and 308-loops every section. Production itself was fixed
+  by hand first: the front Caddy (a second, host-level one fronting both
+  nodum and another product) gained the four subdomain names, and the stack
+  stopped naming them.
+
 - **2026-08-21 (v3.6.1 — subdomain hotfix from the first prod deploy)** —
   nodum.md went live with the redirect flag on before its subdomain DNS
   existed, which surfaced three holes at once: redirects emitted http://
