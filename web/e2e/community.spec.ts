@@ -1,6 +1,16 @@
+import { execSync } from "node:child_process";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import { signupFreshUser } from "./helpers";
+
+/** Staff is a column with no UI by design — operators flip it with SQL (or
+ *  the bootstrap env). The test does exactly what an operator does. */
+function makeStaff(email: string) {
+  execSync(
+    `docker exec nodum-postgres psql -U nodum -d nodum -c "UPDATE users SET is_staff=true WHERE email='${email}'"`,
+  );
+}
 
 /** The community forum's public read surface: anonymous browsing, the
  *  crawler view, and — load-bearing — that a stranger's markdown renders
@@ -183,5 +193,61 @@ test.describe("community", () => {
     const me = (await apiCall(page, "GET", "/auth/me")) as { id: string };
     await page.goto(`/community/u/${me.id}`);
     await expect(page.getByRole("link", { name: `Engage ${marker}` })).toBeVisible();
+  });
+
+  test("reporting and staff moderation work end to end", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    const marker = `mod${Date.now().toString(36)}`;
+
+    // An ordinary member posts something…
+    await signupFreshUser(page, "citizen");
+    const topic = (await apiCall(page, "POST", "/community/topics", {
+      category: "help",
+      title: `Moderate ${marker}`,
+      content: `Questionable ${marker} content.`,
+    })) as { id: string; slug: string };
+
+    // …a second member reports it from the page…
+    const reporterCtx = await browser.newContext();
+    const reporter = await reporterCtx.newPage();
+    await signupFreshUser(reporter, "reporter");
+    await reporter.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await reporter.getByRole("button", { name: "Report" }).click();
+    await reporter.getByLabel("Reason").selectOption("spam");
+    await reporter.getByLabel("Report detail").fill("very spammy");
+    await reporter.getByRole("button", { name: "Send" }).click();
+    await expect(reporter.getByText("Reported — staff will look.")).toBeVisible();
+    await reporterCtx.close();
+
+    // …and staff handles it.
+    const staffCtx = await browser.newContext();
+    const staff = await staffCtx.newPage();
+    const staffEmail = await signupFreshUser(staff, "sheriff");
+    makeStaff(staffEmail);
+    await staff.reload(); // re-bootstraps the session with is_staff on the payload
+
+    // The queue shows the report; resolve clears it.
+    await staff.goto("/community/mod");
+    const row = staff.locator('[data-testid="report-row"]', { hasText: `Moderate ${marker}` });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByText("very spammy")).toBeVisible();
+    await row.getByRole("button", { name: "Resolve" }).click();
+    await expect(row).toHaveCount(0, { timeout: 10_000 });
+
+    // Staff controls on the thread: pin + lock, then the lock hides replies.
+    await staff.goto(`/community/t/${topic.id}/${topic.slug}`);
+    const controls = staff.getByTestId("staff-controls");
+    await expect(controls).toBeVisible();
+    await controls.getByRole("button", { name: "Pin", exact: true }).click();
+    await expect(controls.getByRole("button", { name: "Unpin" })).toBeVisible({ timeout: 10_000 });
+    await controls.getByRole("button", { name: "Lock", exact: true }).click();
+    await expect(staff.getByText("This topic is locked")).toBeVisible({ timeout: 10_000 });
+    await staffCtx.close();
+
+    // The ordinary member now finds no reply box, and never sees staff UI.
+    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await expect(page.getByText("This topic is locked")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Post reply" })).toHaveCount(0);
+    await expect(page.getByTestId("staff-controls")).toHaveCount(0);
   });
 });
