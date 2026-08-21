@@ -64,7 +64,7 @@ test.describe("community", () => {
     // Anonymous from here on. The thread page renders fresh (never cached
     // before now); the list pages are allowed 30s of staleness by design.
     await context.clearCookies();
-    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await page.goto(`/forum/t/${topic.id}/${topic.slug}`);
     await expect(page.getByRole("heading", { name: `Showcase ${marker}` })).toBeVisible();
 
     // The hostile bits render as text/links, never as behavior.
@@ -80,22 +80,22 @@ test.describe("community", () => {
     await expect(page.getByText(`Reply from ${marker}.`)).toBeVisible();
 
     // The crawler view: content, title and canonical in the raw HTML.
-    const raw = await (await request.get(`/community/t/${topic.id}/${topic.slug}`)).text();
+    const raw = await (await request.get(`/forum/t/${topic.id}/${topic.slug}`)).text();
     expect(raw).toContain(`A post by ${marker}.`);
     expect(raw).toContain(`<title>Showcase ${marker}`);
-    expect(raw).toContain(`/community/t/${topic.id}/${topic.slug}`);
+    expect(raw).toContain(`/forum/t/${topic.id}/${topic.slug}`);
     expect(raw).not.toContain("noindex");
 
     // Wrong slug 308s to canonical.
-    const redirected = await request.get(`/community/t/${topic.id}/nonsense`, { maxRedirects: 0 });
+    const redirected = await request.get(`/forum/t/${topic.id}/nonsense`, { maxRedirects: 0 });
     expect(redirected.status()).toBe(308);
 
     // The list pages catch up within their 30s revalidate window.
     await expect(async () => {
-      await page.goto("/community/c/showcase");
+      await page.goto("/forum/c/showcase");
       await expect(page.getByRole("link", { name: `Showcase ${marker}` })).toBeVisible({ timeout: 1500 });
     }).toPass({ timeout: 45_000 });
-    await page.goto("/community");
+    await page.goto("/forum");
     await expect(page.getByRole("heading", { name: "Talk Nodum" })).toBeVisible();
   });
 
@@ -106,7 +106,7 @@ test.describe("community", () => {
     const marker = `ui${Date.now().toString(36)}`;
 
     // Compose a topic through the form, preview first.
-    await page.goto("/community/new");
+    await page.goto("/forum/new");
     await page.getByLabel("Category").selectOption("help");
     await page.getByLabel("Title").fill(`Composed ${marker}`);
     await page.getByLabel("Markdown").fill(`**Bold** words from ${marker}.`);
@@ -114,7 +114,7 @@ test.describe("community", () => {
     await expect(page.locator(".mk-prose strong", { hasText: "Bold" })).toBeVisible();
     await page.getByRole("button", { name: "write" }).click();
     await page.getByRole("button", { name: "Create topic" }).click();
-    await expect(page).toHaveURL(/\/community\/t\//, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/forum\/t\//, { timeout: 15_000 });
     await expect(page.getByRole("heading", { name: `Composed ${marker}` })).toBeVisible();
     await expect(page.locator("article strong", { hasText: "Bold" })).toBeVisible();
 
@@ -158,7 +158,7 @@ test.describe("community", () => {
     })) as { id: string; slug: string };
 
     // Alice opens the thread — the beacon marks it read; she likes the OP.
-    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await page.goto(`/forum/t/${topic.id}/${topic.slug}`);
     const like = page.getByRole("button", { name: "Like" });
     await expect(like).toBeVisible();
     await like.click();
@@ -175,26 +175,26 @@ test.describe("community", () => {
 
     // Alice's list shows the unread chip; opening the thread clears it.
     await expect(async () => {
-      await page.goto("/community?limit=100");
+      await page.goto("/forum?limit=100");
       const row = page.locator("li", { hasText: `Engage ${marker}` }).first();
       await expect(row.getByTestId("unread-badge")).toBeVisible({ timeout: 2000 });
     }).toPass({ timeout: 45_000 });
-    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await page.goto(`/forum/t/${topic.id}/${topic.slug}`);
     await expect(page.getByText(`Bob answers ${marker}.`)).toBeVisible();
-    await page.goto("/community?limit=100");
+    await page.goto("/forum?limit=100");
     const row = page.locator("li", { hasText: `Engage ${marker}` }).first();
     await expect(row).toBeVisible();
     await expect(row.getByTestId("unread-badge")).toHaveCount(0);
 
     // Search finds title and body, snippet marked; body hit deep-links.
-    await page.goto("/community/search");
+    await page.goto("/forum/search");
     await page.getByLabel("Search the community").fill("quokkas");
     await expect(page.locator("mark").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("link", { name: new RegExp(`Engage ${marker}`) }).first()).toBeVisible();
 
     // The profile page shows Alice's topic.
     const me = (await apiCall(page, "GET", "/auth/me")) as { id: string };
-    await page.goto(`/community/u/${me.id}`);
+    await page.goto(`/forum/u/${me.id}`);
     await expect(page.getByRole("link", { name: `Engage ${marker}` })).toBeVisible();
   });
 
@@ -214,7 +214,7 @@ test.describe("community", () => {
     const reporterCtx = await browser.newContext();
     const reporter = await reporterCtx.newPage();
     await signupFreshUser(reporter, "reporter");
-    await reporter.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await reporter.goto(`/forum/t/${topic.id}/${topic.slug}`);
     await reporter.getByRole("button", { name: "Report" }).click();
     await reporter.getByLabel("Reason").selectOption("spam");
     await reporter.getByLabel("Report detail").fill("very spammy");
@@ -230,7 +230,7 @@ test.describe("community", () => {
     await staff.reload(); // re-bootstraps the session with is_staff on the payload
 
     // The queue shows the report; resolve clears it.
-    await staff.goto("/community/mod");
+    await staff.goto("/forum/mod");
     const row = staff.locator('[data-testid="report-row"]', { hasText: `Moderate ${marker}` });
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row.getByText("very spammy")).toBeVisible();
@@ -238,7 +238,7 @@ test.describe("community", () => {
     await expect(row).toHaveCount(0, { timeout: 10_000 });
 
     // Staff controls on the thread: pin + lock, then the lock hides replies.
-    await staff.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await staff.goto(`/forum/t/${topic.id}/${topic.slug}`);
     const controls = staff.getByTestId("staff-controls");
     await expect(controls).toBeVisible();
     await controls.getByRole("button", { name: "Pin", exact: true }).click();
@@ -248,9 +248,26 @@ test.describe("community", () => {
     await staffCtx.close();
 
     // The ordinary member now finds no reply box, and never sees staff UI.
-    await page.goto(`/community/t/${topic.id}/${topic.slug}`);
+    await page.goto(`/forum/t/${topic.id}/${topic.slug}`);
     await expect(page.getByText("This topic is locked")).toBeVisible();
     await expect(page.getByRole("button", { name: "Post reply" })).toHaveCount(0);
     await expect(page.getByTestId("staff-controls")).toHaveCount(0);
+  });
+
+  test("the community hub maps the forum, contributing and extending", async ({ page }) => {
+    await page.goto("/community");
+    await expect(page.getByRole("heading", { name: "Built in the open" })).toBeVisible();
+    // Forum router cards deep-link into categories with their role lines.
+    await expect(page.getByText("Hearts are votes: like the opening post.")).toBeVisible();
+    await page.getByRole("link", { name: /Feature Requests/ }).click();
+    await expect(page).toHaveURL(/\/forum\/c\/features/);
+    await page.goBack();
+    // Real extension surfaces are linked; plugins stay an honest teaser.
+    await expect(page.getByRole("link", { name: /The public API/ })).toBeVisible();
+    await expect(page.getByText("plugins and themes are on the roadmap", { exact: false })).toBeVisible();
+    // The old forum URLs 308 to their new home.
+    const res = await page.request.get("/community/search", { maxRedirects: 0 });
+    expect(res.status()).toBe(308);
+    expect(res.headers()["location"]).toContain("/forum/search");
   });
 });

@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Wordmark } from "./knot";
 
-const GITHUB = "https://github.com/nodummd/nodum";
+import { GITHUB_URL as GITHUB } from "@/lib/app-meta";
 
 export function SiteNav() {
   return (
@@ -28,6 +28,9 @@ export function SiteNav() {
           </Link>
           <Link className="mk-navlink" href="/community">
             Community
+          </Link>
+          <Link className="mk-navlink" href="/forum">
+            Forum
           </Link>
           <Link className="mk-navlink" href="/docs">
             Docs
@@ -83,6 +86,8 @@ const FOOTER_TOPICS = [
 
 const FOOTER_SITE = [
   { label: "Documentation", href: "/docs" },
+  { label: "Community", href: "/community" },
+  { label: "Forum", href: "/forum" },
   { label: "Glossary", href: "/glossary" },
   { label: "FAQ", href: "/faq" },
   { label: "Choosing a notes app", href: "/learn/note-taking-app" },

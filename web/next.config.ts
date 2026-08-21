@@ -50,9 +50,15 @@ const nextConfig: NextConfig = {
     ]);
   },
   redirects() {
-    return Promise.resolve(
-      KEYWORD_ALIASES.map(({ from, to }) => ({ source: from, destination: to, permanent: true })),
-    );
+    return Promise.resolve([
+      ...KEYWORD_ALIASES.map(({ from, to }) => ({ source: from, destination: to, permanent: true })),
+      // The forum lived at /community until the hub took that path over.
+      ...["t/:path*", "c/:path*", "new", "search", "mod", "u/:path*"].map((p) => ({
+        source: `/community/${p}`,
+        destination: `/forum/${p}`,
+        permanent: true,
+      })),
+    ]);
   },
   headers() {
     return Promise.resolve([

@@ -137,7 +137,9 @@ oa=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/public/v1/openapi.json")
 cm=$(curl -s "$BASE/api/v1/community/categories")
 echo "$cm" | grep -q '"announcements"' && ok "community categories seeded" || bad "community categories: ${cm:0:160}"
 cp=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/community")
-[ "$cp" = 200 ] && ok "community page served" || bad "/community returned $cp"
+[ "$cp" = 200 ] && ok "community hub served" || bad "/community returned $cp"
+fp=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/forum")
+[ "$fp" = 200 ] && ok "forum served" || bad "/forum returned $fp"
 
 # ── the load-bearing one: attachment upload + fetch via the /s3 proxy route ──
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > /tmp/smoke.png

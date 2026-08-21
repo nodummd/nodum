@@ -1,8 +1,8 @@
 import Link from "next/link";
 
-import { UnreadBadge } from "@/components/community/engagement";
+import { UnreadBadge } from "@/components/forum/engagement";
 
-import type { CommunityTopicItem } from "@/lib/api/community-server";
+import type { CommunityTopicItem } from "@/lib/api/forum-server";
 
 /** One topic line — shared by the index, category and profile pages. */
 export function TopicRow({ topic, showCategory = true }: { topic: CommunityTopicItem; showCategory?: boolean }) {
@@ -11,7 +11,7 @@ export function TopicRow({ topic, showCategory = true }: { topic: CommunityTopic
     <li className="flex items-baseline gap-3 border-b border-white/5 py-3 last:border-b-0">
       <div className="min-w-0 flex-1">
         <Link
-          href={`/community/t/${topic.id}/${topic.slug}`}
+          href={`/forum/t/${topic.id}/${topic.slug}`}
           className="text-[1rem] font-medium hover:underline"
         >
           {topic.is_pinned && <span className="mk-eyebrow mr-2">Pinned</span>}
@@ -24,7 +24,7 @@ export function TopicRow({ topic, showCategory = true }: { topic: CommunityTopic
           {showCategory && topic.category_slug ? (
             <>
               {" · "}
-              <Link href={`/community/c/${topic.category_slug}`} className="hover:underline">
+              <Link href={`/forum/c/${topic.category_slug}`} className="hover:underline">
                 {topic.category_slug}
               </Link>
             </>

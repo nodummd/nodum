@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { MarkdownBox } from "@/components/community/markdown-box";
+import { MarkdownBox } from "@/components/forum/markdown-box";
 import { communityApi } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
@@ -38,7 +38,7 @@ export function NewTopicForm({
     setError(null);
     try {
       const topic = await communityApi.createTopic(category, title, content);
-      router.push(`/community/t/${topic.id}/${topic.slug}`);
+      router.push(`/forum/t/${topic.id}/${topic.slug}`);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the topic.");
