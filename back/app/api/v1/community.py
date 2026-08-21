@@ -75,8 +75,13 @@ async def list_topics(
 
 
 @router.get("/topics/{topic_id}")
-async def get_topic(topic_id: UUID, db: SessionDep) -> dict[str, Any]:
-    return {"data": (await community_service.get_topic(db, topic_id)).unwrap()}
+async def get_topic(topic_id: UUID, db: SessionDep, request: Request, viewer: OptionalUserId = None) -> dict[str, Any]:
+    data = (await community_service.get_topic(db, topic_id)).unwrap()
+    # Count the view after the topic proved real — Redis-batched, deduped
+    # per viewer (or per address for the logged-out) for ten minutes.
+    viewer_key = str(viewer) if viewer else (request.client.host if request.client else "anon")
+    await community_service.record_view(topic_id, viewer_key)
+    return {"data": data}
 
 
 @router.get("/topics/{topic_id}/posts")
@@ -252,3 +257,19 @@ async def list_reports(
 async def resolve_report(report_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Staff: mark a report handled."""
     return {"data": (await community_service.resolve_report(db, user_id, report_id)).unwrap()}
+
+
+@router.get("/search")
+async def search(
+    db: SessionDep,
+    q: str = Query(min_length=1, max_length=200),
+    category: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Full-text search over topics and posts — websearch grammar, ranked,
+    with <mark> snippets. Title hits land at the top of the thread, body
+    hits carry their post_number."""
+    return {
+        "data": (await community_service.search(db, q=q, category_slug=category, limit=limit, offset=offset)).unwrap()
+    }

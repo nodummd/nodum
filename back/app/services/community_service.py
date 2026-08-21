@@ -11,7 +11,7 @@ thousands of posts deep and OFFSET degrades linearly.
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.auth import User
@@ -764,3 +764,128 @@ async def resolve_report(db: AsyncSession, staff_id: UUID, report_id: UUID) -> S
         report.resolved_at = func.now()
         await db.commit()
     return ServiceResponse.ok({"id": str(report_id), "status": "resolved"})
+
+
+# ── Search & views (S1.6) ────────────────────────────────────────────────────
+
+VIEWS_HASH_KEY = "community:views"
+_VIEW_DEDUPE_TTL_SECONDS = 600
+
+
+async def search(
+    db: AsyncSession, *, q: str, category_slug: str | None = None, limit: int = 20, offset: int = 0
+) -> ServiceResponse[dict[str, Any]]:
+    """Full-text over topic titles and post bodies, merged and ranked.
+
+    Title hits point at the top of the thread (post 1); body hits carry the
+    post_number so the client can land mid-thread. Same websearch grammar,
+    ranking and <mark> snippets as the vault search."""
+    q = q.strip()
+    if not q:
+        return ServiceResponse.fail("validation_failed", "Search for something.")
+    tsquery = func.websearch_to_tsquery("english", q)
+    headline_opts = "StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=10, MaxFragments=2"
+
+    title_sel = select(
+        CommunityTopic.id.label("topic_id"),
+        CommunityTopic.title.label("topic_title"),
+        CommunityTopic.slug.label("topic_slug"),
+        literal(1).label("post_number"),
+        func.ts_headline("english", CommunityTopic.title, tsquery, headline_opts).label("snippet"),
+        func.ts_rank_cd(CommunityTopic.title_tsv, tsquery).label("rank"),
+    ).where(CommunityTopic.title_tsv.op("@@")(tsquery), CommunityTopic.is_deleted.is_(False))
+    post_sel = (
+        select(
+            CommunityPost.topic_id.label("topic_id"),
+            CommunityTopic.title.label("topic_title"),
+            CommunityTopic.slug.label("topic_slug"),
+            CommunityPost.post_number.label("post_number"),
+            func.ts_headline("english", CommunityPost.content, tsquery, headline_opts).label("snippet"),
+            func.ts_rank_cd(CommunityPost.content_tsv, tsquery).label("rank"),
+        )
+        .join(CommunityTopic, CommunityTopic.id == CommunityPost.topic_id)
+        .where(
+            CommunityPost.content_tsv.op("@@")(tsquery),
+            CommunityPost.is_deleted.is_(False),
+            CommunityTopic.is_deleted.is_(False),
+        )
+    )
+    if category_slug is not None:
+        cat_res = await get_category(db, category_slug)
+        if not cat_res.success:
+            return cat_res  # type: ignore[return-value]
+        assert cat_res.data is not None
+        title_sel = title_sel.where(CommunityTopic.category_id == cat_res.data.id)
+        post_sel = post_sel.where(CommunityTopic.category_id == cat_res.data.id)
+
+    union = title_sel.union_all(post_sel).subquery()
+    stmt = (
+        select(union, func.count().over().label("total"))
+        .order_by(union.c.rank.desc(), union.c.topic_id.desc(), union.c.post_number)
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await db.execute(stmt)).all()
+    items = [
+        {
+            "topic_id": str(r.topic_id),
+            "topic_title": r.topic_title,
+            "topic_slug": r.topic_slug,
+            "post_number": int(r.post_number),
+            "snippet": r.snippet,
+            "rank": float(r.rank or 0),
+        }
+        for r in rows
+    ]
+    total = int(rows[0].total) if rows else 0
+    return ServiceResponse.ok({"query": q, "items": items, "total": total, "limit": limit, "offset": offset})
+
+
+async def record_view(topic_id: UUID, viewer_key: str) -> None:
+    """Count a topic view without touching Postgres: SETNX dedupes one
+    viewer for ten minutes, HINCRBY batches the rest for the beat flusher.
+    Redis down → the view is simply not counted (never a 500)."""
+    try:
+        from app.core.redis import redis_control
+
+        dedupe = f"community:viewdedupe:{topic_id}:{viewer_key}"
+        if await redis_control.set(dedupe, "1", ex=_VIEW_DEDUPE_TTL_SECONDS, nx=True):
+            await redis_control.hincrby(VIEWS_HASH_KEY, str(topic_id), 1)
+    except Exception:
+        pass
+
+
+async def flush_views() -> int:
+    """Drain the pending-views hash into view_count (the beat task's body).
+    Rename-then-read: increments landing mid-flush go to a fresh hash."""
+    from app.core.redis import redis_control
+
+    tmp = f"{VIEWS_HASH_KEY}:flush"
+    try:
+        if not await redis_control.exists(VIEWS_HASH_KEY):
+            return 0
+        await redis_control.rename(VIEWS_HASH_KEY, tmp)
+        pending = await redis_control.hgetall(tmp)
+    except Exception:
+        return 0
+    if not pending:
+        return 0
+    from app.core.db import async_session_factory
+
+    flushed = 0
+    async with async_session_factory() as db:
+        for topic_id, count in pending.items():
+            tid = topic_id.decode() if isinstance(topic_id, bytes) else topic_id
+            n = int(count)
+            await db.execute(
+                CommunityTopic.__table__.update()
+                .where(CommunityTopic.id == UUID(tid))
+                .values(view_count=CommunityTopic.view_count + n)
+            )
+            flushed += n
+        await db.commit()
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        await redis_control.delete(tmp)
+    return flushed

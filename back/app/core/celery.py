@@ -10,7 +10,7 @@ celery_app = Celery(
     "nodum",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks.vault_io", "app.tasks.maintenance"],
+    include=["app.tasks.vault_io", "app.tasks.maintenance", "app.tasks.community"],
 )
 
 celery_app.conf.update(
@@ -27,6 +27,10 @@ celery_app.conf.update(
         "prune-sessions-nightly": {
             "task": "tasks.prune_sessions",
             "schedule": 24 * 60 * 60.0,
+        },
+        "flush-community-views": {
+            "task": "tasks.flush_community_views",
+            "schedule": 60.0,
         },
     },
 )

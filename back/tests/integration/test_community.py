@@ -491,3 +491,62 @@ async def test_report_lifecycle(client: AsyncClient) -> None:
     assert (await client.delete(f"/api/v1/community/mod/posts/{post_id}", headers=staff)).status_code == 422
     # (the OP is the topic — staff removes the topic instead)
     assert (await client.delete(f"/api/v1/community/mod/topics/{topic['id']}", headers=staff)).status_code == 200
+
+
+# ── S1.6: search & views ─────────────────────────────────────────────────────
+
+
+async def test_search_finds_titles_and_bodies_with_snippets(client: AsyncClient) -> None:
+    user = await _signup(client, "searcher")
+    marker = f"xylophone{uuid.uuid4().hex[:6]}"
+    topic = await _post_topic(client, user, f"The {marker} question")
+    await client.post(
+        f"/api/v1/community/topics/{topic['id']}/posts",
+        json={"content": f"Deep in the thread the {marker} answer hides."},
+        headers=user,
+    )
+    other = await _post_topic(client, user, f"Unrelated {uuid.uuid4().hex[:6]}")
+
+    hits = (await client.get("/api/v1/community/search", params={"q": marker})).json()["data"]
+    # Three honest hits: the title, the OP body ("OP for <title>"), the reply.
+    assert hits["total"] == 3, hits
+    numbers = sorted(h["post_number"] for h in hits["items"])
+    assert numbers == [1, 1, 2], "a title hit and two body hits"
+    assert all("<mark>" in h["snippet"] for h in hits["items"])
+    assert all(h["topic_id"] == topic["id"] for h in hits["items"])
+
+    scoped = (await client.get("/api/v1/community/search", params={"q": marker, "category": "bugs"})).json()["data"]
+    assert scoped["total"] == 0, "category filter applies"
+
+    # Deleted content leaves the index view.
+    assert (await client.delete(f"/api/v1/community/topics/{other['id']}", headers=user)).status_code == 200
+    empty = (await client.get("/api/v1/community/search", params={"q": "Unrelated"})).json()["data"]
+    assert all(h["topic_id"] != other["id"] for h in empty["items"])
+
+    blank = await client.get("/api/v1/community/search", params={"q": " "})
+    assert blank.status_code == 422
+
+
+async def test_views_batch_in_redis_and_flush_to_the_row(client: AsyncClient) -> None:
+    from app.core.redis import redis_control
+    from app.services.community_service import VIEWS_HASH_KEY, flush_views
+
+    user = await _signup(client, "viewer")
+    topic = await _post_topic(client, user, f"Views {uuid.uuid4().hex[:8]}")
+
+    await redis_control.delete(VIEWS_HASH_KEY)
+    # Two GETs from the same viewer inside the dedupe window count once.
+    assert (await client.get(f"/api/v1/community/topics/{topic['id']}", headers=user)).status_code == 200
+    assert (await client.get(f"/api/v1/community/topics/{topic['id']}", headers=user)).status_code == 200
+    # A different (anonymous) viewer counts separately.
+    assert (await client.get(f"/api/v1/community/topics/{topic['id']}")).status_code == 200
+
+    pending = await redis_control.hgetall(VIEWS_HASH_KEY)
+    ours = {k.decode() if isinstance(k, bytes) else k: int(v) for k, v in pending.items()}
+    assert ours.get(topic["id"]) == 2, ours
+
+    flushed = await flush_views()
+    assert flushed >= 2
+    refreshed = (await client.get(f"/api/v1/community/topics/{topic['id']}", headers=user)).json()["data"]
+    assert refreshed["view_count"] == 2
+    assert not await redis_control.exists(VIEWS_HASH_KEY), "the hash drained"
