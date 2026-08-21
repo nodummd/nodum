@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { AgentationDevTools } from "@/components/dev/agentation-dev-tools";
 import { Providers } from "./providers";
 
 import { PRIMARY } from "@/lib/seo/keywords";
@@ -103,6 +104,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           title="All site content as markdown"
         />
         <Providers>{children}</Providers>
+        <AgentationDevTools />
       </body>
     </html>
   );
