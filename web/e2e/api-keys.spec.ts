@@ -94,6 +94,16 @@ test.describe("API keys", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("API");
     await expect(page.locator(".mk-docs-figure img")).toHaveCount(2);
 
+    // The Developers section: guides render with their endpoint walkthroughs.
+    for (const [slug, marker] of [
+      ["api-notes", "Edit safely"],
+      ["api-search-links", "Unlink"],
+      ["api-recipes", "Capture from anywhere"],
+    ] as const) {
+      await page.goto(`/docs/${slug}`);
+      await expect(page.getByRole("heading", { name: new RegExp(marker) })).toBeVisible();
+    }
+
     await page.goto("/api-reference");
     await expect(page.getByRole("heading", { name: "Nodum API" })).toBeVisible({ timeout: 20_000 });
     // A real operation from the spec, rendered by Scalar — and the try-it
