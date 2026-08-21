@@ -67,6 +67,30 @@ resolve_env_file() {
     exit 1
 }
 
+# ── Preflight: the two subdomain switches must agree ────────
+# NODUM_ENABLE_SUBDOMAIN_REDIRECTS sends /docs, /community, /forum and
+# /api-reference to their subdomains; NODUM_SUBDOMAIN_ADDRESSES is what makes
+# Caddy serve (and certificate) those hosts. With only the first, every
+# section link becomes a dead redirect to a host that answers no TLS at all —
+# a live-site outage that reads like a DNS problem. Refuse the deploy instead.
+check_subdomain_pairing() {
+    local file="$1" redirects addresses
+    redirects=$(sed -n 's/^[[:space:]]*NODUM_ENABLE_SUBDOMAIN_REDIRECTS=//p' "$file" | tail -1)
+    addresses=$(sed -n 's/^[[:space:]]*NODUM_SUBDOMAIN_ADDRESSES=//p' "$file" | tail -1)
+    redirects=$(printf '%s' "$redirects" | tr -d '"' | tr -d "'" | tr -d ' ')
+    addresses=$(printf '%s' "$addresses" | tr -d '"' | tr -d "'" | tr -d ' ')
+    if [ -n "$redirects" ] && [ -z "$addresses" ]; then
+        echo "ERROR: NODUM_ENABLE_SUBDOMAIN_REDIRECTS is set in $file but" >&2
+        echo "       NODUM_SUBDOMAIN_ADDRESSES is not (is that line still commented out?)." >&2
+        echo "       The apex would redirect /docs, /community, /forum and /api-reference" >&2
+        echo "       to hosts this stack does not serve: no certificate, no page." >&2
+        echo "       Set both (a DNS record per host is required), for example:" >&2
+        echo "         NODUM_SUBDOMAIN_ADDRESSES=docs.example.com developers.example.com community.example.com forum.example.com" >&2
+        echo "       or drop NODUM_ENABLE_SUBDOMAIN_REDIRECTS to keep every section on the apex." >&2
+        exit 1
+    fi
+}
+
 # ── Compose invocation ──────────────────────────────────────
 # ENVIRONMENT and the image tag are exported here rather than read from the
 # env file: which stack you asked for is decided by the argument you typed,
@@ -111,12 +135,14 @@ case "$ENV" in
         ;;
     staging)
         resolve_env_file staging
+        check_subdomain_pairing "$env_file"
         export NODUM_ENVIRONMENT=staging NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-staging}"
         collect_deploy_files docker-compose.staging.yml
         run nodum-staging "${FILES[@]}"
         ;;
     prod)
         resolve_env_file prod
+        check_subdomain_pairing "$env_file"
         export NODUM_ENVIRONMENT=production NODUM_IMAGE_TAG="${NODUM_IMAGE_TAG:-prod}"
         collect_deploy_files docker-compose.prod.yml
         run nodum-prod "${FILES[@]}"
