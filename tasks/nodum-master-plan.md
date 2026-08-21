@@ -223,6 +223,15 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-21 (v3.6.1 — subdomain hotfix from the first prod deploy)** —
+  nodum.md went live with the redirect flag on before its subdomain DNS
+  existed, which surfaced three holes at once: redirects emitted http://
+  (now honor X-Forwarded-Proto behind the TLS terminator), /api-reference
+  never redirected (the proxy matcher excluded "api" instead of "api/"),
+  and smoke.sh printed a bare 308 where it now follows the redirect and
+  names the unresolvable host with both remedies. Also: CI's e2e now runs
+  only on the release PR (main<-dev) plus manual dispatch (PR #42).
+
 - **2026-08-21 (v3.6.0 released — the site grows up: subdomains, hub, dev tooling)** —
   Four PRs (#36–#39): the GitHub link becomes an icon beside Log in; the
   agentation toolbar joins dev builds (annotate the running app, paste
