@@ -337,3 +337,20 @@ export interface ApiKeyList {
 }
 
 export type ApiKeyWithToken = ApiKey & { token: string; base_url: string };
+
+// ── Community ────────────────────────────────────────────────────────────────
+
+export interface CommunityReportItem {
+  id: string;
+  post_id: string;
+  topic_id: string;
+  topic_title: string;
+  post_number: number;
+  post_excerpt: string;
+  reason: string;
+  detail: string | null;
+  reporter: string | null;
+  status: string;
+  created_at: string;
+}
+

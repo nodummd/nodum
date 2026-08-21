@@ -4,6 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 
 import { LikeButton, ThreadEngagement } from "@/components/community/engagement";
 import { PostBody } from "@/components/community/post-body";
+import { ReportButton, StaffPostDelete, StaffTopicControls } from "@/components/community/staff-tools";
 import { PostControls, ReplyBox } from "@/components/community/thread-actions";
 import { getPosts, getTopic } from "@/lib/api/community-server";
 
@@ -65,6 +66,7 @@ export default async function TopicPage({
         {" · "}
         {new Date(topic.created_at).toLocaleDateString()} · {topic.reply_count} replies · {topic.view_count} views
       </p>
+      <StaffTopicControls topicId={topic.id} pinned={topic.is_pinned} locked={topic.is_locked} />
 
       <ThreadEngagement topicId={topic.id} maxPostNumber={posts.items.length ? posts.items[posts.items.length - 1].post_number : 1}>
       <ol className="space-y-6">
@@ -91,6 +93,9 @@ export default async function TopicPage({
                   {post.edited_at && <em> · edited</em>}
                   {" · "}
                   <LikeButton postId={post.id} initialCount={post.like_count ?? 0} />
+                  {" · "}
+                  <ReportButton postId={post.id} authorId={post.author?.id ?? null} />
+                  <StaffPostDelete postId={post.id} authorId={post.author?.id ?? null} />
                 </p>
                 <PostBody content={post.content ?? ""} />
                 <PostControls

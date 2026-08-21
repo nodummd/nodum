@@ -12,6 +12,7 @@ import type {
   CanvasData,
   CanvasFull,
   CanvasMeta,
+  CommunityReportItem,
   FolderInfo,
   Graph,
   ApiKey,
@@ -383,6 +384,17 @@ export const communityApi = {
     apiJson<{ id: string }>(`/community/posts/${postId}`, "PATCH", { content }),
   deletePost: (postId: string) => apiJson<{ deleted: string }>(`/community/posts/${postId}`, "DELETE"),
   deleteTopic: (topicId: string) => apiJson<{ deleted: string }>(`/community/topics/${topicId}`, "DELETE"),
+  report: (postId: string, reason: string, detail: string) =>
+    apiJson<{ id: string }>(`/community/posts/${postId}/report`, "POST", { reason, detail }),
+  // Staff:
+  moderateTopic: (topicId: string, patch: { pinned?: boolean; locked?: boolean; category?: string }) =>
+    apiJson<{ id: string }>(`/community/topics/${topicId}`, "PATCH", patch),
+  staffDeletePost: (postId: string) => apiJson<{ deleted: string }>(`/community/mod/posts/${postId}`, "DELETE"),
+  staffDeleteTopic: (topicId: string) => apiJson<{ deleted: string }>(`/community/mod/topics/${topicId}`, "DELETE"),
+  listReports: (status: "open" | "resolved") =>
+    api<{ items: CommunityReportItem[]; total: number }>(`/community/mod/reports?status=${status}`),
+  resolveReport: (reportId: string) =>
+    apiJson<{ id: string; status: string }>(`/community/mod/reports/${reportId}/resolve`, "POST"),
 };
 
 export const apiKeysApi = {
