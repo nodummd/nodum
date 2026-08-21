@@ -362,11 +362,13 @@ services:
       args:
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         API_PROXY_URL: http://api:8000
+      NODUM_ENABLE_SUBDOMAIN_REDIRECTS: ${NODUM_ENABLE_SUBDOMAIN_REDIRECTS:-}
     image: nodum-web:${NODUM_IMAGE_TAG:-latest}
     <<: *hardening
     environment:
       NODE_ENV: production
       API_PROXY_URL: http://api:8000
+      NODUM_ENABLE_SUBDOMAIN_REDIRECTS: ${NODUM_ENABLE_SUBDOMAIN_REDIRECTS:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
@@ -392,6 +394,7 @@ services:
     <<: *hardening
     environment:
       NODUM_SITE_ADDRESS: ${NODUM_SITE_ADDRESS:-:80}
+      NODUM_SUBDOMAIN_ADDRESSES: ${NODUM_SUBDOMAIN_ADDRESSES:-}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
