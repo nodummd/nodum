@@ -1,9 +1,12 @@
 name: CI E2E
 
+# The full-stack Playwright suite is the slowest gate in CI (~17 min), so it
+# runs only where it decides something: the release PR (main <- dev). Every
+# feature branch still runs it locally (make e2e is part of the merge ritual),
+# and workflow_dispatch stays as the manual escape hatch.
 on:
-  push:
-    branches: [main, dev]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +22,8 @@ env:
 jobs:
   e2e:
     name: Playwright (full stack)
+    # Belt to the trigger's braces: only the dev branch releases into main.
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'dev'
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
