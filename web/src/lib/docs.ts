@@ -50,6 +50,7 @@ export const DOC_SECTIONS = [
   "Organising",
   "Sharing",
   "Extending",
+  "Developers",
   "Account",
 ] as const;
 

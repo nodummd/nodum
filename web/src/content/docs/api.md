@@ -1,7 +1,7 @@
 ---
 title: API — connect your own apps
-section: Extending
-order: 5
+section: Developers
+order: 1
 summary: Create an API key and drive your vaults from any language over plain REST — list, search, read, write, link, unlink, tag, graph, even ask the AI.
 where: Settings → API keys for the key and a ready-made curl
 ---
@@ -76,6 +76,13 @@ Auth box and requests run from the page, against your own vaults, with
 generated snippets for shell, Python, JavaScript and more.
 
 ![The interactive API reference: endpoints on the left, schemas and a try-it client on the right.](/docs/api-reference.png)
+
+## Going deeper
+
+Two guides walk every endpoint with copy-paste requests and real responses:
+[working with notes and files](/docs/api-notes) and
+[search, links, tags and the graph](/docs/api-search-links) — and
+[recipes](/docs/api-recipes) turns them into small working programs.
 
 ## Worth knowing
 
