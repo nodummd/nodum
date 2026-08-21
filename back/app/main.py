@@ -44,6 +44,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     if settings.COLLAB_ENABLED:
         await collab_server.startup()
 
+    # Community staff bootstrap — flip the configured account's column once.
+    if settings.COMMUNITY_BOOTSTRAP_STAFF_EMAIL:
+        from sqlalchemy import update
+
+        from app.core.db import async_session_factory
+        from app.models.auth import User
+
+        try:
+            async with async_session_factory() as db:
+                await db.execute(
+                    update(User)
+                    .where(User.email == settings.COMMUNITY_BOOTSTRAP_STAFF_EMAIL, User.is_staff.is_(False))
+                    .values(is_staff=True)
+                )
+                await db.commit()
+        except Exception as e:  # a missing account is not a startup failure
+            logger.warning("community_staff_bootstrap_failed", error=str(e))
+
     # The MCP transport's session manager must be running for the whole life
     # of the app; a mounted sub-app's own lifespan never fires under FastAPI.
     from app.mcp.server import server as mcp_server
