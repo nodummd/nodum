@@ -403,13 +403,16 @@ test("capture the documentation screenshots", async ({ page }) => {
   await settings.getByRole("button", { name: "Revoke token Claude Desktop on my laptop" }).click();
   await expect(settings.getByRole("button", { name: "Revoke token Claude Desktop on my laptop" })).toHaveCount(0);
 
-  // API keys, with a freshly minted key so the try-it curl is filled in.
+  // API keys: the create dialog in its shown-once phase — key + curl visible.
   await settings.getByRole("button", { name: "API keys", exact: true }).click();
-  await settings.getByPlaceholder("My sync script").fill("My sync script");
   await settings.getByRole("button", { name: "Create key" }).click();
+  const keyDialog = page.getByRole("dialog", { name: "Create an API key" });
+  await keyDialog.getByPlaceholder("My sync script").fill("My sync script");
+  await keyDialog.getByRole("button", { name: "Create key" }).click();
   await expect(page.getByTestId("api-fresh-key")).toBeVisible();
   await page.waitForTimeout(400);
-  await shot(page, "settings-api-keys", settings, 12);
+  await shot(page, "settings-api-keys", page.getByRole("dialog", { name: "Copy your key now" }), 12);
+  await page.getByRole("dialog", { name: "Copy your key now" }).getByRole("button", { name: "Done" }).click();
   // The picture shows a key; revoke it so what is in the image is dead.
   await settings.getByRole("button", { name: "Revoke key My sync script" }).click();
   await expect(settings.getByRole("button", { name: "Revoke key My sync script" })).toHaveCount(0);
