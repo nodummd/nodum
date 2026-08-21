@@ -64,6 +64,7 @@ class UserOut(BaseModel):
     name: str
     avatar_url: str | None
     email_verified: bool
+    is_staff: bool = False
     settings: dict[str, Any]
     created_at: datetime
 

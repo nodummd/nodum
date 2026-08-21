@@ -24,6 +24,9 @@ class User(UUIDMixin, TimestampMixin, Base):
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Community moderation: pin/lock/delete anywhere, staff-only categories.
+    # Bootstrapped once from COMMUNITY_BOOTSTRAP_STAFF_EMAIL; the column is truth.
+    is_staff: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # User preferences: theme, editor options, hotkey overrides, etc.
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
