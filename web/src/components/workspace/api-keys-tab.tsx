@@ -3,29 +3,22 @@
 /**
  * Settings → API keys. The credential for the public REST API.
  *
- * A key is shown once, at the moment it is minted, and never again — the list
- * below only ever carries its name, scopes, last four characters and when it
- * was last used. The moment a key exists this screen hands the user a working
- * curl with it filled in: zero to a first successful request in one paste.
+ * Creation lives in its own dialog (ApiKeyCreateModal): name + scopes, then
+ * the key shown exactly once with a ready-made curl. This tab is the calm
+ * part — what the API is, the base URL, and the list of live keys with
+ * their scopes and a revoke button.
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { ApiKeyCreateModal } from "@/components/workspace/api-key-create-modal";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiKeysApi } from "@/lib/api/endpoints";
 import { DOCS_URL } from "@/lib/app-meta";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
-
-const SCOPES = [
-  { id: "read", label: "Read", hint: "list, read, search, graph" },
-  { id: "write", label: "Write", hint: "create, edit, link, tag" },
-  { id: "delete", label: "Delete", hint: "delete notes & files" },
-  { id: "ai", label: "AI", hint: "ask the vault (can write via AI tools)" },
-] as const;
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
@@ -53,25 +46,11 @@ export function ApiKeysTab() {
   const queryClient = useQueryClient();
   const toast = useToastStore((s) => s.push);
   const { data } = useQuery({ queryKey: ["api-keys"], queryFn: apiKeysApi.list });
-  const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<string[]>(["read", "write"]);
-  // The one and only time a key is visible.
-  const [fresh, setFresh] = useState<{ id: string; token: string; name: string } | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  const create = useMutation({
-    mutationFn: () => apiKeysApi.create(name.trim() || "API key", scopes),
-    onSuccess: (k) => {
-      setFresh({ id: k.id, token: k.token, name: k.name });
-      setName("");
-      void queryClient.invalidateQueries({ queryKey: ["api-keys"] });
-    },
-    onError: (e) => toastError(e, "Could not create the key."),
-  });
   const revoke = useMutation({
     mutationFn: (id: string) => apiKeysApi.revoke(id),
-    onSuccess: (_k, id) => {
-      // A dead key must not keep being advertised as copy-me.
-      setFresh((f) => (f?.id === id ? null : f));
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["api-keys"] });
       toast("Key revoked.", "info");
     },
@@ -81,9 +60,7 @@ export function ApiKeysTab() {
   const baseUrl =
     data?.base_url ?? `${typeof window !== "undefined" ? window.location.origin : ""}/api/public/v1`;
   const live = (data?.keys ?? []).filter((k) => !k.revoked_at);
-  const curl = fresh
-    ? `curl -H "Authorization: Bearer ${fresh.token}" ${baseUrl}/vaults`
-    : `curl -H "Authorization: Bearer <your key>" ${baseUrl}/vaults`;
+  const templateCurl = `curl -H "Authorization: Bearer <your key>" ${baseUrl}/vaults`;
 
   return (
     <section className="space-y-5">
@@ -116,89 +93,19 @@ export function ApiKeysTab() {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="api-key-name">Create a key</Label>
-        <p className="text-[12px] text-ob-faint">
-          A key is a password for one program. Name it after where it lives; revoke it here when that
-          program goes. Changing your password revokes every key.
-        </p>
         <div className="flex items-center gap-2">
-          <Input
-            id="api-key-name"
-            placeholder="My sync script"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !create.isPending && scopes.length > 0) create.mutate();
-            }}
-            className="h-8"
-          />
-          <Button
-            size="sm"
-            disabled={create.isPending || scopes.length === 0}
-            onClick={() => create.mutate()}
-          >
+          <Label>Keys</Label>
+          <span className="text-[11px] text-ob-faint">
+            A key is a password for one program; changing your password revokes them all.
+          </span>
+          <span className="flex-1" />
+          <Button size="sm" onClick={() => setCreating(true)}>
             <KeyRound className="mr-1 size-3.5" strokeWidth={2} />
             Create key
           </Button>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-          {SCOPES.map((s) => (
-            <label key={s.id} className="flex cursor-pointer items-center gap-1.5 text-[12px] text-ob-text">
-              <input
-                type="checkbox"
-                checked={scopes.includes(s.id)}
-                onChange={(e) =>
-                  setScopes((prev) => (e.target.checked ? [...prev, s.id] : prev.filter((x) => x !== s.id)))
-                }
-                className="accent-ob-accent"
-              />
-              {s.label}
-              <span className="text-ob-faint">({s.hint})</span>
-            </label>
-          ))}
-        </div>
-        {scopes.length === 0 && (
-          <p className="text-[12px] text-red-400">Pick at least one scope.</p>
-        )}
 
-        {fresh && (
-          <div
-            data-testid="api-fresh-key"
-            className="space-y-1.5 rounded-md border border-ob-accent/60 bg-ob-bg p-2.5"
-          >
-            <p className="text-[12px] text-ob-text">
-              Copy <span className="font-medium">{fresh.name}</span> now — it is not shown again.
-            </p>
-            <div className="flex items-center gap-1.5">
-              <code className="min-w-0 flex-1 font-mono text-[12px] text-ob-text [overflow-wrap:anywhere]">
-                {fresh.token}
-              </code>
-              <CopyButton text={fresh.token} label="Copy key" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <Label>Try it</Label>
-          <span className="text-[11px] text-ob-faint">
-            {fresh ? "This includes the key you just created." : "Create a key and it fills in."}
-          </span>
-          <span className="flex-1" />
-          <CopyButton text={curl} label="Copy curl command" />
-        </div>
-        <pre
-          data-testid="api-curl"
-          className="rounded border border-ob-border bg-ob-bg px-2.5 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ob-muted [overflow-wrap:anywhere]"
-        >
-          {curl}
-        </pre>
-      </div>
-
-      {live.length > 0 && (
-        <div className="space-y-1.5">
-          <Label>Active keys</Label>
+        {live.length > 0 ? (
           <ul className="divide-y divide-ob-border rounded-md border border-ob-border">
             {live.map((k) => (
               <li key={k.id} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px]">
@@ -219,8 +126,26 @@ export function ApiKeysTab() {
               </li>
             ))}
           </ul>
+        ) : (
+          <p className="rounded-md border border-dashed border-ob-border px-2.5 py-2 text-[12px] text-ob-faint">
+            No keys yet — create one and it will be shown exactly once.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <Label>Try it</Label>
+          <span className="text-[11px] text-ob-faint">A fresh key drops straight into this shape.</span>
+          <span className="flex-1" />
+          <CopyButton text={templateCurl} label="Copy curl command" />
         </div>
-      )}
+        <pre className="rounded border border-ob-border bg-ob-bg px-2.5 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ob-muted [overflow-wrap:anywhere]">
+          {templateCurl}
+        </pre>
+      </div>
+
+      <ApiKeyCreateModal open={creating} onOpenChange={setCreating} baseUrl={baseUrl} />
     </section>
   );
 }

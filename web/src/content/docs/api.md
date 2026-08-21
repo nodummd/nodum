@@ -21,12 +21,13 @@ product talks to Nodum.
 
 1. Settings → **API keys**. Copy the **base URL** — this site's address plus
    `/api/public/v1`.
-2. **Create a key**: name it after the program it is for, tick what it may do
-   (the scopes), create. The key is shown once; copy it.
-3. The **Try it** box now holds a working `curl` with your key filled in —
-   paste it into a terminal and you have made your first API call.
+2. **Create key** opens a dialog: name the key after the program it is for
+   and tick what it may do (the scopes).
+3. The dialog then shows the key — **once** — beside a working `curl` with
+   it already filled in. Copy either; paste the curl into a terminal and you
+   have made your first API call.
 
-![Create an API key in Settings — scopes, the key shown once, and a ready-made curl.](/docs/settings-api-keys.png)
+![The new key, shown exactly once, with its ready-made curl.](/docs/settings-api-keys.png)
 
 A key is a password for one program: treat it like one. Revoke it on this
 screen when the program goes; it stops working on its next call. **Changing

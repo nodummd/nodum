@@ -20,15 +20,21 @@ test.describe("API keys", () => {
     await expect(page.locator("code").filter({ hasText: "/api/public/v1" }).first()).toBeVisible();
     const baseUrl = `${new URL(page.url()).origin}/api/public/v1`;
 
-    // A read+write key (drop the pre-ticked scopes we don't want — none).
-    await page.getByPlaceholder("My sync script").fill("e2e script");
+    // Creation is its own dialog: name + scopes → the key, shown once.
     await page.getByRole("button", { name: "Create key" }).click();
+    const createDialog = page.getByRole("dialog", { name: "Create an API key" });
+    await expect(createDialog).toBeVisible();
+    await createDialog.getByPlaceholder("My sync script").fill("e2e script");
+    await createDialog.getByRole("button", { name: "Create key" }).click();
     const fresh = page.getByTestId("api-fresh-key");
     await expect(fresh).toBeVisible();
-    const key = (await fresh.locator("code").innerText()).trim();
+    const key = (await fresh.locator("code").first().innerText()).trim();
     expect(key).toMatch(/^nodum_key_[A-Za-z0-9_-]{40,}$/);
-    // The try-it curl picked it up, and the list shows a hint, never the key.
+    // The dialog's curl picked it up; Done closes it — the key's only showing.
     await expect(page.getByTestId("api-curl")).toContainText(key);
+    await page.getByRole("dialog", { name: "Copy your key now" }).getByRole("button", { name: "Done" }).click();
+    await expect(fresh).toHaveCount(0);
+    // The list shows a hint and the scopes, never the key.
     await expect(page.getByText(`…${key.slice(-4)}`)).toBeVisible();
     await expect(page.getByText("read · write")).toBeVisible();
 
