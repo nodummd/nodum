@@ -49,7 +49,11 @@ export function proxy(request: NextRequest) {
   const [first, ...rest] = host.split(".");
   const section = SECTIONS[first] && rest.length > 0 ? first : null;
   const { pathname, search } = request.nextUrl;
-  const proto = request.nextUrl.protocol;
+  // Behind the TLS-terminating proxy the container only ever sees http —
+  // redirects must use the protocol the CLIENT used, or https pages bounce
+  // to http:// URLs.
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const proto = forwardedProto ? `${forwardedProto}:` : request.nextUrl.protocol;
 
   if (section) {
     const apexHost = rest.join(".");
@@ -89,5 +93,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|_next/data|favicon.ico|.*\\..*).*)"],
+  matcher: ["/((?!api/|_next/static|_next/image|_next/data|favicon.ico|.*\\..*).*)"],
 };
