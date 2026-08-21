@@ -1,15 +1,18 @@
 import { execSync } from "node:child_process";
+import path from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
 import { signupFreshUser } from "./helpers";
 
-/** Staff is a column with no UI by design — operators flip it with SQL (or
- *  the bootstrap env). The test does exactly what an operator does. */
+/** Staff is a column with no UI by design — operators grant it with the
+ *  backend's make_staff script (or the bootstrap env). The test runs exactly
+ *  the tool an operator runs, which also works wherever the database lives
+ *  (local compose, CI service container). */
 function makeStaff(email: string) {
-  execSync(
-    `docker exec nodum-postgres psql -U nodum -d nodum -c "UPDATE users SET is_staff=true WHERE email='${email}'"`,
-  );
+  execSync(`uv run python scripts/make_staff.py '${email}'`, {
+    cwd: path.join(__dirname, "..", "..", "back"),
+  });
 }
 
 /** The community forum's public read surface: anonymous browsing, the
