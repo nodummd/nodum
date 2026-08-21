@@ -423,4 +423,10 @@ test("capture the documentation screenshots", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Nodum API" })).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(1500);
   await shot(page, "api-reference");
+
+  // The community forum — also public.
+  await page.goto("/community");
+  await expect(page.getByRole("heading", { name: "Talk Nodum" })).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(800);
+  await shot(page, "community");
 });
