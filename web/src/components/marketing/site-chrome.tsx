@@ -26,6 +26,9 @@ export function SiteNav() {
           <Link className="mk-navlink" href="/learn">
             Learn
           </Link>
+          <Link className="mk-navlink" href="/community">
+            Community
+          </Link>
           <Link className="mk-navlink" href="/docs">
             Docs
           </Link>
