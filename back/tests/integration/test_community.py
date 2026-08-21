@@ -175,3 +175,155 @@ async def test_deleted_posts_are_placeholders_and_deleted_topics_404(client: Asy
 async def test_top_rejects_unknown_window(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/community/topics", params={"top": "decade"})
     assert resp.status_code == 422
+
+
+# ── S1.3: the write API ──────────────────────────────────────────────────────
+
+
+async def _post_topic(client: AsyncClient, headers: dict, title: str, category: str = "help") -> dict:
+    resp = await client.post(
+        "/api/v1/community/topics",
+        json={"category": category, "title": title, "content": f"OP for {title}"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["data"]
+
+
+async def test_topic_and_reply_lifecycle(client: AsyncClient) -> None:
+    author = await _signup(client, "author")
+    marker = uuid.uuid4().hex[:8]
+    topic = await _post_topic(client, author, f"Lifecycle {marker}")
+    assert topic["reply_count"] == 0 and topic["last_post_number"] == 1
+
+    anonymous_denied = await client.post(f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "hi"})
+    assert anonymous_denied.status_code == 401
+
+    reply = await client.post(
+        f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "First answer."}, headers=author
+    )
+    assert reply.status_code == 201 and reply.json()["data"]["post_number"] == 2
+
+    refreshed = (await client.get(f"/api/v1/community/topics/{topic['id']}")).json()["data"]
+    assert refreshed["reply_count"] == 1 and refreshed["last_post_number"] == 2
+
+    edited = await client.patch(
+        f"/api/v1/community/posts/{reply.json()['data']['id']}", json={"content": "Better answer."}, headers=author
+    )
+    assert edited.status_code == 200 and edited.json()["data"]["edited_at"] is not None
+
+    gone = await client.delete(f"/api/v1/community/posts/{reply.json()['data']['id']}", headers=author)
+    assert gone.status_code == 200
+    after = (await client.get(f"/api/v1/community/topics/{topic['id']}")).json()["data"]
+    assert after["reply_count"] == 0
+    assert after["last_post_number"] == 2, "numbers never come back"
+
+    # Replyless again → the author may delete the whole topic.
+    assert (await client.delete(f"/api/v1/community/topics/{topic['id']}", headers=author)).status_code == 200
+    assert (await client.get(f"/api/v1/community/topics/{topic['id']}")).status_code == 404
+
+
+async def test_only_the_author_touches_a_post(client: AsyncClient) -> None:
+    author = await _signup(client, "owner")
+    stranger = await _signup(client, "stranger")
+    topic = await _post_topic(client, author, f"Ownership {uuid.uuid4().hex[:8]}")
+    reply = (
+        await client.post(f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "mine"}, headers=author)
+    ).json()["data"]
+
+    for attempt in (
+        client.patch(f"/api/v1/community/posts/{reply['id']}", json={"content": "defaced"}, headers=stranger),
+        client.delete(f"/api/v1/community/posts/{reply['id']}", headers=stranger),
+        client.delete(f"/api/v1/community/topics/{topic['id']}", headers=stranger),
+    ):
+        resp = await attempt
+        assert resp.status_code == 403, resp.text
+
+    # After a reply exists, even the author cannot delete the topic.
+    assert (await client.delete(f"/api/v1/community/topics/{topic['id']}", headers=author)).status_code == 409
+
+
+async def test_locked_and_staff_only_and_caps(client: AsyncClient) -> None:
+    from sqlalchemy import update
+
+    from app.core.db import async_session_factory
+    from app.models.community import CommunityTopic
+
+    user = await _signup(client, "rules")
+    topic = await _post_topic(client, user, f"Rules {uuid.uuid4().hex[:8]}")
+
+    async with async_session_factory() as db:
+        await db.execute(update(CommunityTopic).where(CommunityTopic.id == topic["id"]).values(is_locked=True))
+        await db.commit()
+    locked = await client.post(
+        f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "too late"}, headers=user
+    )
+    assert locked.status_code == 409 and "locked" in locked.json()["error"]["message"]
+
+    staff_only = await client.post(
+        "/api/v1/community/topics",
+        json={"category": "announcements", "title": "Not staff", "content": "hi"},
+        headers=user,
+    )
+    assert staff_only.status_code == 403
+
+    from app.settings import get_settings
+
+    over_cap = await client.post(
+        "/api/v1/community/topics",
+        json={"category": "help", "title": "Big", "content": "x" * (get_settings().COMMUNITY_POST_MAX_CHARS + 1)},
+        headers=user,
+    )
+    assert over_cap.status_code == 422
+
+    tiny_title = await client.post(
+        "/api/v1/community/topics", json={"category": "help", "title": "ab", "content": "hi"}, headers=user
+    )
+    assert tiny_title.status_code == 422
+
+    ghost_category = await client.post(
+        "/api/v1/community/topics", json={"category": "nope", "title": "Where", "content": "hi"}, headers=user
+    )
+    assert ghost_category.status_code == 404
+
+
+async def test_concurrent_replies_get_distinct_numbers(client: AsyncClient) -> None:
+    import asyncio
+
+    user = await _signup(client, "race")
+    topic = await _post_topic(client, user, f"Race {uuid.uuid4().hex[:8]}")
+
+    async def reply(i: int):
+        return await client.post(
+            f"/api/v1/community/topics/{topic['id']}/posts", json={"content": f"racer {i}"}, headers=user
+        )
+
+    results = await asyncio.gather(*[reply(i) for i in range(6)])
+    assert all(r.status_code == 201 for r in results)
+    numbers = sorted(r.json()["data"]["post_number"] for r in results)
+    assert numbers == [2, 3, 4, 5, 6, 7], numbers
+    refreshed = (await client.get(f"/api/v1/community/topics/{topic['id']}")).json()["data"]
+    assert refreshed["reply_count"] == 6 and refreshed["last_post_number"] == 7
+
+
+async def test_category_counters_track_the_truth(client: AsyncClient) -> None:
+    user = await _signup(client, "count")
+    before = next(
+        c for c in (await client.get("/api/v1/community/categories")).json()["data"] if c["slug"] == "showcase"
+    )
+    topic = await _post_topic(client, user, f"Counters {uuid.uuid4().hex[:8]}", category="showcase")
+    await client.post(f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "r"}, headers=user)
+    mid = next(c for c in (await client.get("/api/v1/community/categories")).json()["data"] if c["slug"] == "showcase")
+    assert mid["topic_count"] == before["topic_count"] + 1
+    assert mid["post_count"] == before["post_count"] + 2
+
+    # delete the reply, then the topic (as its author, after clearing the reply)
+    posts = (await client.get(f"/api/v1/community/topics/{topic['id']}/posts")).json()["data"]["items"]
+    reply_id = next(p["id"] for p in posts if p["post_number"] == 2)
+    assert (await client.delete(f"/api/v1/community/posts/{reply_id}", headers=user)).status_code == 200
+    assert (await client.delete(f"/api/v1/community/topics/{topic['id']}", headers=user)).status_code == 200
+    after = next(
+        c for c in (await client.get("/api/v1/community/categories")).json()["data"] if c["slug"] == "showcase"
+    )
+    assert after["topic_count"] == before["topic_count"]
+    assert after["post_count"] == before["post_count"]

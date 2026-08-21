@@ -1,19 +1,35 @@
 """Community forum endpoints.
 
 The read side is anonymous — the forum is publicly readable like the docs,
-so these routes take no auth dependency at all (S1.2). Writes arrive in
-S1.3 under CurrentUserId.
+so those routes take no auth dependency at all. Writes require a session
+(CurrentUserId); ownership and staff rules live in the service.
 """
 
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, status
+from pydantic import BaseModel, Field
 
+from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
 from app.services import community_service
 
 router = APIRouter()
+
+
+class TopicCreateRequest(BaseModel):
+    category: str = Field(min_length=1, max_length=100, description="Category slug.")
+    title: str = Field(min_length=1, max_length=300)
+    content: str = Field(min_length=1)
+
+
+class PostCreateRequest(BaseModel):
+    content: str = Field(min_length=1)
+
+
+class PostEditRequest(BaseModel):
+    content: str = Field(min_length=1)
 
 
 @router.get("/categories")
@@ -61,3 +77,44 @@ async def list_posts(
 async def get_profile(user_id: UUID, db: SessionDep) -> dict[str, Any]:
     """A member's public profile: identity, join date, forum stats, recent topics."""
     return {"data": (await community_service.get_profile(db, user_id)).unwrap()}
+
+
+# ── Writes ───────────────────────────────────────────────────────────────────
+
+
+@router.post("/topics", status_code=status.HTTP_201_CREATED)
+async def create_topic(body: TopicCreateRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Start a topic (the content becomes its opening post)."""
+    return {
+        "data": (
+            await community_service.create_topic(
+                db, user_id, category_slug=body.category, title=body.title, content=body.content
+            )
+        ).unwrap()
+    }
+
+
+@router.post("/topics/{topic_id}/posts", status_code=status.HTTP_201_CREATED)
+async def create_post(
+    topic_id: UUID, body: PostCreateRequest, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    """Reply to a topic."""
+    return {"data": (await community_service.create_post(db, user_id, topic_id, content=body.content)).unwrap()}
+
+
+@router.patch("/posts/{post_id}")
+async def edit_post(post_id: UUID, body: PostEditRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Edit your own post (marks it edited)."""
+    return {"data": (await community_service.edit_post(db, user_id, post_id, content=body.content)).unwrap()}
+
+
+@router.delete("/posts/{post_id}")
+async def delete_post(post_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Delete your own reply (a numbered placeholder remains)."""
+    return {"data": (await community_service.delete_post(db, user_id, post_id)).unwrap()}
+
+
+@router.delete("/topics/{topic_id}")
+async def delete_topic(topic_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Delete your own topic — only while nobody has replied."""
+    return {"data": (await community_service.delete_topic(db, user_id, topic_id)).unwrap()}
