@@ -473,3 +473,131 @@ async def delete_topic(
     await db.commit()
     await invalidate_categories_cache()
     return ServiceResponse.ok({"deleted": str(topic_id)})
+
+
+# ── Likes & read tracking (S1.4) ─────────────────────────────────────────────
+
+
+async def like_post(db: AsyncSession, user_id: UUID, post_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    """Idempotent: the ON CONFLICT no-op means the counter bumps only when a
+    row was actually inserted — a double-click cannot double-count."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.community import CommunityPostLike
+
+    post = await db.scalar(
+        select(CommunityPost).where(CommunityPost.id == post_id, CommunityPost.is_deleted.is_(False))
+    )
+    if post is None:
+        return ServiceResponse.fail("not_found", "Post not found.")
+    result = await db.execute(
+        pg_insert(CommunityPostLike.__table__)
+        .values(post_id=post_id, user_id=user_id)
+        .on_conflict_do_nothing(index_elements=["post_id", "user_id"])
+    )
+    if result.rowcount == 1:
+        await db.execute(
+            CommunityPost.__table__.update()
+            .where(CommunityPost.id == post_id)
+            .values(like_count=CommunityPost.like_count + 1)
+        )
+    await db.commit()
+    count = await db.scalar(select(CommunityPost.like_count).where(CommunityPost.id == post_id))
+    return ServiceResponse.ok({"post_id": str(post_id), "liked": True, "like_count": int(count or 0)})
+
+
+async def unlike_post(db: AsyncSession, user_id: UUID, post_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    """Unliking something never liked is a clean no-op, not an error."""
+    from sqlalchemy import delete as sa_delete
+
+    from app.models.community import CommunityPostLike
+
+    post = await db.scalar(select(CommunityPost.id).where(CommunityPost.id == post_id))
+    if post is None:
+        return ServiceResponse.fail("not_found", "Post not found.")
+    result = await db.execute(
+        sa_delete(CommunityPostLike.__table__).where(
+            CommunityPostLike.post_id == post_id, CommunityPostLike.user_id == user_id
+        )
+    )
+    if result.rowcount == 1:
+        await db.execute(
+            CommunityPost.__table__.update()
+            .where(CommunityPost.id == post_id)
+            .values(like_count=CommunityPost.like_count - 1)
+        )
+    await db.commit()
+    count = await db.scalar(select(CommunityPost.like_count).where(CommunityPost.id == post_id))
+    return ServiceResponse.ok({"post_id": str(post_id), "liked": False, "like_count": int(count or 0)})
+
+
+async def liked_post_ids(db: AsyncSession, user_id: UUID, post_ids: list[UUID]) -> set[str]:
+    """Which of these posts the viewer liked — one IN query for a whole page."""
+    from app.models.community import CommunityPostLike
+
+    if not post_ids:
+        return set()
+    rows = await db.execute(
+        select(CommunityPostLike.post_id).where(
+            CommunityPostLike.user_id == user_id, CommunityPostLike.post_id.in_(post_ids)
+        )
+    )
+    return {str(r) for r in rows.scalars()}
+
+
+async def mark_read(
+    db: AsyncSession, user_id: UUID, topic_id: UUID, *, post_number: int
+) -> ServiceResponse[dict[str, Any]]:
+    """GREATEST on conflict: an out-of-order beacon can never move the
+    pointer backward and resurrect an unread badge."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.community import CommunityTopicRead
+
+    topic = await db.scalar(
+        select(CommunityTopic.last_post_number).where(
+            CommunityTopic.id == topic_id, CommunityTopic.is_deleted.is_(False)
+        )
+    )
+    if topic is None:
+        return ServiceResponse.fail("not_found", "Topic not found.")
+    clamped = max(1, min(post_number, int(topic)))
+    stmt = pg_insert(CommunityTopicRead.__table__).values(
+        user_id=user_id, topic_id=topic_id, last_read_post_number=clamped
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["user_id", "topic_id"],
+        set_={
+            "last_read_post_number": func.greatest(
+                CommunityTopicRead.last_read_post_number, stmt.excluded.last_read_post_number
+            ),
+            "updated_at": func.now(),
+        },
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return ServiceResponse.ok({"topic_id": str(topic_id), "last_read_post_number": clamped})
+
+
+async def unread_map(db: AsyncSession, user_id: UUID, topic_ids: list[UUID]) -> dict[str, bool]:
+    """topic id → has-unread, for decorating a list page in one query.
+    A topic never opened counts as unread."""
+    from app.models.community import CommunityTopicRead
+
+    if not topic_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                CommunityTopic.id,
+                CommunityTopic.last_post_number,
+                CommunityTopicRead.last_read_post_number,
+            )
+            .outerjoin(
+                CommunityTopicRead,
+                (CommunityTopicRead.topic_id == CommunityTopic.id) & (CommunityTopicRead.user_id == user_id),
+            )
+            .where(CommunityTopic.id.in_(topic_ids))
+        )
+    ).all()
+    return {str(tid): (read is None or last > read) for tid, last, read in rows}

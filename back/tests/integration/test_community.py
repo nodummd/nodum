@@ -327,3 +327,65 @@ async def test_category_counters_track_the_truth(client: AsyncClient) -> None:
     )
     assert after["topic_count"] == before["topic_count"]
     assert after["post_count"] == before["post_count"]
+
+
+# ── S1.4: likes & read tracking ──────────────────────────────────────────────
+
+
+async def test_likes_are_idempotent_and_counted(client: AsyncClient) -> None:
+    author = await _signup(client, "liked")
+    fan = await _signup(client, "fan")
+    topic = await _post_topic(client, author, f"Likes {uuid.uuid4().hex[:8]}")
+    post_id = (await client.get(f"/api/v1/community/topics/{topic['id']}/posts")).json()["data"]["items"][0]["id"]
+
+    for _ in range(3):  # hammering like stays at 1
+        liked = await client.put(f"/api/v1/community/posts/{post_id}/like", headers=fan)
+        assert liked.status_code == 200 and liked.json()["data"]["like_count"] == 1
+
+    also = await client.put(f"/api/v1/community/posts/{post_id}/like", headers=author)
+    assert also.json()["data"]["like_count"] == 2
+
+    page = (await client.get(f"/api/v1/community/topics/{topic['id']}/posts", headers=fan)).json()["data"]
+    assert page["items"][0]["liked_by_viewer"] is True and page["items"][0]["like_count"] == 2
+    anon = (await client.get(f"/api/v1/community/topics/{topic['id']}/posts")).json()["data"]
+    assert "liked_by_viewer" not in anon["items"][0], "anonymous payloads stay undecorated"
+
+    for _ in range(2):  # unlike is idempotent too
+        unliked = await client.delete(f"/api/v1/community/posts/{post_id}/like", headers=fan)
+        assert unliked.status_code == 200 and unliked.json()["data"]["like_count"] == 1
+
+    assert (await client.put(f"/api/v1/community/posts/{post_id}/like")).status_code == 401
+
+
+async def test_unread_tracking_moves_only_forward(client: AsyncClient) -> None:
+    alice = await _signup(client, "alice")
+    bob = await _signup(client, "bob")
+    topic = await _post_topic(client, bob, f"Unread {uuid.uuid4().hex[:8]}")
+
+    def flag(listing: dict, tid: str) -> bool:
+        return next(t["unread"] for t in listing["items"] if t["id"] == tid)
+
+    listing = (await client.get("/api/v1/community/topics", params={"limit": 100}, headers=alice)).json()["data"]
+    assert flag(listing, topic["id"]) is True, "never opened → unread"
+    anon = (await client.get("/api/v1/community/topics", params={"limit": 100})).json()["data"]
+    assert all("unread" not in t for t in anon["items"])
+
+    read = await client.put(f"/api/v1/community/topics/{topic['id']}/read", json={"post_number": 1}, headers=alice)
+    assert read.status_code == 200
+    listing = (await client.get("/api/v1/community/topics", params={"limit": 100}, headers=alice)).json()["data"]
+    assert flag(listing, topic["id"]) is False
+
+    # Bob replies → unread again for Alice.
+    await client.post(f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "news"}, headers=bob)
+    listing = (await client.get("/api/v1/community/topics", params={"limit": 100}, headers=alice)).json()["data"]
+    assert flag(listing, topic["id"]) is True
+
+    # Alice catches up; a stale out-of-order beacon cannot drag her back.
+    await client.put(f"/api/v1/community/topics/{topic['id']}/read", json={"post_number": 2}, headers=alice)
+    await client.put(f"/api/v1/community/topics/{topic['id']}/read", json={"post_number": 1}, headers=alice)
+    listing = (await client.get("/api/v1/community/topics", params={"limit": 100}, headers=alice)).json()["data"]
+    assert flag(listing, topic["id"]) is False, "the pointer never moves backward"
+
+    # A beacon past the end clamps to the real last post.
+    clamped = await client.put(f"/api/v1/community/topics/{topic['id']}/read", json={"post_number": 999}, headers=alice)
+    assert clamped.json()["data"]["last_read_post_number"] == 2
