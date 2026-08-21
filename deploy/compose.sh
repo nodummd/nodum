@@ -74,11 +74,21 @@ resolve_env_file() {
 # section link becomes a dead redirect to a host that answers no TLS at all —
 # a live-site outage that reads like a DNS problem. Refuse the deploy instead.
 check_subdomain_pairing() {
-    local file="$1" redirects addresses
+    local file="$1" redirects addresses site
     redirects=$(sed -n 's/^[[:space:]]*NODUM_ENABLE_SUBDOMAIN_REDIRECTS=//p' "$file" | tail -1)
     addresses=$(sed -n 's/^[[:space:]]*NODUM_SUBDOMAIN_ADDRESSES=//p' "$file" | tail -1)
+    site=$(sed -n 's/^[[:space:]]*NODUM_SITE_ADDRESS=//p' "$file" | tail -1)
     redirects=$(printf '%s' "$redirects" | tr -d '"' | tr -d "'" | tr -d ' ')
     addresses=$(printf '%s' "$addresses" | tr -d '"' | tr -d "'" | tr -d ' ')
+    site=$(printf '%s' "$site" | tr -d '"' | tr -d "'" | tr -d ' ')
+    # A port-only site address (":80", ":443") means something else terminates
+    # TLS in front and forwards every Host to this stack. There the stack must
+    # NOT name the section hosts — naming them switches on automatic HTTPS and
+    # the inner Caddy answers each one with a 308 to itself. The front proxy
+    # owns those names; nothing to pair here.
+    case "$site" in
+        :*|"") return ;;
+    esac
     if [ -n "$redirects" ] && [ -z "$addresses" ]; then
         echo "ERROR: NODUM_ENABLE_SUBDOMAIN_REDIRECTS is set in $file but" >&2
         echo "       NODUM_SUBDOMAIN_ADDRESSES is not (is that line still commented out?)." >&2
