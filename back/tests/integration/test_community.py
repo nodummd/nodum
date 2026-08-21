@@ -389,3 +389,105 @@ async def test_unread_tracking_moves_only_forward(client: AsyncClient) -> None:
     # A beacon past the end clamps to the real last post.
     clamped = await client.put(f"/api/v1/community/topics/{topic['id']}/read", json={"post_number": 999}, headers=alice)
     assert clamped.json()["data"]["last_read_post_number"] == 2
+
+
+# ── S1.5: moderation ─────────────────────────────────────────────────────────
+
+
+async def _make_staff(headers: dict, client: AsyncClient) -> None:
+    from sqlalchemy import update
+
+    from app.core.db import async_session_factory
+    from app.models.auth import User
+
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()["data"]
+    async with async_session_factory() as db:
+        await db.execute(update(User).where(User.id == me["id"]).values(is_staff=True))
+        await db.commit()
+
+
+async def test_moderation_is_staff_only_and_works(client: AsyncClient) -> None:
+    staff = await _signup(client, "mod")
+    await _make_staff(staff, client)
+    author = await _signup(client, "authored")
+    bystander = await _signup(client, "bystander")
+    marker = uuid.uuid4().hex[:8]
+    topic = await _post_topic(client, author, f"Mod {marker}")
+
+    # Non-staff (author included) bounce off every staff route.
+    for headers in (author, bystander):
+        assert (
+            await client.patch(f"/api/v1/community/topics/{topic['id']}", json={"pinned": True}, headers=headers)
+        ).status_code == 403
+        assert (await client.get("/api/v1/community/mod/reports", headers=headers)).status_code == 403
+        assert (await client.delete(f"/api/v1/community/mod/topics/{topic['id']}", headers=headers)).status_code == 403
+
+    # Staff pins + locks + retitles + moves in one call; counters migrate.
+    before = {
+        c["slug"]: (c["topic_count"], c["post_count"])
+        for c in (await client.get("/api/v1/community/categories")).json()["data"]
+    }
+    modded = await client.patch(
+        f"/api/v1/community/topics/{topic['id']}",
+        json={"pinned": True, "locked": True, "title": f"Pinned {marker}", "category": "bugs"},
+        headers=staff,
+    )
+    assert modded.status_code == 200, modded.text
+    body = modded.json()["data"]
+    assert body["is_pinned"] and body["is_locked"] and body["title"] == f"Pinned {marker}"
+    assert body["category_slug"] == "bugs"
+    after = {
+        c["slug"]: (c["topic_count"], c["post_count"])
+        for c in (await client.get("/api/v1/community/categories")).json()["data"]
+    }
+    assert after["help"][0] == before["help"][0] - 1 and after["bugs"][0] == before["bugs"][0] + 1
+    assert after["help"][1] == before["help"][1] - 1 and after["bugs"][1] == before["bugs"][1] + 1
+
+    # Pinned floats first on its category page.
+    listing = (await client.get("/api/v1/community/topics", params={"category": "bugs"})).json()["data"]
+    assert listing["items"][0]["id"] == topic["id"]
+
+    # Locked topic refuses replies — even from its author.
+    assert (
+        await client.post(f"/api/v1/community/topics/{topic['id']}/posts", json={"content": "x"}, headers=author)
+    ).status_code == 409
+
+    # Staff deletes the whole topic even though it is not theirs.
+    assert (await client.delete(f"/api/v1/community/mod/topics/{topic['id']}", headers=staff)).status_code == 200
+    assert (await client.get(f"/api/v1/community/topics/{topic['id']}")).status_code == 404
+
+
+async def test_report_lifecycle(client: AsyncClient) -> None:
+    staff = await _signup(client, "queue")
+    await _make_staff(staff, client)
+    author = await _signup(client, "poster")
+    reporter = await _signup(client, "reporter")
+    topic = await _post_topic(client, author, f"Report {uuid.uuid4().hex[:8]}")
+    post_id = (await client.get(f"/api/v1/community/topics/{topic['id']}/posts")).json()["data"]["items"][0]["id"]
+
+    filed = await client.post(
+        f"/api/v1/community/posts/{post_id}/report",
+        json={"reason": "spam", "detail": "so much spam"},
+        headers=reporter,
+    )
+    assert filed.status_code == 201, filed.text
+    dup = await client.post(f"/api/v1/community/posts/{post_id}/report", json={"reason": "spam"}, headers=reporter)
+    assert dup.status_code == 409 and dup.json()["error"]["code"] == "already_exists"
+
+    queue = (await client.get("/api/v1/community/mod/reports", headers=staff)).json()["data"]
+    mine = next(r for r in queue["items"] if r["post_id"] == post_id)
+    assert mine["reason"] == "spam" and mine["topic_title"].startswith("Report ")
+
+    resolved = await client.post(f"/api/v1/community/mod/reports/{mine['id']}/resolve", headers=staff)
+    assert resolved.status_code == 200
+    open_queue = (await client.get("/api/v1/community/mod/reports", headers=staff)).json()["data"]
+    assert all(r["id"] != mine["id"] for r in open_queue["items"])
+    done_queue = (
+        await client.get("/api/v1/community/mod/reports", params={"status": "resolved"}, headers=staff)
+    ).json()["data"]
+    assert any(r["id"] == mine["id"] for r in done_queue["items"])
+
+    # Staff deletes the offending post; the reporter cannot re-report a ghost.
+    assert (await client.delete(f"/api/v1/community/mod/posts/{post_id}", headers=staff)).status_code == 422
+    # (the OP is the topic — staff removes the topic instead)
+    assert (await client.delete(f"/api/v1/community/mod/topics/{topic['id']}", headers=staff)).status_code == 200

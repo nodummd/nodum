@@ -601,3 +601,166 @@ async def unread_map(db: AsyncSession, user_id: UUID, topic_ids: list[UUID]) -> 
         )
     ).all()
     return {str(tid): (read is None or last > read) for tid, last, read in rows}
+
+
+# ── Moderation (S1.5) ────────────────────────────────────────────────────────
+
+
+async def require_staff(db: AsyncSession, user_id: UUID) -> ServiceResponse[User]:
+    user = await db.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
+    if user is None or not user.is_staff:
+        return ServiceResponse.fail("forbidden", "Staff only.")
+    return ServiceResponse.ok(user)
+
+
+async def moderate_topic(
+    db: AsyncSession,
+    staff_id: UUID,
+    topic_id: UUID,
+    *,
+    pinned: bool | None = None,
+    locked: bool | None = None,
+    title: str | None = None,
+    category_slug: str | None = None,
+) -> ServiceResponse[dict[str, Any]]:
+    """Pin, lock, retitle, recategorize — any subset in one call. Moving
+    category migrates its share of both categories' counters."""
+    from app.utils.slug_utils import slugify
+
+    staff = await require_staff(db, staff_id)
+    if not staff.success:
+        return staff  # type: ignore[return-value]
+    topic = await db.scalar(
+        select(CommunityTopic)
+        .where(CommunityTopic.id == topic_id, CommunityTopic.is_deleted.is_(False))
+        .with_for_update()
+    )
+    if topic is None:
+        return ServiceResponse.fail("not_found", "Topic not found.")
+
+    if pinned is not None:
+        topic.is_pinned = pinned
+    if locked is not None:
+        topic.is_locked = locked
+    if title is not None:
+        title = title.strip()
+        if not 3 <= len(title) <= 300:
+            return ServiceResponse.fail("validation_failed", "Titles run 3 to 300 characters.")
+        topic.title = title
+        topic.slug = slugify(title)
+    if category_slug is not None:
+        cat_res = await get_category(db, category_slug)
+        if not cat_res.success:
+            return cat_res  # type: ignore[return-value]
+        new_cat = cat_res.data
+        assert new_cat is not None
+        if new_cat.id != topic.category_id:
+            live_posts = await db.scalar(
+                select(func.count())
+                .select_from(CommunityPost)
+                .where(CommunityPost.topic_id == topic.id, CommunityPost.is_deleted.is_(False))
+            )
+            await db.execute(
+                CommunityCategory.__table__.update()
+                .where(CommunityCategory.id == topic.category_id)
+                .values(
+                    topic_count=CommunityCategory.topic_count - 1,
+                    post_count=CommunityCategory.post_count - int(live_posts or 0),
+                )
+            )
+            await db.execute(
+                CommunityCategory.__table__.update()
+                .where(CommunityCategory.id == new_cat.id)
+                .values(
+                    topic_count=CommunityCategory.topic_count + 1,
+                    post_count=CommunityCategory.post_count + int(live_posts or 0),
+                )
+            )
+            topic.category_id = new_cat.id
+            await invalidate_categories_cache()
+    await db.commit()
+    return await get_topic(db, topic_id)
+
+
+async def report_post(
+    db: AsyncSession, user_id: UUID, post_id: UUID, *, reason: str, detail: str = ""
+) -> ServiceResponse[dict[str, Any]]:
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.community import CommunityReport
+
+    post = await db.scalar(
+        select(CommunityPost.id).where(CommunityPost.id == post_id, CommunityPost.is_deleted.is_(False))
+    )
+    if post is None:
+        return ServiceResponse.fail("not_found", "Post not found.")
+    reason = reason.strip()[:50]
+    if not reason:
+        return ServiceResponse.fail("validation_failed", "Say why you are reporting it.")
+    report = CommunityReport(post_id=post_id, reporter_id=user_id, reason=reason, detail=detail.strip() or None)
+    db.add(report)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return ServiceResponse.fail("already_exists", "You already reported this post.")
+    return ServiceResponse.ok({"id": str(report.id), "post_id": str(post_id), "status": "open"})
+
+
+async def list_reports(
+    db: AsyncSession, staff_id: UUID, *, status: str = "open", limit: int = 50, offset: int = 0
+) -> ServiceResponse[dict[str, Any]]:
+    from app.models.community import CommunityReport
+
+    staff = await require_staff(db, staff_id)
+    if not staff.success:
+        return staff  # type: ignore[return-value]
+    if status not in ("open", "resolved"):
+        return ServiceResponse.fail("validation_failed", 'status is "open" or "resolved".')
+    rows = (
+        await db.execute(
+            select(CommunityReport, CommunityPost, CommunityTopic.title, User.name, func.count().over().label("total"))
+            .join(CommunityPost, CommunityPost.id == CommunityReport.post_id)
+            .join(CommunityTopic, CommunityTopic.id == CommunityPost.topic_id)
+            .outerjoin(User, User.id == CommunityReport.reporter_id)
+            .where(CommunityReport.status == status)
+            .order_by(CommunityReport.created_at.desc(), CommunityReport.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    items = [
+        {
+            "id": str(r.id),
+            "post_id": str(p.id),
+            "topic_id": str(p.topic_id),
+            "topic_title": topic_title,
+            "post_number": p.post_number,
+            "post_excerpt": p.content[:280],
+            "reason": r.reason,
+            "detail": r.detail,
+            "reporter": reporter_name,
+            "status": r.status,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r, p, topic_title, reporter_name, _ in rows
+    ]
+    total = int(rows[0].total) if rows else 0
+    return ServiceResponse.ok({"items": items, "total": total, "limit": limit, "offset": offset})
+
+
+async def resolve_report(db: AsyncSession, staff_id: UUID, report_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    from app.models.community import CommunityReport
+
+    staff = await require_staff(db, staff_id)
+    if not staff.success:
+        return staff  # type: ignore[return-value]
+    report = await db.scalar(select(CommunityReport).where(CommunityReport.id == report_id))
+    if report is None:
+        return ServiceResponse.fail("not_found", "Report not found.")
+    if report.status != "resolved":
+        report.status = "resolved"
+        report.resolved_by_id = staff_id
+        report.resolved_at = func.now()
+        await db.commit()
+    return ServiceResponse.ok({"id": str(report_id), "status": "resolved"})
