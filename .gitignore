@@ -9,7 +9,8 @@
 *.key
 *.crt
 secrets/
-marketing/
+# Anchored: an unanchored marketing/ also swallowed web/src/components/marketing/.
+/marketing/
 
 # ── Python ─────────────────────────────────────────────────
 __pycache__/
@@ -51,6 +52,8 @@ pgdata/
 minio-data/
 
 # ── Claude local state ─────────────────────────────────────
+chat_exports/
+
 .claude/settings.local.json
 
 # ── Vendored third-party Claude skills (local dev tooling, not product code) ──
