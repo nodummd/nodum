@@ -59,4 +59,20 @@ test.describe("host-based sections", () => {
     const apexRef = await request.get(`${base}/api-reference`, { maxRedirects: 0 });
     expect(apexRef.status()).toBe(200);
   });
+
+  test("the navbar's Developers link reaches the API reference", async ({ page, request }) => {
+    // Apex install: the link serves the reference in place.
+    await page.goto("/");
+    await page.getByRole("link", { name: "Developers", exact: true }).click();
+    await expect(page).toHaveURL(/\/api-reference/);
+    await expect(page.getByRole("heading", { name: "Nodum API" })).toBeVisible({ timeout: 20_000 });
+
+    // On a section host the same path canonicalizes onto developers.<domain>.
+    const hop = await request.get(`http://${APEX}/api-reference`, {
+      headers: { Host: `developers.${APEX}` },
+      maxRedirects: 0,
+    });
+    expect(hop.status()).toBe(308);
+    expect(hop.headers()["location"]).toContain(`developers.${APEX}/`);
+  });
 });

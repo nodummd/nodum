@@ -35,6 +35,12 @@ export function SiteNav() {
           <Link className="mk-navlink" href="/docs">
             Docs
           </Link>
+          {/* The path, not the host: on deployments with host-based sections
+              it redirects to developers.<domain>, and everywhere else (local
+              dev, apex-only installs) it serves the reference in place. */}
+          <Link className="mk-navlink" href="/api-reference">
+            Developers
+          </Link>
           <Link className="mk-navlink" href="/faq">
             FAQ
           </Link>
@@ -86,6 +92,7 @@ const FOOTER_TOPICS = [
 
 const FOOTER_SITE = [
   { label: "Documentation", href: "/docs" },
+  { label: "API reference", href: "/api-reference" },
   { label: "Community", href: "/community" },
   { label: "Forum", href: "/forum" },
   { label: "Glossary", href: "/glossary" },
