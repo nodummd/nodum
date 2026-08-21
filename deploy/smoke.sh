@@ -136,10 +136,23 @@ oa=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/public/v1/openapi.json")
 # ── the community forum: publicly readable, categories seeded ────────────────
 cm=$(curl -s "$BASE/api/v1/community/categories")
 echo "$cm" | grep -q '"announcements"' && ok "community categories seeded" || bad "community categories: ${cm:0:160}"
-cp=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/community")
-[ "$cp" = 200 ] && ok "community hub served" || bad "/community returned $cp"
-fp=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/forum")
-[ "$fp" = 200 ] && ok "forum served" || bad "/forum returned $fp"
+# -L: with subdomain redirects enabled these paths 308 to their subdomains —
+# following is the point, because a redirect to a host without a DNS record
+# is exactly the misconfiguration this check must catch.
+check_public_page() {
+  out=$(curl -sL -o /dev/null -m 20 -w '%{http_code} %{url_effective}' "$BASE$1")
+  code=${out%% *}; final=${out#* }
+  if [ "$code" = 200 ]; then
+    ok "$2 served (${final})"
+  elif [ "$code" = 000 ]; then
+    bad "$1 redirects to ${final} which does not resolve — add its DNS record or unset NODUM_ENABLE_SUBDOMAIN_REDIRECTS"
+  else
+    bad "$1 returned $code (final: ${final})"
+  fi
+}
+check_public_page /community "community hub"
+check_public_page /forum "forum"
+check_public_page /docs "docs"
 
 # ── the load-bearing one: attachment upload + fetch via the /s3 proxy route ──
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > /tmp/smoke.png
