@@ -60,7 +60,7 @@ Every success is `{"data": ...}`; every error is
 | Scope | What the key may do |
 | --- | --- |
 | `read` | List and read vaults, notes, links, tags, search, the graph. |
-| `write` | Create and edit notes, link and unlink, tag, upload attachments. |
+| `write` | Create and edit notes, link and unlink, tag, upload attachments. Write responses return metadata (id, path, timestamps) — never note bodies. |
 | `delete` | Delete notes and attachments. |
 | `ai` | Ask the vault questions. The AI's tools can also *write* notes — an `ai` key can change a vault even without `write`. |
 
@@ -80,16 +80,23 @@ generated snippets for shell, Python, JavaScript and more.
 ## Worth knowing
 
 - **Addressing notes** — most endpoints take the note's `id`; `by-path` reads
-  by path, and link targets accept an id, a path (`"Projects/Alpha"`) or an
-  exact title.
-- **Lists paginate** — `limit` + `offset` in, `total` out.
+  by exact path, and link targets accept an id, a path (`"Projects/Alpha"`)
+  or an exact title. When two notes share a title, the API asks for the path
+  rather than guessing.
+- **Note lists and search paginate** — `limit` + `offset` in, `total` out.
+  Capped collections (tags, attachments) return whole; quick-switch returns
+  the top matches.
 - **Concurrent edits** — send `base_updated_at` when replacing content; a
   stale write returns `409` with `details.server_updated_at` so you can merge
-  instead of overwrite. `append`/`prepend` modes add without replacing
-  (prepend stays below the frontmatter).
+  instead of overwrite. `append`/`prepend` compose on the server against the
+  current body, so two concurrent appends both land (prepend stays below the
+  frontmatter).
 - **Unlink edits markdown** — links *are* the `[[wikilinks]]` in the text, so
-  unlinking splices them out. Embeds (`![[…]]`) and links inside code are
-  left alone; `removed: 0` still succeeds.
+  unlinking splices them out. Only forms that unambiguously mean the target
+  are touched (its path, a unique title, an alias no other note claims) — a
+  namesake's links are safe. Embeds (`![[…]]`) and links inside code are
+  content and stay — an embed keeps counting as a link until you edit it out.
+  `removed: 0` still succeeds.
 - **AI answers take time** — `POST …/ai/ask` runs the whole tool loop before
   answering; give your client a generous timeout (120s+).
 - **Rate limits** — each key gets its own budget (300 requests/minute by

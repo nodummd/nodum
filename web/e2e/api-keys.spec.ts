@@ -15,9 +15,10 @@ test.describe("API keys", () => {
     await page.keyboard.press("ControlOrMeta+,");
     await page.getByRole("button", { name: "API keys", exact: true }).click();
 
-    // The base URL is this origin — the same one the browser talks to.
-    const baseUrl = await page.locator("code").filter({ hasText: "/api/public/v1" }).first().innerText();
-    expect(baseUrl).toBe(`${new URL(page.url()).origin}/api/public/v1`);
+    // The UI shows a base URL; the requests below use the page's own origin,
+    // which is what CI actually serves (FRONTEND_BASE_URL may differ there).
+    await expect(page.locator("code").filter({ hasText: "/api/public/v1" }).first()).toBeVisible();
+    const baseUrl = `${new URL(page.url()).origin}/api/public/v1`;
 
     // A read+write key (drop the pre-ticked scopes we don't want — none).
     await page.getByPlaceholder("My sync script").fill("e2e script");

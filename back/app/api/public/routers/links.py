@@ -43,11 +43,14 @@ async def unlink_notes(
     db: SessionDep,
     target: str = Query(min_length=1, description="The note to unlink from: its id, path or title."),
 ) -> Any:
-    """Remove every `[[wikilink]]` in this note that points at `target`.
+    """Remove every prose `[[wikilink]]` in this note that unambiguously
+    points at `target` (by path, unique title, or an alias no other note
+    claims — a namesake's links are left alone).
 
-    Links live in the markdown, so this edits the markdown: matching links are
-    spliced out (embeds and links inside code are left alone). `removed: 0`
-    still succeeds — the notes end up unlinked either way.
+    Links live in the markdown, so this edits the markdown. Embeds
+    (`![[…]]`) and links inside code are content, not connections, and stay —
+    an embed keeps counting as a link until it is edited out. `removed: 0`
+    still succeeds (already unlinked).
     """
     return {"data": (await link_service.unlink_notes(db, vault_id, user_id, note_id, target=target)).unwrap()}
 

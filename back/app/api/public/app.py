@@ -17,7 +17,9 @@ routes — different prefix, different job.
 
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.exceptions import register_exception_handlers
 from app.api.public.routers import ai, attachments, graph, links, notes, search, tags, vaults
@@ -54,9 +56,10 @@ Take a vault `id` from the answer, then search it, read a note, create one.
   with a stable `code` (`not_found`, `forbidden`, `conflict`, …).
 - Anything of yours that does not exist — and anything that is not yours —
   is the same `404`.
-- Lists that can grow take `limit` + `offset` and return `total`.
-- Notes can be addressed by id, and in link/`by-path` calls by path
-  (`"Projects/Alpha"`) or exact title.
+- Note lists and search take `limit` + `offset` and return `total`; capped
+  collections (tags, attachments, quick-switch) return whole or top-N.
+- Notes are addressed by id; `by-path` reads by exact path; link targets
+  accept an id, a path (`"Projects/Alpha"`) or an exact title.
 - Requests are rate-limited per key (300/minute by default).
 """
 
@@ -82,16 +85,25 @@ def create_public_app() -> FastAPI:
     )
     register_exception_handlers(app)
 
-    app.include_router(vaults.router, prefix="/vaults", tags=["Vaults"], responses=_ERRORS)
+    # Starlette's own 404 (unknown path) and 405 (wrong method) bypass the
+    # NodumError handlers and would answer {"detail": ...} — keep the envelope.
+    @app.exception_handler(StarletteHTTPException)
+    async def _plain_http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, f"http_{exc.status_code}")
+        return JSONResponse(status_code=exc.status_code, content={"error": {"code": code, "message": str(exc.detail)}})
+
+    app.include_router(vaults.router, prefix="/vaults", tags=["Vaults"], responses={**_ERRORS, **_FORBIDDEN})
     app.include_router(
         notes.router, prefix="/vaults/{vault_id}/notes", tags=["Notes"], responses={**_ERRORS, **_FORBIDDEN}
     )
-    app.include_router(search.router, prefix="/vaults/{vault_id}", tags=["Search"], responses=_ERRORS)
+    app.include_router(search.router, prefix="/vaults/{vault_id}", tags=["Search"], responses={**_ERRORS, **_FORBIDDEN})
     app.include_router(
         links.router, prefix="/vaults/{vault_id}/notes", tags=["Links"], responses={**_ERRORS, **_FORBIDDEN}
     )
-    app.include_router(tags.router, prefix="/vaults/{vault_id}/tags", tags=["Tags"], responses=_ERRORS)
-    app.include_router(graph.router, prefix="/vaults/{vault_id}", tags=["Graph"], responses=_ERRORS)
+    app.include_router(
+        tags.router, prefix="/vaults/{vault_id}/tags", tags=["Tags"], responses={**_ERRORS, **_FORBIDDEN}
+    )
+    app.include_router(graph.router, prefix="/vaults/{vault_id}", tags=["Graph"], responses={**_ERRORS, **_FORBIDDEN})
     app.include_router(
         attachments.router,
         prefix="/vaults/{vault_id}/attachments",

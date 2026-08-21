@@ -85,6 +85,21 @@ class NoteMove(BaseModel):
     )
 
 
+class NoteWriteOut(BaseModel):
+    """What a write returns: the note's identity, location and timestamps —
+    never its body. Reading content back requires the `read` scope, so a
+    write-only key (a capture webhook, say) cannot exfiltrate a vault."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    folder_id: UUID | None
+    title: str
+    path: str
+    created_at: datetime
+    updated_at: datetime = Field(description="Feed this back as `base_updated_at` on your next replace.")
+
+
 class NoteList(BaseModel):
     items: list[NoteMetaOut]
     total: int = Field(description="How many notes match in all — for pagination.")

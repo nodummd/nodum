@@ -161,6 +161,19 @@ def frontmatter_aliases(properties: dict) -> list[str]:
     return out[:20]
 
 
+def ends_inside_fence(markdown: str) -> bool:
+    """True when the text ends inside an unterminated code fence — anything
+    appended after it would be swallowed into the code block."""
+    fence: str | None = None
+    for line in _FRONTMATTER_RE.sub("", markdown).split("\n"):
+        if fence is None:
+            if line.startswith(("```", "~~~")):
+                fence = line[:3]
+        elif line.startswith(fence) and not line[len(fence) :].strip(" \t"):
+            fence = None
+    return fence is not None
+
+
 def remove_wikilinks(markdown: str, targets: set[str]) -> tuple[str, int]:
     """Remove ``[[wikilink]]`` occurrences whose target matches (case-insensitive).
 
@@ -211,7 +224,7 @@ def remove_wikilinks(markdown: str, targets: set[str]) -> tuple[str, int]:
         removed += len(spans)
         for a, b in reversed(spans):
             line = line[:a] + line[b:]
-        if line.strip() in ("", "-", "*", "+"):
-            continue  # the line was only the link (maybe a list bullet) — drop it
+        if re.fullmatch(r"|[-*+](\s*\[[ xX]\])?|\d{1,9}[.)]", line.strip()):
+            continue  # the line was only the link (maybe a list/task/numbered bullet) — drop it
         out.append(line.rstrip())
     return head + "\n".join(out), removed

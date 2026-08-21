@@ -3,7 +3,8 @@ wikilink removal that powers unlink."""
 
 from app.constants.scopes import API_SCOPES
 from app.services.api_token_service import effective_scopes, normalize_scopes
-from app.utils.markdown_parse import remove_wikilinks
+from app.services.note_service import _prepend_below_frontmatter
+from app.utils.markdown_parse import ends_inside_fence, remove_wikilinks
 
 
 class TestScopes:
@@ -72,3 +73,31 @@ class TestRemoveWikilinks:
         md = "[[Alpha]]\n```\n[[Alpha]] forever unclosed\n"
         out, n = remove_wikilinks(md, {"alpha"})
         assert n == 1 and "forever unclosed" in out
+
+    def test_numbered_and_task_bullets_drop_too(self) -> None:
+        md = "1. [[A]]\n- [ ] [[A]]\n2) [[A]]\n- [x] keep [[B]]\n"
+        out, n = remove_wikilinks(md, {"a"})
+        assert n == 3
+        assert out == "- [x] keep [[B]]\n"
+
+
+class TestFenceAndFrontmatter:
+    def test_ends_inside_fence(self) -> None:
+        assert ends_inside_fence("text\n```\ncode\n")
+        assert not ends_inside_fence("text\n```\ncode\n```\n")
+        assert not ends_inside_fence("---\nx: 1\n---\nno fences")
+        assert ends_inside_fence("~~~\n")
+
+    def test_prepend_stays_below_frontmatter_even_at_eof(self) -> None:
+        # Closing --- as the very last character — no trailing newline.
+        out = _prepend_below_frontmatter("---\ntags: [a]\n---", "First.")
+        assert out.startswith("---\ntags: [a]\n---\n")
+        assert "First." in out and out.index("---\n") == 0
+
+    def test_prepend_without_frontmatter(self) -> None:
+        assert _prepend_below_frontmatter("body\n", "Top.") == "Top.\n\nbody\n"
+
+    def test_prepend_with_body(self) -> None:
+        out = _prepend_below_frontmatter("---\nx: 1\n---\nold body\n", "New.")
+        assert out.index("New.") < out.index("old body")
+        assert out.startswith("---\nx: 1\n---\n")

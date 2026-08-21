@@ -81,6 +81,30 @@ async def test_scopes_are_enforced(client: AsyncClient) -> None:
     denied_ai = await client.post(f"{P}/vaults/{vault_id}/ai/ask", json={"message": "hi"}, headers=ro["headers"])
     assert denied_ai.status_code == 403 and "'ai'" in denied_ai.json()["error"]["message"]
 
+    # A write-only key can write — but never read a body back through the
+    # write endpoints' responses (that is what the read scope is for).
+    secret = "the-body-a-write-key-must-not-see"
+    await client.put(
+        f"{P}/vaults/{vault_id}/notes/{note['id']}/content", json={"content": secret}, headers=account["headers"]
+    )
+    wo = await _mint(client, session, ["write"], "wo")
+    for resp in (
+        await client.put(
+            f"{P}/vaults/{vault_id}/notes/{note['id']}/content",
+            json={"content": "appended by wo", "mode": "append"},
+            headers=wo["headers"],
+        ),
+        await client.patch(
+            f"{P}/vaults/{vault_id}/notes/{note['id']}", json={"title": "A note"}, headers=wo["headers"]
+        ),
+        await client.post(f"{P}/vaults/{vault_id}/notes/{note['id']}/tags", json={"add": ["t"]}, headers=wo["headers"]),
+    ):
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert "content" not in data and "properties" not in data, data.keys()
+        assert secret not in resp.text
+    assert (await client.get(f"{P}/vaults/{vault_id}/notes/{note['id']}", headers=wo["headers"])).status_code == 403
+
 
 async def test_never_crosses_users(client: AsyncClient) -> None:
     alice = await _account(client, "alice")
@@ -142,12 +166,15 @@ async def test_note_crud_roundtrip(client: AsyncClient) -> None:
     appended = await client.put(
         f"{P}/vaults/{v}/notes/{note['id']}/content", json={"content": "The end.", "mode": "append"}, headers=h
     )
-    assert appended.json()["data"]["content"].rstrip().endswith("The end.")
+    assert appended.status_code == 200
+    assert "content" not in appended.json()["data"], "write responses carry metadata, not bodies"
 
     prepended = await client.put(
         f"{P}/vaults/{v}/notes/{note['id']}/content", json={"content": "First.", "mode": "prepend"}, headers=h
     )
-    content = prepended.json()["data"]["content"]
+    assert prepended.status_code == 200
+    content = (await client.get(f"{P}/vaults/{v}/notes/{note['id']}", headers=h)).json()["data"]["content"]
+    assert content.rstrip().endswith("The end.")
     assert content.startswith("---\n"), "prepend must stay below the frontmatter"
     assert content.index("First.") < content.index("Body line.")
 
@@ -323,8 +350,126 @@ async def test_openapi_is_public_and_only_public(client: AsyncClient) -> None:
     assert "ApiKey" in spec["components"]["securitySchemes"]
     assert spec["servers"] == [{"url": "/api/public/v1"}]
     assert not [p for p in spec["paths"] if p.startswith("/api/v1")], "internal endpoints must not leak"
-    # Every operation is padlocked (declares the ApiKey security requirement).
+    # Every operation is padlocked (declares the ApiKey security requirement)
+    # and documents the 403 a scope-less key gets.
     for path, ops in spec["paths"].items():
         for method, op in ops.items():
             assert {"ApiKey": []} in op.get("security", []), f"{method.upper()} {path} lacks security"
+            assert "403" in op.get("responses", {}), f"{method.upper()} {path} lacks 403"
     assert (await client.get(f"{P}/docs")).status_code == 200
+
+    # Unknown paths and wrong methods keep the error envelope too.
+    lost = await client.get(f"{P}/no/such/thing")
+    assert lost.status_code == 404 and lost.json()["error"]["code"] == "not_found"
+    wrong = await client.delete(f"{P}/vaults")
+    assert wrong.status_code == 405 and wrong.json()["error"]["code"] == "method_not_allowed"
+
+
+# ── The review's regressions, pinned ─────────────────────────────────────────
+
+
+async def test_namesakes_link_by_path_and_unlink_safely(client: AsyncClient) -> None:
+    """Two notes share a title: links must never silently act on the namesake."""
+    account = await _account(client, "namesake")
+    v, h = account["vault_id"], account["headers"]
+    src = (await client.post(f"{P}/vaults/{v}/notes", json={"title": "Hub"}, headers=h)).json()["data"]
+    a = (await client.post(f"{P}/vaults/{v}/notes", json={"title": "Alpha", "folder": "Projects"}, headers=h)).json()[
+        "data"
+    ]
+    b = (await client.post(f"{P}/vaults/{v}/notes", json={"title": "Alpha", "folder": "Archive"}, headers=h)).json()[
+        "data"
+    ]
+
+    # Ambiguous title as a target → asked for the path, not a guess.
+    ambiguous = await client.post(f"{P}/vaults/{v}/notes/{src['id']}/links", json={"target": "Alpha"}, headers=h)
+    assert ambiguous.status_code == 422 and "path" in ambiguous.json()["error"]["message"]
+
+    # Linking by path writes the PATH form, so it can only resolve to that note.
+    linked = await client.post(f"{P}/vaults/{v}/notes/{src['id']}/links", json={"target": "Projects/Alpha"}, headers=h)
+    assert linked.status_code == 201 and linked.json()["data"]["inserted"] == "- [[Projects/Alpha]]"
+    back_a = (await client.get(f"{P}/vaults/{v}/notes/{a['id']}/backlinks", headers=h)).json()["data"]
+    back_b = (await client.get(f"{P}/vaults/{v}/notes/{b['id']}/backlinks", headers=h)).json()["data"]
+    assert [x["title"] for x in back_a["backlinks"]] == ["Hub"] and back_b["backlinks"] == []
+
+    # Unlinking the namesake removes nothing — the link means the other Alpha.
+    noop = await client.delete(f"{P}/vaults/{v}/notes/{src['id']}/links", params={"target": "Archive/Alpha"}, headers=h)
+    assert noop.status_code == 200 and noop.json()["data"]["removed"] == 0
+    still = (await client.get(f"{P}/vaults/{v}/notes/{a['id']}/backlinks", headers=h)).json()["data"]
+    assert [x["title"] for x in still["backlinks"]] == ["Hub"]
+
+
+async def test_alias_links_count_as_already_linked(client: AsyncClient) -> None:
+    account = await _account(client, "alias")
+    v, h = account["vault_id"], account["headers"]
+    (
+        await client.post(
+            f"{P}/vaults/{v}/notes",
+            json={"title": "Project Phoenix", "content": "---\naliases: [Codename Rising]\n---\nBody."},
+            headers=h,
+        )
+    ).json()
+    src = (
+        await client.post(
+            f"{P}/vaults/{v}/notes", json={"title": "Notes", "content": "See [[Codename Rising]]."}, headers=h
+        )
+    ).json()["data"]
+    again = await client.post(f"{P}/vaults/{v}/notes/{src['id']}/links", json={"target": "Project Phoenix"}, headers=h)
+    assert again.json()["data"]["already_linked"] is True and again.json()["data"]["inserted"] is None
+    # …and unlink removes the alias-form link.
+    gone = await client.delete(
+        f"{P}/vaults/{v}/notes/{src['id']}/links", params={"target": "Project Phoenix"}, headers=h
+    )
+    assert gone.json()["data"]["removed"] == 1
+
+
+async def test_unlink_own_self_links(client: AsyncClient) -> None:
+    account = await _account(client, "selfref")
+    v, h = account["vault_id"], account["headers"]
+    note = (
+        await client.post(f"{P}/vaults/{v}/notes", json={"title": "Loop", "content": "I link [[Loop]]."}, headers=h)
+    ).json()["data"]
+    gone = await client.delete(f"{P}/vaults/{v}/notes/{note['id']}/links", params={"target": "Loop"}, headers=h)
+    assert gone.status_code == 200 and gone.json()["data"]["removed"] == 1
+
+
+async def test_link_refuses_an_unclosed_code_fence(client: AsyncClient) -> None:
+    account = await _account(client, "fence")
+    v, h = account["vault_id"], account["headers"]
+    src = (
+        await client.post(f"{P}/vaults/{v}/notes", json={"title": "Fenced", "content": "```\nstill open\n"}, headers=h)
+    ).json()["data"]
+    (await client.post(f"{P}/vaults/{v}/notes", json={"title": "Target2"}, headers=h)).json()
+    refused = await client.post(f"{P}/vaults/{v}/notes/{src['id']}/links", json={"target": "Target2"}, headers=h)
+    assert refused.status_code == 422 and "code block" in refused.json()["error"]["message"]
+
+
+async def test_concurrent_appends_both_land(client: AsyncClient) -> None:
+    """append composes under the row lock — two racing appends interleave."""
+    import asyncio
+
+    account = await _account(client, "race")
+    v, h = account["vault_id"], account["headers"]
+    note = (await client.post(f"{P}/vaults/{v}/notes", json={"title": "Log", "content": "start"}, headers=h)).json()[
+        "data"
+    ]
+
+    async def append(text: str):
+        return await client.put(
+            f"{P}/vaults/{v}/notes/{note['id']}/content", json={"content": text, "mode": "append"}, headers=h
+        )
+
+    r1, r2 = await asyncio.gather(append("first entry"), append("second entry"))
+    assert r1.status_code == 200 and r2.status_code == 200
+    body = (await client.get(f"{P}/vaults/{v}/notes/{note['id']}", headers=h)).json()["data"]["content"]
+    assert "first entry" in body and "second entry" in body, body
+
+
+async def test_list_notes_total_is_honest_past_the_end(client: AsyncClient) -> None:
+    account = await _account(client, "offend")
+    v, h = account["vault_id"], account["headers"]
+    for i in range(3):
+        await client.post(f"{P}/vaults/{v}/notes", json={"title": f"Off {i}", "folder": "Off"}, headers=h)
+    past = (
+        await client.get(f"{P}/vaults/{v}/notes", params={"folder": "Off", "limit": 2, "offset": 10}, headers=h)
+    ).json()["data"]
+    assert past["items"] == [] and past["total"] == 3

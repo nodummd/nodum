@@ -56,12 +56,12 @@ export function ApiKeysTab() {
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<string[]>(["read", "write"]);
   // The one and only time a key is visible.
-  const [fresh, setFresh] = useState<{ token: string; name: string } | null>(null);
+  const [fresh, setFresh] = useState<{ id: string; token: string; name: string } | null>(null);
 
   const create = useMutation({
     mutationFn: () => apiKeysApi.create(name.trim() || "API key", scopes),
     onSuccess: (k) => {
-      setFresh({ token: k.token, name: k.name });
+      setFresh({ id: k.id, token: k.token, name: k.name });
       setName("");
       void queryClient.invalidateQueries({ queryKey: ["api-keys"] });
     },
@@ -69,7 +69,9 @@ export function ApiKeysTab() {
   });
   const revoke = useMutation({
     mutationFn: (id: string) => apiKeysApi.revoke(id),
-    onSuccess: () => {
+    onSuccess: (_k, id) => {
+      // A dead key must not keep being advertised as copy-me.
+      setFresh((f) => (f?.id === id ? null : f));
       void queryClient.invalidateQueries({ queryKey: ["api-keys"] });
       toast("Key revoked.", "info");
     },

@@ -14,23 +14,12 @@ from app.api.public.schemas import (
     NoteMove,
     NoteOut,
     NoteTagsUpdate,
+    NoteWriteOut,
 )
 from app.dependencies.db import SessionDep
 from app.services import folder_service, note_service
-from app.utils.markdown_parse import _FRONTMATTER_RE
 
 router = APIRouter()
-
-
-def _compose(existing: str, content: str, mode: str) -> str:
-    """append/prepend against the current body; prepend stays below frontmatter."""
-    if mode == "append":
-        return f"{existing.rstrip()}\n\n{content.strip()}\n"
-    fm = _FRONTMATTER_RE.match(existing)
-    if fm:
-        head, rest = existing[: fm.end()], existing[fm.end() :]
-        return f"{head}\n{content.strip()}\n\n{rest.lstrip()}"
-    return f"{content.strip()}\n\n{existing.lstrip()}"
 
 
 @router.get("", summary="List notes", response_model=Envelope[NoteList])
@@ -50,7 +39,7 @@ async def list_notes(
     }
 
 
-@router.post("", summary="Create a note", status_code=status.HTTP_201_CREATED, response_model=Envelope[NoteOut])
+@router.post("", summary="Create a note", status_code=status.HTTP_201_CREATED, response_model=Envelope[NoteWriteOut])
 async def create_note(vault_id: UUID, body: NoteCreate, user_id: WriteUser, db: SessionDep) -> Any:
     """Create a markdown note. `[[Wikilinks]]` in the content resolve immediately."""
     folder_id: UUID | None = None
@@ -80,33 +69,33 @@ async def get_note(vault_id: UUID, note_id: UUID, user_id: ReadUser, db: Session
     return {"data": (await note_service.get_note(db, vault_id, user_id, note_id)).unwrap()}
 
 
-@router.put("/{note_id}/content", summary="Write a note's body", response_model=Envelope[NoteOut])
+@router.put("/{note_id}/content", summary="Write a note's body", response_model=Envelope[NoteWriteOut])
 async def update_content(
     vault_id: UUID, note_id: UUID, body: NoteContentUpdate, user_id: WriteUser, db: SessionDep
 ) -> Any:
     """Replace the body, or add to it (`mode: append` / `prepend`).
 
-    For concurrent writers, send `base_updated_at` with `replace`: a stale
-    write returns **409** with `details.server_updated_at` so you can merge.
+    append/prepend compose against the current body under the row lock, so
+    concurrent appends interleave instead of overwriting each other. For
+    concurrent replaces, send `base_updated_at`: a stale write returns **409**
+    with `details.server_updated_at` so you can merge. Write responses carry
+    metadata only — reading content back needs the `read` scope.
     """
-    content = body.content
-    if body.mode in ("append", "prepend"):
-        existing = (await note_service.get_note(db, vault_id, user_id, note_id)).unwrap()
-        content = _compose(existing.content, body.content, body.mode)
     note = (
         await note_service.update_content(
             db,
             vault_id,
             user_id,
             note_id,
-            content=content,
-            base_updated_at=body.base_updated_at if body.mode == "replace" else None,
+            content=body.content,
+            base_updated_at=body.base_updated_at,
+            mode=body.mode,
         )
     ).unwrap()
     return {"data": note}
 
 
-@router.patch("/{note_id}", summary="Rename or move a note", response_model=Envelope[NoteOut])
+@router.patch("/{note_id}", summary="Rename or move a note", response_model=Envelope[NoteWriteOut])
 async def move_note(vault_id: UUID, note_id: UUID, body: NoteMove, user_id: WriteUser, db: SessionDep) -> Any:
     """Rename (`title`) and/or move (`folder`; `""` means the vault root) in one call."""
     folder_id: UUID | None = None
@@ -125,7 +114,7 @@ async def move_note(vault_id: UUID, note_id: UUID, body: NoteMove, user_id: Writ
     return {"data": note}
 
 
-@router.post("/{note_id}/tags", summary="Add or remove tags", response_model=Envelope[NoteOut])
+@router.post("/{note_id}/tags", summary="Add or remove tags", response_model=Envelope[NoteWriteOut])
 async def set_tags(vault_id: UUID, note_id: UUID, body: NoteTagsUpdate, user_id: WriteUser, db: SessionDep) -> Any:
     """Edits the frontmatter `tags` list; inline `#tags` in the body are left alone."""
     note = (
