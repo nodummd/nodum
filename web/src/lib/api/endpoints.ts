@@ -14,6 +14,9 @@ import type {
   CanvasMeta,
   FolderInfo,
   Graph,
+  ApiKey,
+  ApiKeyList,
+  ApiKeyWithToken,
   McpToken,
   McpTokenList,
   Note,
@@ -365,4 +368,13 @@ export const mcpApi = {
   /** The token is in THIS response only — show it once. */
   createToken: (name: string) => apiJson<McpToken & { token: string }>("/mcp-tokens", "POST", { name }),
   revokeToken: (id: string) => apiJson<McpToken>(`/mcp-tokens/${id}`, "DELETE"),
+};
+
+// ── API keys (the public REST API's credential) ──────────────────────────────
+
+export const apiKeysApi = {
+  list: () => api<ApiKeyList>("/api-keys"),
+  /** The key is in THIS response only — show it once. */
+  create: (name: string, scopes: string[]) => apiJson<ApiKeyWithToken>("/api-keys", "POST", { name, scopes }),
+  revoke: (id: string) => apiJson<ApiKey>(`/api-keys/${id}`, "DELETE"),
 };

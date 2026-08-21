@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID as UUIDType
 
 from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,6 +32,9 @@ class ApiToken(UUIDMixin, TimestampMixin, Base):
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     # The last few characters, so a list of tokens is tellable apart.
     hint: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    # Public-API key permissions. Empty on kind="mcp" rows, where the kind
+    # implies full access; kind="key" rows always carry at least one scope.
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(String(16)), nullable=False, server_default="{}", default=list)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

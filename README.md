@@ -111,6 +111,7 @@ zip back whenever you want to leave.
 
 ### 🧩 Extending
 - **MCP server** — Nodum speaks the Model Context Protocol: point Claude Code, Claude Desktop or Cursor at `/api/v1/mcp` with a token and the AI can create vaults, write and link notes, colour folders, search, import and export — 36 tools, same rules as the app, progress on long imports. A stdio bridge lives in `packages/nodum-mcp`.
+- **Public REST API** — everything above for *programs you write*: scoped API keys (read / write / delete / ai) from Settings → API keys, plain JSON at `/api/public/v1` (notes, search, links & unlink, tags, graph, attachments, AI ask), and an interactive [Scalar](https://github.com/scalar/scalar) reference with a try-it client at `/api-reference`.
 
 - **Plugins** — a capability-scoped API inside an opaque-origin sandboxed iframe
   (`sandbox="allow-scripts"`, no `allow-same-origin`, `connect-src 'none'`), permission

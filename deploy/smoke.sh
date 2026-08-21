@@ -118,6 +118,21 @@ echo "$s" | grep -q '"total"' && ok "search round-trip" || bad "search failed: $
 g=$(curl -s "$BASE/api/v1/vaults/$VAULT/graph" -H "$AUTH")
 echo "$g" | grep -q '"nodes"' && ok "graph (redis cache path)" || bad "graph failed: ${g:0:160}"
 
+# ── the public API: mint a scoped key, call the mounted sub-app with it ──────
+k=$(curl -s -X POST "$BASE/api/v1/api-keys" -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke","scopes":["read"]}')
+KEY=$(printf '%s' "$k" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["token"])' 2>/dev/null)
+if [ -n "$KEY" ]; then
+  pv=$(curl -s "$BASE/api/public/v1/vaults" -H "Authorization: Bearer $KEY")
+  echo "$pv" | grep -q '"data"' && ok "public API answers a scoped key" || bad "public API failed: ${pv:0:160}"
+  KID=$(printf '%s' "$k" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["id"])')
+  curl -s -X DELETE "$BASE/api/v1/api-keys/$KID" -H "$AUTH" > /dev/null
+else
+  bad "API key mint failed: ${k:0:200}"
+fi
+oa=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/public/v1/openapi.json")
+[ "$oa" = 200 ] && ok "public OpenAPI document served" || bad "public openapi.json returned $oa"
+
 # ── the load-bearing one: attachment upload + fetch via the /s3 proxy route ──
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > /tmp/smoke.png
 up=$(curl -s -X POST "$BASE/api/v1/vaults/$VAULT/attachments" -H "$AUTH" -F "file=@/tmp/smoke.png;type=image/png")

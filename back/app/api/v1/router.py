@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     ai,
+    api_keys,
     attachments,
     auth,
     bookmarks,
@@ -47,3 +48,4 @@ api_router.include_router(publish.site_router, prefix="/vaults/{vault_id}", tags
 api_router.include_router(canvases.router, prefix="/vaults/{vault_id}/canvases", tags=["Canvases"])
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
 api_router.include_router(mcp_tokens.router, prefix="/mcp-tokens", tags=["MCP"])
+api_router.include_router(api_keys.router, prefix="/api-keys", tags=["API keys"])

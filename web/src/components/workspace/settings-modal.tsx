@@ -11,6 +11,7 @@ import { useRef, useState } from "react";
 import { AiSettingsTab } from "./ai-settings-tab";
 import { ClipperTab } from "./clipper-tab";
 import { DeleteAccountSection } from "./delete-account";
+import { ApiKeysTab } from "./api-keys-tab";
 import { McpSettingsTab } from "./mcp-settings-tab";
 import { PluginsTab } from "./plugins-tab";
 import { VaultsSection } from "./vaults-section";
@@ -52,6 +53,7 @@ const TABS = [
   "Plugins",
   "AI",
   "MCP",
+  "API keys",
   "Web Clipper",
   "Publish",
   "Collab",
@@ -291,6 +293,7 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
             {tab === "Plugins" && <PluginsTab vaultId={vaultId} />}
             {tab === "AI" && <AiSettingsTab vaultId={vaultId} vaultName={vault?.name} />}
             {tab === "MCP" && <McpSettingsTab />}
+            {tab === "API keys" && <ApiKeysTab />}
 
             {tab === "Web Clipper" && <ClipperTab />}
 

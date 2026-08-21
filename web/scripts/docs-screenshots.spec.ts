@@ -16,6 +16,16 @@ import { openNoteFromExplorer, signupFreshUser } from "../e2e/helpers";
 
 const OUT = path.join(__dirname, "..", "public", "docs");
 
+/** Open a note via the quick switcher — reliable regardless of where the
+ *  explorer (a virtualized list) is scrolled. */
+async function openViaSwitcher(page: Page, title: string) {
+  await page.keyboard.press("ControlOrMeta+o");
+  await page.getByPlaceholder("Find or create a note…").fill(title);
+  await page.waitForTimeout(400);
+  await page.getByPlaceholder("Find or create a note…").press("Enter");
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue(title, { timeout: 10_000 });
+}
+
 async function shot(page: Page, name: string, target?: Locator, pad = 8, maxHeight?: number) {
   const file = path.join(OUT, `${name}.png`);
   if (!target) {
@@ -122,6 +132,40 @@ test.beforeAll(async () => {
                 },
               ],
             };
+      const parsed = raw ? (JSON.parse(raw) as { stream?: boolean }) : null;
+      if (parsed?.stream) {
+        // The panel streams now: answer as SSE — text, tool-call fragments,
+        // a finish_reason, then [DONE] (the shape a real OpenAI endpoint sends).
+        const message = reply.choices[0].message as {
+          content: string | null;
+          tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[];
+        };
+        const chunks: string[] = [];
+        const text = message.content ?? "";
+        const step = Math.max(1, Math.ceil(text.length / 4));
+        for (let i = 0; i < text.length; i += step) {
+          chunks.push(JSON.stringify({ choices: [{ delta: { content: text.slice(i, i + step) } }] }));
+        }
+        (message.tool_calls ?? []).forEach((call, index) => {
+          chunks.push(
+            JSON.stringify({
+              choices: [
+                { delta: { tool_calls: [{ index, id: call.id, type: "function", function: call.function }] } },
+              ],
+            }),
+          );
+        });
+        chunks.push(
+          JSON.stringify({
+            choices: [{ delta: {}, finish_reason: message.tool_calls?.length ? "tool_calls" : "stop" }],
+          }),
+        );
+        chunks.push("[DONE]");
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        for (const chunk of chunks) res.write(`data: ${chunk}\n\n`);
+        res.end();
+        return;
+      }
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(reply));
     });
@@ -260,7 +304,7 @@ test("capture the documentation screenshots", async ({ page }) => {
   await page.getByRole("button", { name: /Close Health MOC/ }).last().click().catch(() => undefined);
 
   // ── Templates picker ───────────────────────────────────────────────────
-  await openNoteFromExplorer(page, "Home");
+  await openViaSwitcher(page, "Home");
   await page.keyboard.press("ControlOrMeta+p");
   await page.getByPlaceholder(/command/i).fill("insert template");
   await page.keyboard.press("Enter");
@@ -309,7 +353,7 @@ test("capture the documentation screenshots", async ({ page }) => {
   await page.keyboard.press("Escape");
 
   // ── Share dialog ───────────────────────────────────────────────────────
-  await openNoteFromExplorer(page, "Home");
+  await openViaSwitcher(page, "Home");
   await page.getByRole("button", { name: /Share/ }).first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.waitForTimeout(400);
@@ -358,5 +402,22 @@ test("capture the documentation screenshots", async ({ page }) => {
   // The picture shows a token; revoke it so what is in the image is dead.
   await settings.getByRole("button", { name: "Revoke token Claude Desktop on my laptop" }).click();
   await expect(settings.getByRole("button", { name: "Revoke token Claude Desktop on my laptop" })).toHaveCount(0);
+
+  // API keys, with a freshly minted key so the try-it curl is filled in.
+  await settings.getByRole("button", { name: "API keys", exact: true }).click();
+  await settings.getByPlaceholder("My sync script").fill("My sync script");
+  await settings.getByRole("button", { name: "Create key" }).click();
+  await expect(page.getByTestId("api-fresh-key")).toBeVisible();
+  await page.waitForTimeout(400);
+  await shot(page, "settings-api-keys", settings, 12);
+  // The picture shows a key; revoke it so what is in the image is dead.
+  await settings.getByRole("button", { name: "Revoke key My sync script" }).click();
+  await expect(settings.getByRole("button", { name: "Revoke key My sync script" })).toHaveCount(0);
   await page.keyboard.press("Escape");
+
+  // The interactive API reference — a public page, so no session is involved.
+  await page.goto("/api-reference");
+  await expect(page.getByRole("heading", { name: "Nodum API" })).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  await shot(page, "api-reference");
 });

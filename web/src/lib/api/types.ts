@@ -313,3 +313,25 @@ export interface McpTokenList {
   /** The URL an MCP client should be pointed at. */
   endpoint: string;
 }
+
+// ── API keys ─────────────────────────────────────────────────────────────────
+
+/** A minted API key, minus the key itself (only the create response has it). */
+export interface ApiKey {
+  id: string;
+  kind: string;
+  name: string;
+  scopes: string[];
+  hint: string;
+  created_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiKeyList {
+  keys: ApiKey[];
+  /** The public API's base URL — what a program calls. */
+  base_url: string;
+}
+
+export type ApiKeyWithToken = ApiKey & { token: string; base_url: string };
