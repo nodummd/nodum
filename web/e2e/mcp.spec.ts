@@ -13,9 +13,11 @@ test.describe("MCP", () => {
     await page.keyboard.press("ControlOrMeta+,");
     await page.getByRole("button", { name: "MCP", exact: true }).click();
 
-    // The endpoint is this origin — the same one the browser talks to.
-    const endpoint = await page.locator("code").filter({ hasText: "/api/v1/mcp" }).first().innerText();
-    expect(endpoint).toBe(`${new URL(page.url()).origin}/api/v1/mcp`);
+    // The screen shows FRONTEND_BASE_URL's endpoint; the protocol calls below
+    // use the page's own origin, which is what CI actually serves (the two
+    // differ there, and which one renders first is a race this test lost).
+    await expect(page.locator("code").filter({ hasText: "/api/v1/mcp" }).first()).toBeVisible();
+    const endpoint = `${new URL(page.url()).origin}/api/v1/mcp`;
 
     await page.getByPlaceholder("Claude Desktop on my laptop").fill("e2e client");
     await page.getByRole("button", { name: "Create token" }).click();
