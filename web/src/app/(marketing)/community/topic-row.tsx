@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { UnreadBadge } from "@/components/community/engagement";
+
 import type { CommunityTopicItem } from "@/lib/api/community-server";
 
 /** One topic line — shared by the index, category and profile pages. */
@@ -16,6 +18,7 @@ export function TopicRow({ topic, showCategory = true }: { topic: CommunityTopic
           {topic.is_locked && <span className="mk-eyebrow mr-2">Locked</span>}
           {topic.title}
         </Link>
+        <UnreadBadge topicId={topic.id} />
         <p className="mt-0.5 text-[0.8rem] opacity-60">
           {topic.author ? topic.author.name : "deleted user"}
           {showCategory && topic.category_slug ? (

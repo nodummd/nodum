@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ListEngagement } from "@/components/community/engagement";
 import { getCategories, getTopics } from "@/lib/api/community-server";
 
 import { Pager, TopicRow } from "../../topic-row";
@@ -45,11 +46,13 @@ export default async function CategoryPage({
       {category.description && <p className="mb-4 opacity-70">{category.description}</p>}
       {topics.items.length > 0 ? (
         <>
-          <ul>
-            {topics.items.map((t) => (
-              <TopicRow key={t.id} topic={t} showCategory={false} />
-            ))}
-          </ul>
+          <ListEngagement query={`category=${slug}&limit=${PAGE_SIZE}&offset=${(page - 1) * PAGE_SIZE}`}>
+            <ul>
+              {topics.items.map((t) => (
+                <TopicRow key={t.id} topic={t} showCategory={false} />
+              ))}
+            </ul>
+          </ListEngagement>
           <Pager
             base={`/community/c/${slug}`}
             page={page}

@@ -30,6 +30,9 @@ export default function CommunityLayout({ children }: { children: React.ReactNod
             <Link className="mk-navlink" href="/community?top=week">
               Top
             </Link>
+            <Link className="mk-navlink" href="/community/search">
+              Search
+            </Link>
             <Link className="mk-btn mk-btn--primary h-9 px-4 text-[0.875rem]" href="/community/new">
               New topic
             </Link>
