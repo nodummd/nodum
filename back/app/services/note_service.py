@@ -1,7 +1,7 @@
 """Note service — CRUD with optimistic concurrency and frontmatter parsing."""
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import frontmatter
@@ -9,6 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants.limits import MAX_NOTE_SIZE_BYTES, MAX_NOTES_PER_VAULT
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 from app.core.logging import get_logger
 from app.models.vaults import Folder, Note
 from app.services.service_response import ServiceResponse
@@ -138,6 +141,136 @@ async def get_note_by_path(db: AsyncSession, vault_id: UUID, user_id: UUID, path
     return ServiceResponse.ok(note)
 
 
+async def resolve_note_ref(db: AsyncSession, vault_id: UUID, user_id: UUID, ref: str) -> ServiceResponse[Note]:
+    """A note by id, exact path, or exact title (case-insensitive).
+
+    How a caller who is not a UI — the public API, an AI client — says which
+    note they mean. Ambiguous titles are an error naming a disambiguating
+    path, never a silent pick.
+    """
+    ref = (ref or "").strip()
+    if not ref:
+        return ServiceResponse.fail(
+            "validation_failed", 'Say which note: its id, its path ("Folder/Name") or its title.'
+        )
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    try:
+        note_id = UUID(ref)
+    except (ValueError, TypeError):
+        note_id = None
+    if note_id is not None:
+        note = await _note_in_vault(db, note_id, vault_id)
+        if note is not None:
+            return ServiceResponse.ok(note)
+    note = await db.scalar(select(Note).where(Note.vault_id == vault_id, Note.path == ref))
+    if note is not None:
+        return ServiceResponse.ok(note)
+    from sqlalchemy import func
+
+    # Case-insensitive path: links resolve case-insensitively, so the string a
+    # wikilink was written with must find the same note here.
+    path_matches = (
+        (
+            await db.execute(
+                select(Note)
+                .where(Note.vault_id == vault_id, func.lower(Note.path) == ref.lower())
+                .order_by(Note.path)
+                .limit(2)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(path_matches) == 1:
+        return ServiceResponse.ok(path_matches[0])
+    if len(path_matches) > 1:
+        return ServiceResponse.fail(
+            "validation_failed",
+            f"Several notes match the path {ref!r} by case — give it exactly (e.g. {path_matches[0].path!r}).",
+        )
+
+    matches = (
+        (
+            await db.execute(
+                select(Note)
+                .where(Note.vault_id == vault_id, func.lower(Note.title) == ref.lower())
+                .order_by(Note.path)
+                .limit(2)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if len(matches) == 1:
+        return ServiceResponse.ok(matches[0])
+    if len(matches) > 1:
+        return ServiceResponse.fail(
+            "validation_failed",
+            f"Several notes are called {ref!r} — give the path (e.g. {matches[0].path!r}).",
+        )
+    return ServiceResponse.fail("not_found", f"No note called {ref!r}.")
+
+
+async def list_notes(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    *,
+    folder: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> ServiceResponse[dict[str, Any]]:
+    """Notes without their bodies, most recently updated first, paginated."""
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    from sqlalchemy import func
+
+    stmt = select(Note, func.count().over().label("total")).where(Note.vault_id == vault_id)
+    prefix = (folder or "").strip().strip("/")
+    if prefix:
+        stmt = stmt.where(Note.path.startswith(prefix + "/", autoescape=True))
+    # id breaks updated_at ties so pages never repeat or skip a note.
+    rows = (await db.execute(stmt.order_by(Note.updated_at.desc(), Note.id.desc()).limit(limit).offset(offset))).all()
+    if rows:
+        total = int(rows[0].total)
+    elif offset:
+        # Past the end the window count has no row to ride on — count honestly.
+        count_stmt = select(func.count()).select_from(Note).where(Note.vault_id == vault_id)
+        if prefix:
+            count_stmt = count_stmt.where(Note.path.startswith(prefix + "/", autoescape=True))
+        total = int(await db.scalar(count_stmt) or 0)
+    else:
+        total = 0
+    return ServiceResponse.ok(
+        {
+            "items": [row[0] for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
+
+
+def _prepend_below_frontmatter(existing: str, content: str) -> str:
+    """Prepend below the properties block, never above it.
+
+    A frontmatter block whose closing ``---`` is the file's last line lacks the
+    trailing newline the pattern requires; probe with one added so a note that
+    is *only* frontmatter still keeps it on top.
+    """
+    from app.utils.markdown_parse import _FRONTMATTER_RE
+
+    probe = existing if existing.endswith("\n") else existing + "\n"
+    fm = _FRONTMATTER_RE.match(probe)
+    if fm:
+        head, rest = probe[: fm.end()], probe[fm.end() :]
+        if not rest.strip():
+            return f"{head}\n{content.strip()}\n"
+        return f"{head}\n{content.strip()}\n\n{rest.lstrip()}"
+    return f"{content.strip()}\n\n{existing.lstrip()}"
+
+
 async def update_content(
     db: AsyncSession,
     vault_id: UUID,
@@ -147,6 +280,7 @@ async def update_content(
     content: str,
     base_updated_at: datetime | None = None,
     sync_collab: bool = True,
+    mode: str = "replace",
 ) -> ServiceResponse[Note]:
     """Save note content.
 
@@ -168,6 +302,15 @@ async def update_content(
             "Note was modified elsewhere.",
             server_updated_at=note.updated_at.isoformat(),
         )
+
+    # append/prepend compose HERE, against the row the lock just froze — a
+    # read-compose-write from outside the lock loses concurrent appends.
+    if mode == "append":
+        content = f"{note.content.rstrip()}\n\n{content.strip()}\n"
+    elif mode == "prepend":
+        content = _prepend_below_frontmatter(note.content, content)
+    elif mode != "replace":
+        return ServiceResponse.fail("validation_failed", 'mode must be "replace", "append" or "prepend".')
 
     from app.services.version_service import maybe_snapshot
 
@@ -197,6 +340,33 @@ async def update_content(
 
         await collab_server.sync_room(vault_id, note_id, note.content)
     return ServiceResponse.ok(note)
+
+
+async def transform_content(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    note_id: UUID,
+    transform: "Callable[[str], str | None]",
+    *,
+    sync_collab: bool = True,
+) -> ServiceResponse[Note]:
+    """Rewrite a note as a function of its current content, atomically.
+
+    The row is locked before ``transform`` sees the text, and the same
+    transaction still holds that lock when ``update_content`` persists the
+    result — so the function's input can never be stale. Returning ``None``
+    (or the unchanged text) writes nothing.
+    """
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        return ServiceResponse.fail("not_found", "Vault not found.")
+    note = await db.scalar(select(Note).where(Note.id == note_id, Note.vault_id == vault_id).with_for_update())
+    if note is None:
+        return ServiceResponse.fail("not_found", "Note not found.")
+    new_content = transform(note.content)
+    if new_content is None or new_content == note.content:
+        return ServiceResponse.ok(note)
+    return await update_content(db, vault_id, user_id, note_id, content=new_content, sync_collab=sync_collab)
 
 
 async def set_tags(

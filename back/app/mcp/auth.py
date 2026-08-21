@@ -57,14 +57,14 @@ class BearerTokenGate:
             )
             return
         async with async_session_factory() as db:
-            user_id = await api_token_service.verify_token(db, token.strip())
-        if user_id is None:
+            ident = await api_token_service.verify_token(db, token.strip())
+        if ident is None:
             await _reject(
                 send,
                 401,
                 b'{"error":{"code":"unauthorized","message":"That MCP token is unknown or has been revoked."}}',
             )
             return
-        scope.setdefault("state", {})[USER_ID_KEY] = user_id
+        scope.setdefault("state", {})[USER_ID_KEY] = ident.user_id
         await api_token_service.mark_verified(token)
         await self.app(scope, receive, send)

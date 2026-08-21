@@ -159,3 +159,72 @@ def frontmatter_aliases(properties: dict) -> list[str]:
             seen.add(alias.lower())
             out.append(alias)
     return out[:20]
+
+
+def ends_inside_fence(markdown: str) -> bool:
+    """True when the text ends inside an unterminated code fence — anything
+    appended after it would be swallowed into the code block."""
+    fence: str | None = None
+    for line in _FRONTMATTER_RE.sub("", markdown).split("\n"):
+        if fence is None:
+            if line.startswith(("```", "~~~")):
+                fence = line[:3]
+        elif line.startswith(fence) and not line[len(fence) :].strip(" \t"):
+            fence = None
+    return fence is not None
+
+
+def remove_wikilinks(markdown: str, targets: set[str]) -> tuple[str, int]:
+    """Remove ``[[wikilink]]`` occurrences whose target matches (case-insensitive).
+
+    The inverse of appending a link. Embeds (``![[...]]``) are left alone —
+    deleting one deletes content, not a connection. Links inside frontmatter,
+    fenced code and inline code are protected, mirroring extract_wikilinks.
+    A list line left holding nothing but its bullet is dropped entirely.
+    Returns the new markdown and how many links were removed.
+    """
+    wanted = {t.strip().lower() for t in targets if t and t.strip()}
+    if not wanted:
+        return markdown, 0
+
+    fm = _FRONTMATTER_RE.match(markdown)
+    head = markdown[: fm.end()] if fm else ""
+    body = markdown[fm.end() :] if fm else markdown
+
+    out: list[str] = []
+    removed = 0
+    fence: str | None = None
+    for line in body.split("\n"):
+        if fence is None and line.startswith(("```", "~~~")):
+            fence = line[:3]
+            out.append(line)
+            continue
+        if fence is not None:
+            if line.startswith(fence) and not line[len(fence) :].strip(" \t"):
+                fence = None
+            out.append(line)
+            continue
+        protected = [m.span() for m in _INLINE_CODE_RE.finditer(line)]
+        spans: list[tuple[int, int]] = []
+        for m in _WIKILINK_RE.finditer(line):
+            if m.group(1) == "!":
+                continue
+            if any(a <= m.start() < b for a, b in protected):
+                continue
+            inner = m.group(2).strip()
+            if "|" in inner:
+                inner = inner.split("|", 1)[0].strip()
+            if "#" in inner:
+                inner = inner.split("#", 1)[0].strip()
+            if inner.lower() in wanted:
+                spans.append(m.span())
+        if not spans:
+            out.append(line)
+            continue
+        removed += len(spans)
+        for a, b in reversed(spans):
+            line = line[:a] + line[b:]
+        if re.fullmatch(r"|[-*+](\s*\[[ xX]\])?|\d{1,9}[.)]", line.strip()):
+            continue  # the line was only the link (maybe a list/task/numbered bullet) — drop it
+        out.append(line.rstrip())
+    return head + "\n".join(out), removed

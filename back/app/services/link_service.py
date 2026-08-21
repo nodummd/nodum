@@ -201,6 +201,126 @@ def _snippets_for(content: str, needle_forms: list[str], limit: int = 3) -> list
     return snippets
 
 
+async def _names_resolving_to(db: AsyncSession, vault_id: UUID, dst: Note) -> set[str]:
+    """The written forms that unambiguously mean *this* note: its path always,
+    its title only when no other note shares it, and each frontmatter alias
+    only when no other note claims it. Ambiguous forms are excluded so a
+    link/unlink can never silently act on a namesake."""
+    names = {dst.path.lower()}
+    title_count = await db.scalar(
+        select(func.count())
+        .select_from(Note)
+        .where(Note.vault_id == vault_id, func.lower(Note.title) == dst.title.lower())
+    )
+    if (title_count or 0) <= 1:
+        names.add(dst.title.lower())
+    alias_rows = (
+        await db.execute(select(NoteAlias.alias, NoteAlias.note_id).where(NoteAlias.vault_id == vault_id))
+    ).all()
+    owners: dict[str, set[UUID]] = {}
+    for alias, note_id in alias_rows:
+        owners.setdefault(alias.lower(), set()).add(note_id)
+    for alias, holder_ids in owners.items():
+        if holder_ids == {dst.id}:
+            names.add(alias)
+    return names
+
+
+async def link_notes(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    source_id: UUID,
+    *,
+    target: str,
+    context: str = "",
+) -> ServiceResponse[dict[str, Any]]:
+    """Connect two notes by appending a ``[[wikilink]]`` to the source.
+
+    The link is written by title — or by path when another note shares the
+    title, so it can never resolve to a namesake. Idempotent without
+    ``context``: when the source already links to the target nothing is
+    written (``already_linked`` says so). ``context`` is an optional sentence
+    to put the link in; ``{link}`` inside it is replaced by the wikilink,
+    which is otherwise appended.
+    """
+    from app.services import note_service
+    from app.utils.markdown_parse import ends_inside_fence
+
+    src_res = await note_service.get_note(db, vault_id, user_id, source_id)
+    if not src_res.success:
+        return src_res  # type: ignore[return-value]
+    dst_res = await note_service.resolve_note_ref(db, vault_id, user_id, target)
+    if not dst_res.success:
+        return dst_res  # type: ignore[return-value]
+    src, dst = src_res.data, dst_res.data
+    assert src is not None and dst is not None
+    if src.id == dst.id:
+        return ServiceResponse.fail("validation_failed", "A note cannot link to itself.")
+
+    names = await _names_resolving_to(db, vault_id, dst)
+    # Title only if it is unambiguous; a namesake forces the path form.
+    link = f"[[{dst.title}]]" if dst.title.lower() in names else f"[[{dst.path}]]"
+    already = any(w.target.strip().lower() in names for w in extract_wikilinks(src.content))
+    if already and not context.strip():
+        return ServiceResponse.ok({"from": str(src.id), "to": str(dst.id), "inserted": None, "already_linked": True})
+    if ends_inside_fence(src.content):
+        return ServiceResponse.fail(
+            "validation_failed",
+            f"{src.title!r} ends inside an unclosed code block — anything appended would land in it. Close the fence first.",
+        )
+    line = context.strip().replace("{link}", link) if context.strip() else f"- {link}"
+    if link not in line:
+        line = f"{line} {link}"
+    saved = await note_service.update_content(db, vault_id, user_id, src.id, content=line, mode="append")
+    if not saved.success:
+        return saved  # type: ignore[return-value]
+    return ServiceResponse.ok({"from": str(src.id), "to": str(dst.id), "inserted": line, "already_linked": already})
+
+
+async def unlink_notes(
+    db: AsyncSession,
+    vault_id: UUID,
+    user_id: UUID,
+    source_id: UUID,
+    *,
+    target: str,
+) -> ServiceResponse[dict[str, Any]]:
+    """Remove every prose ``[[wikilink]]`` in the source that unambiguously
+    points at the target — by path, by unique title, or by an alias no other
+    note claims. A namesake's links are left alone.
+
+    Links are derived from the markdown, so unlinking edits the markdown.
+    Embeds (``![[…]]``) and links inside code are content, not connections,
+    and stay — an embed keeps counting as a link until it is edited out.
+    Removing nothing is success (already unlinked). A note may unlink itself.
+    """
+    from app.services import note_service
+    from app.utils.markdown_parse import remove_wikilinks
+
+    src_res = await note_service.get_note(db, vault_id, user_id, source_id)
+    if not src_res.success:
+        return src_res  # type: ignore[return-value]
+    dst_res = await note_service.resolve_note_ref(db, vault_id, user_id, target)
+    if not dst_res.success:
+        return dst_res  # type: ignore[return-value]
+    src, dst = src_res.data, dst_res.data
+    assert src is not None and dst is not None
+
+    names = await _names_resolving_to(db, vault_id, dst)
+    removed_holder = {"n": 0}
+
+    def _strip(current: str) -> str | None:
+        new_content, removed = remove_wikilinks(current, names)
+        removed_holder["n"] = removed
+        return new_content if removed else None
+
+    saved = await note_service.transform_content(db, vault_id, user_id, src.id, _strip)
+    if not saved.success:
+        return saved  # type: ignore[return-value]
+    return ServiceResponse.ok({"from": str(src.id), "to": str(dst.id), "removed": removed_holder["n"]})
+
+
 async def get_backlinks(
     db: AsyncSession, vault_id: UUID, user_id: UUID, note_id: UUID
 ) -> ServiceResponse[dict[str, Any]]:

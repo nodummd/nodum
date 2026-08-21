@@ -1,4 +1,8 @@
-"""Long-lived API tokens (the MCP credential): mint, list, revoke, verify.
+"""Long-lived API tokens: mint, list, revoke, verify.
+
+Two kinds share the table and every rule here: kind="mcp" (the MCP client
+credential, full access implied) and kind="key" (the public-API key, which
+carries an explicit scope list).
 
 The plaintext is `nodum_<kind>_<43 urlsafe chars>` — the prefix so a leaked one
 is recognisable in a log or a secret scanner, the rest 256 bits of CSPRNG. Only
@@ -7,6 +11,7 @@ its SHA-256 is stored.
 
 import hashlib
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -14,6 +19,7 @@ from uuid import UUID
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.scopes import API_SCOPES, SCOPE_ORDER
 from app.core.logging import get_logger
 from app.models.auth import ApiToken, User
 from app.services.service_response import ServiceResponse
@@ -27,11 +33,37 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+@dataclass(frozen=True)
+class TokenIdentity:
+    """Who a verified token belongs to, and what it may do."""
+
+    user_id: UUID
+    kind: str
+    scopes: frozenset[str]
+
+
+def effective_scopes(kind: str, scopes: list[str] | None) -> frozenset[str]:
+    """An MCP token's empty list means everything (the kind implies it);
+    a public-API key has exactly the scopes it was minted with."""
+    if kind == "mcp" and not scopes:
+        return API_SCOPES
+    return frozenset(scopes or ())
+
+
+def normalize_scopes(scopes: list[str] | None) -> list[str] | None:
+    """Canonical order, deduplicated — or None when any scope is unknown."""
+    cleaned = {s.strip().lower() for s in (scopes or []) if s.strip()}
+    if not cleaned or not cleaned <= API_SCOPES:
+        return None
+    return [s for s in SCOPE_ORDER if s in cleaned]
+
+
 def _public(token: ApiToken) -> dict[str, Any]:
     return {
         "id": str(token.id),
         "kind": token.kind,
         "name": token.name,
+        "scopes": list(token.scopes or []),
         "hint": token.hint,
         "created_at": token.created_at.isoformat() if token.created_at else None,
         "last_used_at": token.last_used_at.isoformat() if token.last_used_at else None,
@@ -51,10 +83,17 @@ async def list_tokens(db: AsyncSession, user_id: UUID, kind: str = "mcp") -> Ser
 
 
 async def create_token(
-    db: AsyncSession, user_id: UUID, *, name: str, kind: str = "mcp"
+    db: AsyncSession, user_id: UUID, *, name: str, kind: str = "mcp", scopes: list[str] | None = None
 ) -> ServiceResponse[dict[str, Any]]:
     """Mint a token. The plaintext is in the response exactly once."""
-    name = (name or "").strip()[:100] or "MCP client"
+    name = (name or "").strip()[:100] or ("API key" if kind == "key" else "MCP client")
+    clean_scopes: list[str] = []
+    if kind == "key":
+        normalized = normalize_scopes(scopes)
+        if normalized is None:
+            allowed = ", ".join(SCOPE_ORDER)
+            return ServiceResponse.fail("validation_failed", f"Pick at least one scope from: {allowed}.")
+        clean_scopes = normalized
     # Count and insert in one serialised step per user, or parallel creates
     # all see the same count and the cap is exceeded.
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:u))"), {"u": f"api_tokens:{user_id}"})
@@ -74,7 +113,14 @@ async def create_token(
             "validation_failed", f"You already have {MAX_TOKENS_PER_USER} active tokens — revoke one first."
         )
     plaintext = f"nodum_{kind}_{secrets.token_urlsafe(32)}"
-    row = ApiToken(user_id=user_id, kind=kind, name=name, token_hash=_hash(plaintext), hint=plaintext[-4:])
+    row = ApiToken(
+        user_id=user_id,
+        kind=kind,
+        name=name,
+        token_hash=_hash(plaintext),
+        hint=plaintext[-4:],
+        scopes=clean_scopes,
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -123,9 +169,9 @@ async def mark_verified(plaintext: str) -> None:
         logger.warning("mcp_token_marker_failed")
 
 
-async def verify_token(db: AsyncSession, plaintext: str, *, kind: str = "mcp") -> UUID | None:
-    """The user a live token belongs to, or None. Touches last_used_at at most
-    once a minute — a chatty client should not turn every call into a write."""
+async def verify_token(db: AsyncSession, plaintext: str, *, kind: str = "mcp") -> TokenIdentity | None:
+    """The identity a live token resolves to, or None. Touches last_used_at at
+    most once a minute — a chatty client should not turn every call into a write."""
     if not plaintext or not plaintext.startswith(f"nodum_{kind}_"):
         return None
     row = await db.scalar(
@@ -144,4 +190,4 @@ async def verify_token(db: AsyncSession, plaintext: str, *, kind: str = "mcp") -
     if row.last_used_at is None or now - row.last_used_at > _TOUCH_INTERVAL:
         row.last_used_at = now
         await db.commit()
-    return row.user_id
+    return TokenIdentity(user_id=row.user_id, kind=row.kind, scopes=effective_scopes(row.kind, row.scopes))
