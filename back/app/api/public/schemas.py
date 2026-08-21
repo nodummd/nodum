@@ -16,20 +16,31 @@ from app.schemas.vaults import NoteMetaOut, NoteOut
 
 
 class Envelope[T](BaseModel):
-    """Every success response: the payload under ``data``."""
+    """Every success response: `ok` plus the payload under `data`.
 
+    `ok` is redundant next to the HTTP status on purpose — clients that
+    funnel every call through one helper can branch on the body alone,
+    which is exactly what most SDK wrappers end up doing.
+    """
+
+    ok: bool = Field(default=True, description="Always `true` on a success response.")
     data: T
 
 
 class ErrorInfo(BaseModel):
-    code: str = Field(description="Stable machine-readable code, e.g. `not_found`, `forbidden`, `conflict`.")
-    message: str = Field(description="Human-readable explanation.")
-    details: dict[str, Any] | None = Field(default=None, description="Extra context on some errors.")
+    code: str = Field(
+        description="Stable machine-readable code in SCREAMING_SNAKE_CASE, e.g. `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`."
+    )
+    details: str = Field(
+        description="The specifics: which field, which scope, what conflicted. Falls back to `message`."
+    )
+    message: str = Field(description="Short human-readable explanation.")
 
 
 class ErrorResponse(BaseModel):
-    """Every error response: `{\"error\": {\"code\", \"message\"}}`."""
+    """Every error response: `{"ok": false, "error": {"code", "details", "message"}}`."""
 
+    ok: bool = Field(default=False, description="Always `false` on an error response.")
     error: ErrorInfo
 
 

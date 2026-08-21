@@ -14,9 +14,9 @@ KEY="nodum_key_…"        # Settings → API keys
 ```
 
 and sends the key the same way every time: `-H "Authorization: Bearer $KEY"`.
-Success is always `{"data": ...}`; errors are always
-`{"error": {"code", "message"}}`. **Writes return metadata, never bodies** —
-reading content back needs the `read` scope.
+Success is always `{"ok": true, "data": ...}`; errors are always
+`{"ok": false, "error": {"code", "details", "message"}}`. **Writes return
+metadata, never bodies** — reading content back needs the `read` scope.
 
 ## Find your vault
 
@@ -25,7 +25,8 @@ curl -H "Authorization: Bearer $KEY" $NODUM/vaults
 ```
 
 ```json
-{ "data": [ { "id": "0198…", "name": "Second Brain",
+{ "ok": true,
+  "data": [ { "id": "0198…", "name": "Second Brain",
               "created_at": "2026-08-01T09:00:00Z", "updated_at": "2026-08-21T07:00:00Z" } ] }
 ```
 
@@ -42,7 +43,8 @@ curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
 ```
 
 ```json
-{ "data": { "id": "0198…", "folder_id": "0198…", "title": "Standup 21 Aug",
+{ "ok": true,
+  "data": { "id": "0198…", "folder_id": "0198…", "title": "Standup 21 Aug",
             "path": "Work/Standups/Standup 21 Aug",
             "created_at": "…", "updated_at": "…" } }
 ```
@@ -62,7 +64,7 @@ plus the metadata above. `by-path` takes the exact path
 first, `total` for pagination:
 
 ```json
-{ "data": { "items": [ … ], "total": 128, "limit": 50, "offset": 0 } }
+{ "ok": true, "data": { "items": [ … ], "total": 128, "limit": 50, "offset": 0 } }
 ```
 
 ## Edit safely — `PUT /vaults/{id}/notes/{note_id}/content` *(write)*
@@ -110,12 +112,15 @@ Links pointing at the deleted note become unresolved ghosts in the graph.
 
 ## The errors you will actually see
 
+Errors carry `code` (branch on this), `message` (show this) and `details`
+(the specifics — which field, which scope, what conflicted):
+
 | Code | Meaning |
 | --- | --- |
-| `unauthorized` (401) | Missing, mistyped or revoked key — or a password change revoked it. |
-| `forbidden` (403) | The key lacks the scope; the message names which one. |
-| `not_found` (404) | Not there — or not yours. Deliberately the same answer. |
-| `already_exists` (409) | A note at that path already exists. |
-| `conflict` (409) | Stale `base_updated_at`; `details.server_updated_at` says what won. |
-| `validation_failed` (422) | Bad input; the message says what. |
-| `rate_limited` (429) | Slow down — 300 requests/minute per key by default. |
+| `UNAUTHORIZED` (401) | Missing, mistyped or revoked key — or a password change revoked it. |
+| `FORBIDDEN` (403) | The key lacks the scope; `details` names which one. |
+| `NOT_FOUND` (404) | Not there — or not yours. Deliberately the same answer. |
+| `ALREADY_EXISTS` (409) | A note at that path already exists. |
+| `CONFLICT` (409) | Stale `base_updated_at`; `details` carries `server_updated_at=…`. |
+| `VALIDATION_FAILED` (422) | Bad input; `details` names the field. |
+| `RATE_LIMITED` (429) | Slow down — 300 requests/minute per key by default. |

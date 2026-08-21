@@ -17,11 +17,9 @@ routes — different prefix, different job.
 
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi import FastAPI
 
-from app.api.exceptions import register_exception_handlers
+from app.api.public.errors import register_public_exception_handlers
 from app.api.public.routers import ai, attachments, graph, links, notes, search, tags, vaults
 from app.api.public.schemas import ErrorResponse
 from app.settings import get_settings
@@ -48,12 +46,18 @@ curl -H "Authorization: Bearer $NODUM_KEY" \\
   https://your-nodum/api/public/v1/vaults
 ```
 
+```json
+{ "ok": true, "data": [ { "id": "…", "name": "Second Brain" } ] }
+```
+
 Take a vault `id` from the answer, then search it, read a note, create one.
 
 ## Conventions
 
-- Success is `{"data": ...}`; every error is `{"error": {"code", "message"}}`
-  with a stable `code` (`not_found`, `forbidden`, `conflict`, …).
+- Success is `{"ok": true, "data": ...}`; every error is
+  `{"ok": false, "error": {"code", "details", "message"}}` with a stable
+  SCREAMING_SNAKE `code` (`NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, …) and
+  `details` carrying the specifics.
 - Anything of yours that does not exist — and anything that is not yours —
   is the same `404`.
 - Note lists and search take `limit` + `offset` and return `total`; capped
@@ -83,14 +87,7 @@ def create_public_app() -> FastAPI:
         swagger_ui_parameters={"persistAuthorization": True},
         # No lifespan: it would never fire under a mount (see app/main.py).
     )
-    register_exception_handlers(app)
-
-    # Starlette's own 404 (unknown path) and 405 (wrong method) bypass the
-    # NodumError handlers and would answer {"detail": ...} — keep the envelope.
-    @app.exception_handler(StarletteHTTPException)
-    async def _plain_http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, f"http_{exc.status_code}")
-        return JSONResponse(status_code=exc.status_code, content={"error": {"code": code, "message": str(exc.detail)}})
+    register_public_exception_handlers(app)
 
     app.include_router(vaults.router, prefix="/vaults", tags=["Vaults"], responses={**_ERRORS, **_FORBIDDEN})
     app.include_router(

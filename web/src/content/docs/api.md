@@ -53,8 +53,22 @@ curl -H "Authorization: Bearer nodum_key_…" -H "Content-Type: application/json
   https://your-nodum/api/public/v1/vaults/<vault_id>/notes
 ```
 
-Every success is `{"data": ...}`; every error is
-`{"error": {"code", "message"}}` with a stable `code`.
+Every success is `{"ok": true, "data": ...}`:
+
+```json
+{ "ok": true, "data": { "id": "0198…", "title": "From the API", "path": "Inbox/From the API" } }
+```
+
+Every error is `{"ok": false, "error": {...}}` with a stable
+SCREAMING_SNAKE `code`, a short `message`, and `details` carrying the
+specifics:
+
+```json
+{ "ok": false, "error": {
+    "code": "VALIDATION_FAILED",
+    "details": "body.title: Field required",
+    "message": "Request validation failed." } }
+```
 
 ## Scopes
 

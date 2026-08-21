@@ -52,19 +52,22 @@ async def unlink_notes(
     an embed keeps counting as a link until it is edited out. `removed: 0`
     still succeeds (already unlinked).
     """
-    return {"data": (await link_service.unlink_notes(db, vault_id, user_id, note_id, target=target)).unwrap()}
+    return {
+        "ok": True,
+        "data": (await link_service.unlink_notes(db, vault_id, user_id, note_id, target=target)).unwrap(),
+    }
 
 
 @router.get("/{note_id}/links", summary="Outgoing links")
 async def get_outgoing_links(vault_id: UUID, note_id: UUID, user_id: ReadUser, db: SessionDep) -> dict[str, Any]:
     """Links FROM this note — resolved (with target id/path) and unresolved."""
-    return {"data": (await link_service.get_outgoing_links(db, vault_id, user_id, note_id)).unwrap()}
+    return {"ok": True, "data": (await link_service.get_outgoing_links(db, vault_id, user_id, note_id)).unwrap()}
 
 
 @router.get("/{note_id}/backlinks", summary="Backlinks")
 async def get_backlinks(vault_id: UUID, note_id: UUID, user_id: ReadUser, db: SessionDep) -> dict[str, Any]:
     """Notes that link TO this note, with the sentence around each link."""
-    return {"data": (await link_service.get_backlinks(db, vault_id, user_id, note_id)).unwrap()}
+    return {"ok": True, "data": (await link_service.get_backlinks(db, vault_id, user_id, note_id)).unwrap()}
 
 
 @router.get("/{note_id}/unlinked-mentions", summary="Unlinked mentions")
@@ -76,4 +79,7 @@ async def get_unlinked_mentions(
     limit: int = Query(default=20, ge=1, le=50),
 ) -> dict[str, Any]:
     """Notes whose text mentions this note's title without linking to it."""
-    return {"data": (await link_service.get_unlinked_mentions(db, vault_id, user_id, note_id, limit=limit)).unwrap()}
+    return {
+        "ok": True,
+        "data": (await link_service.get_unlinked_mentions(db, vault_id, user_id, note_id, limit=limit)).unwrap(),
+    }

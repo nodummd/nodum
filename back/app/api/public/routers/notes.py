@@ -50,7 +50,7 @@ async def create_note(vault_id: UUID, body: NoteCreate, user_id: WriteUser, db: 
             db, vault_id, user_id, title=body.title, folder_id=folder_id, content=body.content
         )
     ).unwrap()
-    return {"data": note}
+    return {"ok": True, "data": note}
 
 
 @router.get("/by-path", summary="Read a note by path", response_model=Envelope[NoteOut])
@@ -60,13 +60,13 @@ async def get_note_by_path(
     db: SessionDep,
     path: str = Query(min_length=1, description='The note\'s full path, e.g. "Projects/Alpha".'),
 ) -> Any:
-    return {"data": (await note_service.get_note_by_path(db, vault_id, user_id, path)).unwrap()}
+    return {"ok": True, "data": (await note_service.get_note_by_path(db, vault_id, user_id, path)).unwrap()}
 
 
 @router.get("/{note_id}", summary="Read a note", response_model=Envelope[NoteOut])
 async def get_note(vault_id: UUID, note_id: UUID, user_id: ReadUser, db: SessionDep) -> Any:
     """The full note: markdown content, path, tags and other frontmatter properties."""
-    return {"data": (await note_service.get_note(db, vault_id, user_id, note_id)).unwrap()}
+    return {"ok": True, "data": (await note_service.get_note(db, vault_id, user_id, note_id)).unwrap()}
 
 
 @router.put("/{note_id}/content", summary="Write a note's body", response_model=Envelope[NoteWriteOut])
@@ -92,7 +92,7 @@ async def update_content(
             mode=body.mode,
         )
     ).unwrap()
-    return {"data": note}
+    return {"ok": True, "data": note}
 
 
 @router.patch("/{note_id}", summary="Rename or move a note", response_model=Envelope[NoteWriteOut])
@@ -111,7 +111,7 @@ async def move_note(vault_id: UUID, note_id: UUID, body: NoteMove, user_id: Writ
             db, vault_id, user_id, note_id, title=body.title, folder_id=folder_id, move_to_root=move_to_root
         )
     ).unwrap()
-    return {"data": note}
+    return {"ok": True, "data": note}
 
 
 @router.post("/{note_id}/tags", summary="Add or remove tags", response_model=Envelope[NoteWriteOut])
@@ -120,11 +120,11 @@ async def set_tags(vault_id: UUID, note_id: UUID, body: NoteTagsUpdate, user_id:
     note = (
         await note_service.set_tags(db, vault_id, user_id, note_id, add=body.add or None, remove=body.remove or None)
     ).unwrap()
-    return {"data": note}
+    return {"ok": True, "data": note}
 
 
 @router.delete("/{note_id}", summary="Delete a note")
 async def delete_note(vault_id: UUID, note_id: UUID, user_id: DeleteUser, db: SessionDep) -> dict[str, Any]:
     """Deletes the note. Links pointing at it become unresolved (ghosts in the graph)."""
     (await note_service.delete_note(db, vault_id, user_id, note_id)).unwrap()
-    return {"data": {"deleted": str(note_id)}}
+    return {"ok": True, "data": {"deleted": str(note_id)}}
