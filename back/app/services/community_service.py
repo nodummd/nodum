@@ -242,3 +242,234 @@ async def get_profile(db: AsyncSession, user_id: UUID) -> ServiceResponse[dict[s
             "recent_topics": [_topic(t, author, slug) for t, slug in recent],
         }
     )
+
+
+# ── Writes (S1.3) ────────────────────────────────────────────────────────────
+#
+# Every counter bump is an atomic `SET x = x ± 1` executed inside the same
+# transaction as the row it counts, under the topic FOR UPDATE lock that
+# post-number assignment already needs — the counters cannot drift.
+
+
+async def _check_rate(
+    user_id: UUID, action: str, *, limit: int, window_seconds: int, gap_seconds: int = 0
+) -> str | None:
+    """Fixed-window per-user throttle + minimum gap. Fail-open (Redis down →
+    allowed), disabled in dev/test like the global limiter. Returns an error
+    message, or None to proceed."""
+    from app.settings import get_settings
+
+    if get_settings().ENVIRONMENT in ("dev", "test"):
+        return None
+    try:
+        from app.core.redis import redis_control
+
+        if gap_seconds:
+            gap_key = f"rl:community:gap:{action}:{user_id}"
+            if not await redis_control.set(gap_key, "1", ex=gap_seconds, nx=True):
+                return f"Give it {gap_seconds} seconds between {action}s."
+        key = f"rl:community:{action}:{user_id}"
+        count = await redis_control.incr(key)
+        if count == 1:
+            await redis_control.expire(key, window_seconds)
+        if count > limit:
+            return f"That is plenty of {action}s for now — try again in a while."
+    except Exception:
+        return None
+    return None
+
+
+def _clean_content(content: str) -> ServiceResponse[str] | str:
+    from app.settings import get_settings
+
+    content = content.strip()
+    if not content:
+        return ServiceResponse.fail("validation_failed", "Write something first.")
+    if len(content) > get_settings().COMMUNITY_POST_MAX_CHARS:
+        return ServiceResponse.fail(
+            "validation_failed", f"Posts cap at {get_settings().COMMUNITY_POST_MAX_CHARS:,} characters."
+        )
+    return content
+
+
+async def create_topic(
+    db: AsyncSession, user_id: UUID, *, category_slug: str, title: str, content: str
+) -> ServiceResponse[dict[str, Any]]:
+    from app.utils.slug_utils import slugify
+
+    title = title.strip()
+    if not 3 <= len(title) <= 300:
+        return ServiceResponse.fail("validation_failed", "Titles run 3 to 300 characters.")
+    cleaned = _clean_content(content)
+    if isinstance(cleaned, ServiceResponse):
+        return cleaned
+    cat_res = await get_category(db, category_slug)
+    if not cat_res.success:
+        return cat_res  # type: ignore[return-value]
+    category = cat_res.data
+    assert category is not None
+    if category.is_staff_only_posting:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if user is None or not user.is_staff:
+            return ServiceResponse.fail("forbidden", f"Only staff post in {category.name}.")
+    if err := await _check_rate(user_id, "topic", limit=5, window_seconds=3600, gap_seconds=30):
+        return ServiceResponse.fail("rate_limited", err)
+
+    topic = CommunityTopic(
+        category_id=category.id,
+        author_id=user_id,
+        title=title,
+        slug=slugify(title),
+        last_post_author_id=user_id,
+    )
+    db.add(topic)
+    await db.flush()
+    db.add(CommunityPost(topic_id=topic.id, author_id=user_id, post_number=1, content=cleaned))
+    await db.execute(
+        CommunityCategory.__table__.update()
+        .where(CommunityCategory.id == category.id)
+        .values(topic_count=CommunityCategory.topic_count + 1, post_count=CommunityCategory.post_count + 1)
+    )
+    await db.commit()
+    await invalidate_categories_cache()
+    return await get_topic(db, topic.id)
+
+
+async def create_post(
+    db: AsyncSession, user_id: UUID, topic_id: UUID, *, content: str
+) -> ServiceResponse[dict[str, Any]]:
+    cleaned = _clean_content(content)
+    if isinstance(cleaned, ServiceResponse):
+        return cleaned
+    if err := await _check_rate(user_id, "post", limit=30, window_seconds=3600, gap_seconds=10):
+        return ServiceResponse.fail("rate_limited", err)
+
+    # The lock serialises number assignment AND every counter this touches.
+    topic = await db.scalar(
+        select(CommunityTopic)
+        .where(CommunityTopic.id == topic_id, CommunityTopic.is_deleted.is_(False))
+        .with_for_update()
+    )
+    if topic is None:
+        return ServiceResponse.fail("not_found", "Topic not found.")
+    if topic.is_locked:
+        return ServiceResponse.fail("conflict", "This topic is locked.")
+
+    number = topic.last_post_number + 1
+    post = CommunityPost(topic_id=topic.id, author_id=user_id, post_number=number, content=cleaned)
+    db.add(post)
+    topic.last_post_number = number
+    topic.reply_count = topic.reply_count + 1
+    topic.last_post_at = func.now()
+    topic.last_post_author_id = user_id
+    await db.execute(
+        CommunityCategory.__table__.update()
+        .where(CommunityCategory.id == topic.category_id)
+        .values(post_count=CommunityCategory.post_count + 1)
+    )
+    await db.commit()
+    await db.refresh(post)
+    return ServiceResponse.ok(
+        {
+            "id": str(post.id),
+            "topic_id": str(topic.id),
+            "post_number": post.post_number,
+            "content": post.content,
+            "created_at": post.created_at.isoformat(),
+        }
+    )
+
+
+async def edit_post(db: AsyncSession, user_id: UUID, post_id: UUID, *, content: str) -> ServiceResponse[dict[str, Any]]:
+    """Authors edit their own posts; staff editing is deliberately absent —
+    staff delete, they do not rewrite other people's words."""
+    cleaned = _clean_content(content)
+    if isinstance(cleaned, ServiceResponse):
+        return cleaned
+    post = await db.scalar(
+        select(CommunityPost).where(CommunityPost.id == post_id, CommunityPost.is_deleted.is_(False))
+    )
+    if post is None:
+        return ServiceResponse.fail("not_found", "Post not found.")
+    if post.author_id != user_id:
+        return ServiceResponse.fail("forbidden", "Only the author edits a post.")
+    topic_locked = await db.scalar(select(CommunityTopic.is_locked).where(CommunityTopic.id == post.topic_id))
+    if topic_locked:
+        return ServiceResponse.fail("conflict", "This topic is locked.")
+    post.content = cleaned
+    post.edited_at = func.now()
+    await db.commit()
+    await db.refresh(post)
+    return ServiceResponse.ok(
+        {
+            "id": str(post.id),
+            "post_number": post.post_number,
+            "content": post.content,
+            "edited_at": post.edited_at.isoformat() if post.edited_at else None,
+        }
+    )
+
+
+async def delete_post(
+    db: AsyncSession, user_id: UUID, post_id: UUID, *, as_staff: bool = False
+) -> ServiceResponse[dict[str, Any]]:
+    """Soft delete. The OP (post 1) cannot go alone — delete the topic.
+
+    Takes the topic lock first: the reply-count decrement must not race a
+    concurrent reply's increment."""
+    post = await db.scalar(
+        select(CommunityPost).where(CommunityPost.id == post_id, CommunityPost.is_deleted.is_(False))
+    )
+    if post is None:
+        return ServiceResponse.fail("not_found", "Post not found.")
+    if not as_staff and post.author_id != user_id:
+        return ServiceResponse.fail("forbidden", "Only the author (or staff) deletes a post.")
+    if post.post_number == 1:
+        return ServiceResponse.fail("validation_failed", "The opening post is the topic — delete the topic instead.")
+    topic = await db.scalar(select(CommunityTopic).where(CommunityTopic.id == post.topic_id).with_for_update())
+    assert topic is not None
+    post.is_deleted = True
+    topic.reply_count = topic.reply_count - 1  # last_post_number NEVER decrements
+    await db.execute(
+        CommunityCategory.__table__.update()
+        .where(CommunityCategory.id == topic.category_id)
+        .values(post_count=CommunityCategory.post_count - 1)
+    )
+    await db.commit()
+    return ServiceResponse.ok({"deleted": str(post_id)})
+
+
+async def delete_topic(
+    db: AsyncSession, user_id: UUID, topic_id: UUID, *, as_staff: bool = False
+) -> ServiceResponse[dict[str, Any]]:
+    """Soft delete a whole topic. Authors may while it has no replies —
+    after someone answered, the thread belongs to the conversation (staff only)."""
+    topic = await db.scalar(
+        select(CommunityTopic)
+        .where(CommunityTopic.id == topic_id, CommunityTopic.is_deleted.is_(False))
+        .with_for_update()
+    )
+    if topic is None:
+        return ServiceResponse.fail("not_found", "Topic not found.")
+    if not as_staff:
+        if topic.author_id != user_id:
+            return ServiceResponse.fail("forbidden", "Only the author (or staff) deletes a topic.")
+        if topic.reply_count > 0:
+            return ServiceResponse.fail("conflict", "People have replied — the thread is theirs too now. Ask staff.")
+    live_posts = await db.scalar(
+        select(func.count())
+        .select_from(CommunityPost)
+        .where(CommunityPost.topic_id == topic.id, CommunityPost.is_deleted.is_(False))
+    )
+    topic.is_deleted = True
+    await db.execute(
+        CommunityCategory.__table__.update()
+        .where(CommunityCategory.id == topic.category_id)
+        .values(
+            topic_count=CommunityCategory.topic_count - 1,
+            post_count=CommunityCategory.post_count - int(live_posts or 0),
+        )
+    )
+    await db.commit()
+    await invalidate_categories_cache()
+    return ServiceResponse.ok({"deleted": str(topic_id)})
