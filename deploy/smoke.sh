@@ -140,16 +140,28 @@ echo "$cm" | grep -q '"announcements"' && ok "community categories seeded" || ba
 # following is the point, because a redirect to a host without a DNS record
 # is exactly the misconfiguration this check must catch.
 check_public_page() {
-  out=$(curl -sL -o /dev/null -m 20 -w '%{http_code} %{url_effective}' "$BASE$1")
+  local path="$1" label="$2" out code final rc
+  out=$(curl -sL -o /dev/null -m 20 -w '%{http_code} %{url_effective}' "$BASE$path"); rc=$?
   code=${out%% *}; final=${out#* }
   if [ "$code" = 200 ]; then
-    ok "$2 served (${final})"
-  elif [ "$code" = 000 ]; then
-    bad "$1 redirects to ${final} which does not resolve — add its DNS record or unset NODUM_ENABLE_SUBDOMAIN_REDIRECTS"
+    if [ "$final" = "$BASE$path" ] || [ "$final" = "$BASE$path/" ]; then
+      ok "$label served"
+    else
+      ok "$label served via ${final}"
+    fi
+  elif [ "${final#"$BASE"}" = "$final" ]; then
+    # The chain left this origin and then failed: the subdomain is redirected
+    # to but not served — the classic half-configured split.
+    bad "$path redirects to ${final} which does not answer (curl $rc)."
+    echo "      ↳ that host needs BOTH a DNS record and an entry in" >&2
+    echo "        NODUM_SUBDOMAIN_ADDRESSES in .env.prod (check it is not commented out)," >&2
+    echo "        then ./compose.sh prod up -d so caddy is recreated with it." >&2
+    echo "        Or drop NODUM_ENABLE_SUBDOMAIN_REDIRECTS to keep sections on the apex." >&2
   else
-    bad "$1 returned $code (final: ${final})"
+    bad "$path returned $code (final: ${final})"
   fi
 }
+
 check_public_page /community "community hub"
 check_public_page /forum "forum"
 check_public_page /docs "docs"
