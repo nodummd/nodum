@@ -96,7 +96,7 @@ export function StaffTopicControls({
         onClick={async () => {
           if (!window.confirm("Delete this whole topic?")) return;
           await communityApi.staffDeleteTopic(topicId).catch(() => undefined);
-          router.push("/community");
+          router.push("/forum");
           router.refresh();
         }}
       >

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { getProfile } from "@/lib/api/community-server";
+import { getProfile } from "@/lib/api/forum-server";
 
 import { TopicRow } from "../../topic-row";
 

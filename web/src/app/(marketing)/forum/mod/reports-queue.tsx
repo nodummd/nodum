@@ -57,7 +57,7 @@ export function ReportsQueue() {
           <li key={r.id} className="mk-card px-4 py-3" data-testid="report-row">
             <p className="text-[0.85rem]">
               <span className="mk-eyebrow mr-2">{r.reason}</span>
-              <Link href={`/community/t/${r.topic_id}/x#post-${r.post_number}`} className="font-medium hover:underline">
+              <Link href={`/forum/t/${r.topic_id}/x#post-${r.post_number}`} className="font-medium hover:underline">
                 {r.topic_title} #{r.post_number}
               </Link>
               <span className="ml-2 opacity-60">reported by {r.reporter ?? "a deleted user"}</span>

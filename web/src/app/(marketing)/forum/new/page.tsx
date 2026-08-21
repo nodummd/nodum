@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { getCategories } from "@/lib/api/community-server";
+import { getCategories } from "@/lib/api/forum-server";
 
 import { NewTopicForm } from "./new-topic-form";
 

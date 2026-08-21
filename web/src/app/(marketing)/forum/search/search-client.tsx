@@ -70,7 +70,7 @@ export function SearchClient() {
             {hits.map((h) => (
               <li key={`${h.topic_id}-${h.post_number}`} className="mk-card px-4 py-3">
                 <Link
-                  href={`/community/t/${h.topic_id}/${h.topic_slug}${h.post_number > 1 ? `#post-${h.post_number}` : ""}`}
+                  href={`/forum/t/${h.topic_id}/${h.topic_slug}${h.post_number > 1 ? `#post-${h.post_number}` : ""}`}
                   className="font-medium hover:underline"
                 >
                   {h.topic_title}

@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 
-import { LikeButton, ThreadEngagement } from "@/components/community/engagement";
-import { PostBody } from "@/components/community/post-body";
-import { ReportButton, StaffPostDelete, StaffTopicControls } from "@/components/community/staff-tools";
-import { PostControls, ReplyBox } from "@/components/community/thread-actions";
-import { getPosts, getTopic } from "@/lib/api/community-server";
+import { LikeButton, ThreadEngagement } from "@/components/forum/engagement";
+import { PostBody } from "@/components/forum/post-body";
+import { ReportButton, StaffPostDelete, StaffTopicControls } from "@/components/forum/staff-tools";
+import { PostControls, ReplyBox } from "@/components/forum/thread-actions";
+import { getPosts, getTopic } from "@/lib/api/forum-server";
 
 import { Pager } from "../../../topic-row";
 
@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return {
     title: `${topic.title} · Nodum Community`,
     description: `${topic.reply_count} replies in ${topic.category_slug ?? "the community"}.`,
-    alternates: { canonical: `/community/t/${topic.id}/${topic.slug}` },
+    alternates: { canonical: `/forum/t/${topic.id}/${topic.slug}` },
   };
 }
 
@@ -36,7 +36,7 @@ export default async function TopicPage({
   const topic = await getTopic(id);
   if (!topic) notFound();
   if ((slug?.[0] ?? "") !== topic.slug) {
-    permanentRedirect(`/community/t/${topic.id}/${topic.slug}${page > 1 ? `?page=${page}` : ""}`);
+    permanentRedirect(`/forum/t/${topic.id}/${topic.slug}${page > 1 ? `?page=${page}` : ""}`);
   }
   const posts = await getPosts(topic.id, (page - 1) * PAGE_SIZE, PAGE_SIZE);
   if (!posts) notFound();
@@ -45,7 +45,7 @@ export default async function TopicPage({
     <article>
       <p className="mb-1">
         {topic.category_slug && (
-          <Link href={`/community/c/${topic.category_slug}`} className="mk-navlink px-0">
+          <Link href={`/forum/c/${topic.category_slug}`} className="mk-navlink px-0">
             ← {topic.category_slug}
           </Link>
         )}
@@ -57,7 +57,7 @@ export default async function TopicPage({
       </h2>
       <p className="mb-6 text-[0.85rem] opacity-60">
         {topic.author ? (
-          <Link href={`/community/u/${topic.author.id}`} className="hover:underline">
+          <Link href={`/forum/u/${topic.author.id}`} className="hover:underline">
             {topic.author.name}
           </Link>
         ) : (
@@ -78,7 +78,7 @@ export default async function TopicPage({
               <>
                 <p className="mb-2 text-[0.8rem] opacity-60">
                   {post.author ? (
-                    <Link href={`/community/u/${post.author.id}`} className="font-medium hover:underline">
+                    <Link href={`/forum/u/${post.author.id}`} className="font-medium hover:underline">
                       {post.author.name}
                     </Link>
                   ) : (
@@ -113,7 +113,7 @@ export default async function TopicPage({
       </ol>
       </ThreadEngagement>
       <Pager
-        base={`/community/t/${topic.id}/${topic.slug}`}
+        base={`/forum/t/${topic.id}/${topic.slug}`}
         page={page}
         hasPrev={page > 1}
         hasNext={posts.has_more}
