@@ -22,7 +22,11 @@
 	}
 }
 
-{$NODUM_SITE_ADDRESS::80} {
+# NODUM_SUBDOMAIN_ADDRESSES (optional): space-separated extra hosts served by
+# the same block — "docs.nodum.md developers.nodum.md community.nodum.md
+# forum.nodum.md". Each needs a DNS record; Caddy provisions certificates for
+# every listed host. The web app's middleware maps each host to its section.
+{$NODUM_SITE_ADDRESS::80} {$NODUM_SUBDOMAIN_ADDRESSES:} {
 	encode zstd gzip
 
 	header {

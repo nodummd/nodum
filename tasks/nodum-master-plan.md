@@ -223,6 +223,22 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-21 (v3.6.0 released — the site grows up: subdomains, hub, dev tooling)** —
+  Four PRs (#36–#39): the GitHub link becomes an icon beside Log in; the
+  agentation toolbar joins dev builds (annotate the running app, paste
+  agent-ready markdown; prod ships zero bytes of it); the forum moves to
+  /forum with 308s from its old home while /community becomes the
+  Obsidian-shaped hub (category router cards, a live topic strip, contribute
+  cards, an honest extend-today section); and docs./developers./community./
+  forum.<domain> serve their sections host-based via Next 16's proxy.ts +
+  one Caddy env — additive, apex-preserving, with the redirect push gated on
+  NODUM_ENABLE_SUBDOMAIN_REDIRECTS for deployments with the DNS in place.
+  Two CI-only traps found and pinned: an IP apex cannot take subdomains, and
+  Location headers matching Next's own origin get relativized (the rules
+  avoid apex-targeted redirects entirely). Gates: every PR green, 30 e2e
+  across the affected suites plus the full sweeps, make prod-verify on the
+  candidate, tag on the main merge commit.
+
 - **2026-08-21 (v3.5.0 released — community, developer docs, key modal)** —
   The community forum (eleven chained PRs, #23–#33), the Developers docs
   section (API guides + recipes), and the API-key creation dialog go out

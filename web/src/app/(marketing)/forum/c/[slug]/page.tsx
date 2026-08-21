@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ListEngagement } from "@/components/community/engagement";
-import { getCategories, getTopics } from "@/lib/api/community-server";
+import { ListEngagement } from "@/components/forum/engagement";
+import { getCategories, getTopics } from "@/lib/api/forum-server";
 
 import { Pager, TopicRow } from "../../topic-row";
 
@@ -38,7 +38,7 @@ export default async function CategoryPage({
   return (
     <section>
       <p className="mb-1">
-        <Link href="/community" className="mk-navlink px-0">
+        <Link href="/forum" className="mk-navlink px-0">
           ← All categories
         </Link>
       </p>
@@ -54,7 +54,7 @@ export default async function CategoryPage({
             </ul>
           </ListEngagement>
           <Pager
-            base={`/community/c/${slug}`}
+            base={`/forum/c/${slug}`}
             page={page}
             hasPrev={page > 1}
             hasNext={page * PAGE_SIZE < topics.total}

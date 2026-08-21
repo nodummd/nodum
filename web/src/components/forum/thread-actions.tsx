@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { MarkdownBox } from "@/components/community/markdown-box";
+import { MarkdownBox } from "@/components/forum/markdown-box";
 import { communityApi } from "@/lib/api/endpoints";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
@@ -124,7 +124,7 @@ export function PostControls({
           if (!window.confirm(postNumber === 1 ? "Delete this topic?" : "Delete this reply?")) return;
           if (postNumber === 1) {
             await communityApi.deleteTopic(topicId).catch(() => undefined);
-            router.push("/community");
+            router.push("/forum");
             router.refresh();
             return;
           }

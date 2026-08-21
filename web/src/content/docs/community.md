@@ -1,15 +1,18 @@
 ---
-title: Community — talk Nodum
+title: Community & forum
 section: Sharing
 order: 5
-summary: A built-in forum at /community — announcements, help, bug reports, feature requests and showcases, readable by anyone, joined with your Nodum account.
-where: The Community link in the site's top navigation
+summary: A built-in forum at /forum — announcements, help, bug reports, feature requests and showcases — and a community hub at /community that maps it all.
+where: The Community and Forum links in the site's top navigation
 ---
 
 ## What it is
 
-Every Nodum deployment carries its own forum at `/community` — the same idea
-as Obsidian's forum, native to the platform. Five fixed rooms:
+Every Nodum deployment carries its own forum at `/forum` — the same idea as
+Obsidian's forum, native to the platform — and a community hub at
+`/community` that maps the forum, the ways to contribute, and the ways to
+extend Nodum today (the API, MCP, the Web Clipper), with community plugins
+on the roadmap. The forum has five fixed rooms:
 **Announcements** (staff post, everyone reads), **Help**, **Bug Reports**,
 **Feature Requests** (like the opening post to vote), and **Showcase**.
 
@@ -17,7 +20,7 @@ Reading needs no account: topics, threads, profiles and search are public
 pages a search engine can index. Writing uses the account you already have —
 there is nothing extra to join.
 
-![The community: categories on the left, the latest conversations on the right.](/docs/community.png)
+![The forum: categories on the left, the latest conversations on the right.](/docs/forum.png)
 
 ## Reading
 
@@ -50,14 +53,14 @@ vote.
 
 ## Search
 
-`/community/search` looks through every title and post, ranks by relevance
+`/forum/search` looks through every title and post, ranks by relevance
 and highlights the matches; body hits deep-link straight to the post.
 
 ## Keeping it healthy
 
 **Report** on any post sends it to the staff queue with your reason — once
 per post per person. Staff can pin, lock, retitle, recategorize and remove
-content anywhere, and work the queue at `/community/mod`.
+content anywhere, and work the queue at `/forum/mod`.
 
 Staff is a flag operators grant: set `COMMUNITY_BOOTSTRAP_STAFF_EMAIL` in
 the deployment's environment before first start (that account becomes staff
