@@ -223,6 +223,24 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-21 (v3.4.0 released — the public API ships)** — PR #18 merged the
+  public-API feature into `dev` after a 37-agent adversarial review pass
+  confirmed 19 defects, all fixed and pinned: write-scoped endpoints return
+  metadata only (a write-only key could read bodies through append/rename/tag
+  responses), append/prepend compose under the row lock, link/unlink resolve
+  only unambiguous forms (namesakes force the path form; aliases count only
+  when uniquely owned), honest pagination totals, envelope-correct 404/405,
+  every operation documents its 403, and the docs stopped over-claiming.
+  Fallout repaired along the way: `redirect-authed.tsx` (PR #16 shipped its
+  import but an unanchored `marketing/` .gitignore rule had swallowed the
+  file — rule anchored, component restored, `main`'s web build fixed), and
+  the MCP e2e spec stopped racing the settings query for its origin (CI's
+  FRONTEND_BASE_URL is not the e2e origin; the race finally flipped).
+  Released as **v3.4.0**: APP_VERSION bumped (it is the version the OpenAPI
+  document and the Scalar reference display), `make verify` + 176 backend
+  integration + full Playwright green locally and in CI, `make prod-verify`
+  run on the release candidate, tag on the `main` merge commit.
+
 - **2026-08-21 (the public API: scoped keys, REST surface, Scalar reference)** —
   Nodum now has a third door beside the app and MCP: a public REST API at
   `/api/public/v1` for programs users write, authenticated by `nodum_key_…`
