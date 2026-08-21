@@ -223,6 +223,14 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-21 (v3.5.0 released — community, developer docs, key modal)** —
+  The community forum (eleven chained PRs, #23–#33), the Developers docs
+  section (API guides + recipes), and the API-key creation dialog go out
+  together as v3.5.0. Gates at the release point: every PR green in CI,
+  all seven workflows green on dev's final merge, 196 backend integration
+  tests, full Playwright 235/235, `make prod-verify` on the release
+  candidate. Tag on the main merge commit.
+
 - **2026-08-21 (the community ships: a built-in forum at /community)** — Eleven
   chained branches (plan: tasks/nodum-community-plan.md) delivered a
   Discourse-shaped forum native to the platform. Backend: six tables in
