@@ -6,7 +6,8 @@ import { expect, test } from "@playwright/test";
  *  flag is off (as in dev). Browsers resolve *.localhost natively; the
  *  request-fixture cases override the Host header to skip OS DNS. */
 
-const APEX = new URL(process.env.BASE_URL ?? "http://localhost:3000").host;
+// CI serves on 127.0.0.1 — an IP cannot take subdomains, localhost can.
+const APEX = new URL(process.env.BASE_URL ?? "http://localhost:3000").host.replace("127.0.0.1", "localhost");
 
 test.describe("host-based sections", () => {
   test("each subdomain serves its section from its root", async ({ page }) => {
