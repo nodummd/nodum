@@ -15,6 +15,7 @@ from app.api.v1 import (
     canvases,
     clipper,
     collab,
+    community,
     daily,
     folders,
     links,
@@ -49,3 +50,4 @@ api_router.include_router(canvases.router, prefix="/vaults/{vault_id}/canvases",
 api_router.include_router(ai.router, prefix="/ai", tags=["AI"])
 api_router.include_router(mcp_tokens.router, prefix="/mcp-tokens", tags=["MCP"])
 api_router.include_router(api_keys.router, prefix="/api-keys", tags=["API keys"])
+api_router.include_router(community.router, prefix="/community", tags=["Community"])
