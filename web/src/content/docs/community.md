@@ -61,7 +61,8 @@ content anywhere, and work the queue at `/community/mod`.
 
 Staff is a flag operators grant: set `COMMUNITY_BOOTSTRAP_STAFF_EMAIL` in
 the deployment's environment before first start (that account becomes staff
-automatically), or flip `users.is_staff` in the database later.
+automatically), or later run `uv run python scripts/make_staff.py
+person@example.com` from `back/`.
 
 Posting has gentle speed limits — five topics and thirty replies an hour,
 with a short gap between messages — enough for any human, boring for a bot.
