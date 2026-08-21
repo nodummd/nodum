@@ -169,3 +169,86 @@ class MarkReadRequest(BaseModel):
 async def mark_read(topic_id: UUID, body: MarkReadRequest, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
     """Move your read pointer — it only ever moves forward."""
     return {"data": (await community_service.mark_read(db, user_id, topic_id, post_number=body.post_number)).unwrap()}
+
+
+# ── Moderation (staff) ───────────────────────────────────────────────────────
+
+
+class TopicModerateRequest(BaseModel):
+    pinned: bool | None = None
+    locked: bool | None = None
+    title: str | None = Field(default=None, max_length=300)
+    category: str | None = Field(default=None, max_length=100, description="Move to this category slug.")
+
+
+class ReportCreateRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=50)
+    detail: str = Field(default="", max_length=2000)
+
+
+@router.patch("/topics/{topic_id}")
+async def moderate_topic(
+    topic_id: UUID, body: TopicModerateRequest, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    """Staff: pin, lock, retitle or recategorize — any subset at once."""
+    return {
+        "data": (
+            await community_service.moderate_topic(
+                db,
+                user_id,
+                topic_id,
+                pinned=body.pinned,
+                locked=body.locked,
+                title=body.title,
+                category_slug=body.category,
+            )
+        ).unwrap()
+    }
+
+
+@router.delete("/mod/posts/{post_id}")
+async def staff_delete_post(post_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Staff: soft-delete anyone's reply (a numbered placeholder remains)."""
+    (await community_service.require_staff(db, user_id)).unwrap()
+    return {"data": (await community_service.delete_post(db, user_id, post_id, as_staff=True)).unwrap()}
+
+
+@router.delete("/mod/topics/{topic_id}")
+async def staff_delete_topic(topic_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Staff: soft-delete a whole topic, replies and all."""
+    (await community_service.require_staff(db, user_id)).unwrap()
+    return {"data": (await community_service.delete_topic(db, user_id, topic_id, as_staff=True)).unwrap()}
+
+
+@router.post("/posts/{post_id}/report", status_code=status.HTTP_201_CREATED)
+async def report_post(
+    post_id: UUID, body: ReportCreateRequest, user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    """Flag a post for staff. Once per post per person."""
+    return {
+        "data": (
+            await community_service.report_post(db, user_id, post_id, reason=body.reason, detail=body.detail)
+        ).unwrap()
+    }
+
+
+@router.get("/mod/reports")
+async def list_reports(
+    user_id: CurrentUserId,
+    db: SessionDep,
+    report_status: str = Query(default="open", alias="status", pattern="^(open|resolved)$"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Staff: the report queue."""
+    return {
+        "data": (
+            await community_service.list_reports(db, user_id, status=report_status, limit=limit, offset=offset)
+        ).unwrap()
+    }
+
+
+@router.post("/mod/reports/{report_id}/resolve")
+async def resolve_report(report_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Staff: mark a report handled."""
+    return {"data": (await community_service.resolve_report(db, user_id, report_id)).unwrap()}
