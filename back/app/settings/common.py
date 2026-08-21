@@ -43,7 +43,7 @@ class CommonSettings(BaseSettings):
 
     # ── Application ───────────────────────────────────────────────────────────
     APP_NAME: str = "Nodum"
-    APP_VERSION: str = "3.4.0"
+    APP_VERSION: str = "3.5.0"
     ENVIRONMENT: Annotated[
         Literal["dev", "test", "staging", "production"],
         BeforeValidator(normalize_environment),
@@ -99,6 +99,12 @@ class CommonSettings(BaseSettings):
 
     # Live collaboration (Yjs rooms over websockets)
     COLLAB_ENABLED: bool = True
+
+    # ── Community forum ──────────────────────────────────────
+    # Set once at first deploy: this email's account becomes staff on startup
+    # (idempotent; the column is the ongoing truth, more staff via SQL/UI later).
+    COMMUNITY_BOOTSTRAP_STAFF_EMAIL: str = ""
+    COMMUNITY_POST_MAX_CHARS: int = 64_000
     COLLAB_PERSIST_INTERVAL_SECONDS: float = 3.0
     # Cache TTLs (seconds)
     CACHE_GRAPH_TTL: int = 300

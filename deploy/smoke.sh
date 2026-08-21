@@ -133,6 +133,12 @@ fi
 oa=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/public/v1/openapi.json")
 [ "$oa" = 200 ] && ok "public OpenAPI document served" || bad "public openapi.json returned $oa"
 
+# ── the community forum: publicly readable, categories seeded ────────────────
+cm=$(curl -s "$BASE/api/v1/community/categories")
+echo "$cm" | grep -q '"announcements"' && ok "community categories seeded" || bad "community categories: ${cm:0:160}"
+cp=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/community")
+[ "$cp" = 200 ] && ok "community page served" || bad "/community returned $cp"
+
 # ── the load-bearing one: attachment upload + fetch via the /s3 proxy route ──
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > /tmp/smoke.png
 up=$(curl -s -X POST "$BASE/api/v1/vaults/$VAULT/attachments" -H "$AUTH" -F "file=@/tmp/smoke.png;type=image/png")

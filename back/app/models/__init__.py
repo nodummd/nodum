@@ -9,6 +9,14 @@ from app.models.attachments import Attachment
 from app.models.auth import ApiToken, EmailVerification, OAuthConnection, Session, User
 from app.models.base import Base
 from app.models.bookmarks import Bookmark
+from app.models.community import (
+    CommunityCategory,
+    CommunityPost,
+    CommunityPostLike,
+    CommunityReport,
+    CommunityTopic,
+    CommunityTopicRead,
+)
 from app.models.links import Link
 from app.models.publications import Publication, VaultPublication
 from app.models.tags import NoteTag, Tag
@@ -23,6 +31,12 @@ __all__ = [
     "Base",
     "Bookmark",
     "Canvas",
+    "CommunityCategory",
+    "CommunityPost",
+    "CommunityPostLike",
+    "CommunityReport",
+    "CommunityTopic",
+    "CommunityTopicRead",
     "EmailVerification",
     "Folder",
     "Link",

@@ -6,6 +6,8 @@ export interface User {
   name: string;
   avatar_url: string | null;
   email_verified: boolean;
+  /** Community moderation rights (pin/lock/delete, staff-only categories). */
+  is_staff?: boolean;
   settings: Record<string, unknown>;
   created_at: string;
 }
@@ -335,3 +337,20 @@ export interface ApiKeyList {
 }
 
 export type ApiKeyWithToken = ApiKey & { token: string; base_url: string };
+
+// ── Community ────────────────────────────────────────────────────────────────
+
+export interface CommunityReportItem {
+  id: string;
+  post_id: string;
+  topic_id: string;
+  topic_title: string;
+  post_number: number;
+  post_excerpt: string;
+  reason: string;
+  detail: string | null;
+  reporter: string | null;
+  status: string;
+  created_at: string;
+}
+

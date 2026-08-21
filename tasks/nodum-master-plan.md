@@ -223,6 +223,36 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-08-21 (v3.5.0 released — community, developer docs, key modal)** —
+  The community forum (eleven chained PRs, #23–#33), the Developers docs
+  section (API guides + recipes), and the API-key creation dialog go out
+  together as v3.5.0. Gates at the release point: every PR green in CI,
+  all seven workflows green on dev's final merge, 196 backend integration
+  tests, full Playwright 235/235, `make prod-verify` on the release
+  candidate. Tag on the main merge commit.
+
+- **2026-08-21 (the community ships: a built-in forum at /community)** — Eleven
+  chained branches (plan: tasks/nodum-community-plan.md) delivered a
+  Discourse-shaped forum native to the platform. Backend: six tables in
+  migration 0021 (tsvector Computed columns + GIN, denormalized counters with
+  single owners, monotonic post numbers that survive soft-deletes),
+  users.is_staff on the auth payload, an anonymous read API (Latest/Top/
+  category lists with honest totals, keyset threads with moderation
+  placeholders, public profiles), writes under the topic row lock (six
+  concurrent replies numbered 2..7 in the test; removing the lock fails it),
+  ON-CONFLICT likes and GREATEST read pointers, staff moderation with
+  category-counter migration on recategorize, a one-per-reporter report
+  queue, merged FTS over titles+bodies with <mark> snippets, and Redis-
+  batched view counting drained by a 60s Celery beat task. Web: /community
+  server-rendered on the marketing chrome for SEO (id-first thread URLs,
+  wrong slug 308s; hostile markdown provably inert — raw HTML as text,
+  images as links, javascript: hrefs dead), a Write|Preview composer whose
+  preview is the renderer, signed-in islands that fetch decoration once per
+  page (likes, unread dots, read beacon), debounced FTS search, inline
+  reporting and the staff queue. Four Playwright scenarios cover the whole
+  surface, including a three-context moderation cycle and a two-user unread
+  round trip. Docs article + screenshot, smoke.sh checks, sitemap entry.
+
 - **2026-08-21 (v3.4.0 released — the public API ships)** — PR #18 merged the
   public-API feature into `dev` after a 37-agent adversarial review pass
   confirmed 19 defects, all fixed and pinned: write-scoped endpoints return
