@@ -17,7 +17,7 @@ router = APIRouter()
 
 @router.get("", summary="List attachments", response_model=Envelope[list[AttachmentOut]])
 async def list_attachments(vault_id: UUID, user_id: ReadUser, db: SessionDep) -> Any:
-    return {"data": (await attachment_service.list_attachments(db, vault_id, user_id)).unwrap()}
+    return {"ok": True, "data": (await attachment_service.list_attachments(db, vault_id, user_id)).unwrap()}
 
 
 @router.post(
@@ -42,16 +42,16 @@ async def upload_attachment(vault_id: UUID, file: UploadFile, user_id: WriteUser
             mime_type=file.content_type or "application/octet-stream",
         )
     ).unwrap()
-    return {"data": attachment}
+    return {"ok": True, "data": attachment}
 
 
 @router.get("/{attachment_id}/url", summary="Download URL", response_model=Envelope[PresignedUrlData])
 async def presigned_url(vault_id: UUID, attachment_id: UUID, user_id: ReadUser, db: SessionDep) -> Any:
     """A time-limited URL to fetch the file's bytes from."""
-    return {"data": (await attachment_service.presigned_url(db, vault_id, user_id, attachment_id)).unwrap()}
+    return {"ok": True, "data": (await attachment_service.presigned_url(db, vault_id, user_id, attachment_id)).unwrap()}
 
 
 @router.delete("/{attachment_id}", summary="Delete an attachment")
 async def delete_attachment(vault_id: UUID, attachment_id: UUID, user_id: DeleteUser, db: SessionDep) -> dict[str, Any]:
     (await attachment_service.delete_attachment(db, vault_id, user_id, attachment_id)).unwrap()
-    return {"data": {"deleted": str(attachment_id)}}
+    return {"ok": True, "data": {"deleted": str(attachment_id)}}

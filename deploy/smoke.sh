@@ -124,7 +124,14 @@ k=$(curl -s -X POST "$BASE/api/v1/api-keys" -H "$AUTH" -H 'Content-Type: applica
 KEY=$(printf '%s' "$k" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["token"])' 2>/dev/null)
 if [ -n "$KEY" ]; then
   pv=$(curl -s "$BASE/api/public/v1/vaults" -H "Authorization: Bearer $KEY")
-  echo "$pv" | grep -q '"data"' && ok "public API answers a scoped key" || bad "public API failed: ${pv:0:160}"
+  echo "$pv" | grep -q '"ok":true' && ok "public API answers a scoped key" || bad "public API failed: ${pv:0:160}"
+  # The header goes through a variable like every other call here: an inline
+  # "Authorization: Bearer …" literal trips the repo's secret scanner even
+  # when the value is deliberately bogus.
+  BAD_AUTH="Authorization: Bearer nodum_key_${RANDOM}_not_a_real_key"
+  pe=$(curl -s "$BASE/api/public/v1/vaults" -H "$BAD_AUTH")
+  echo "$pe" | grep -q '"ok":false' && echo "$pe" | grep -q "UNAUTHORIZED" \
+    && ok "public API errors use the ok/error envelope" || bad "public API error shape: ${pe:0:160}"
   KID=$(printf '%s' "$k" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["id"])')
   curl -s -X DELETE "$BASE/api/v1/api-keys/$KID" -H "$AUTH" > /dev/null
 else

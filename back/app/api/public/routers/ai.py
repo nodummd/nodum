@@ -28,4 +28,4 @@ async def ask(vault_id: UUID, body: AiAsk, user_id: AiUser, db: SessionDep) -> A
             db, user_id, vault_id, message=body.message, conversation_id=body.conversation_id, context=body.context
         )
     ).unwrap()
-    return {"data": result}
+    return {"ok": True, "data": result}

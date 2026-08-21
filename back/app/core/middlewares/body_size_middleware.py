@@ -31,14 +31,23 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
                 length = int(declared)
             except ValueError:
                 # A malformed Content-Length is not something to forward on.
+                from app.api.public.errors import envelope_for
+
                 return JSONResponse(
                     status_code=400,
-                    content={"error": {"code": "bad_request", "message": "Invalid Content-Length."}},
+                    content=envelope_for(request.url.path, "BAD_REQUEST", "Invalid Content-Length."),
                 )
             if length > MAX_REQUEST_BODY_BYTES:
                 logger.warning("request_body_too_large", declared=length, path=request.url.path)
+                from app.api.public.errors import envelope_for
+
                 return JSONResponse(
                     status_code=413,
-                    content={"error": {"code": "payload_too_large", "message": "Request body is too large."}},
+                    content=envelope_for(
+                        request.url.path,
+                        "PAYLOAD_TOO_LARGE",
+                        "Request body is too large.",
+                        f"{length} bytes declared; the limit is {MAX_REQUEST_BODY_BYTES}",
+                    ),
                 )
         return await call_next(request)
