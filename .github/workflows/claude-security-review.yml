@@ -315,7 +315,7 @@ jobs:
 
       - name: Run Claude Security Review
         id: attempt1
-        uses: anthropics/claude-code-action@v1.0.185
+        uses: anthropics/claude-code-action@v1.0.199
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -382,7 +382,7 @@ jobs:
       - name: Retry Claude Security Review
         id: attempt2
         if: always() && steps.check1.outputs.empty == 'true'
-        uses: anthropics/claude-code-action@v1.0.185
+        uses: anthropics/claude-code-action@v1.0.199
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
