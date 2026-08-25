@@ -49,6 +49,7 @@ interface CommandPaletteProps {
   onOpenDailyNote: () => void;
   onInsertTemplate: () => void;
   onExportVault: () => void;
+  onOpenImport: () => void;
   onImportVault: () => void;
   onImportFolder: () => void;
   /** Commands contributed by enabled plugins. */
@@ -66,6 +67,7 @@ export function CommandPalette({
   onOpenDailyNote,
   onInsertTemplate,
   onExportVault,
+  onOpenImport,
   onImportVault,
   onImportFolder,
   pluginCommands,
@@ -304,6 +306,9 @@ export function CommandPalette({
     { id: "show-file-explorer", label: "Files: Show file explorer", run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "files" }) },
     { id: "show-bookmarks", label: "Bookmarks: Show bookmarks", run: () => useWorkspaceStore.setState({ leftSidebarOpen: true, leftPane: "bookmarks" }) },
     { id: "settings", label: "Open settings", hotkey: "⌘,", run: onOpenSettings },
+    // First, and worded for what people search for — "import" is how
+    // someone arriving from another app describes what they want.
+    { id: "import-data", label: "Import data from another app…", run: onOpenImport },
     { id: "export-vault", label: "Export vault as a zip", run: onExportVault },
     { id: "import-vault", label: "Import notes from a zip", run: onImportVault },
     { id: "import-folder", label: "Import a vault folder…", run: onImportFolder },

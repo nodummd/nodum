@@ -995,3 +995,46 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     untrusted commenters never start the secret-backed runner; the two
     `/review` prefixes are excluded from `claude.yml` as exact complements.
   - Needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret to run.
+
+- **2026-08-25: one-click migration from twenty apps**
+  (`feature/29.import-integrations_maqbool_250820260308`). Settings → Vault →
+  **Import data** (and the command palette) opens a picker of twenty sources
+  grouped into notes, chat and email; pick one and it explains how to produce
+  the export *before* asking for a file, because that is the step people are
+  actually missing.
+  - *Architecture* — a converter is a pure function: uploaded bytes →
+    normalised markdown on vault-relative paths. `import_zip` then does what it
+    already did (folder tree, Obsidian-style collision suffixes, attachments,
+    two-pass wikilink resolution across the whole batch), so no converter
+    touches the database and all twenty are unit-testable without infra.
+    Adding a source is a converter plus a catalogue entry.
+  - *Sources* — Obsidian, Notion, Evernote, Apple Notes, Google Keep, OneNote,
+    Roam, Logseq, Joplin, Bear, Standard Notes, Trilium, Anytype, generic
+    markdown; Slack, Discord, Telegram; Gmail, Outlook, any mbox/eml.
+  - *The research that shaped it* — of the ten apps originally asked for, only
+    three can be live-connected. Keep's API is Workspace-only (no consumer
+    access at any price), Gmail's restricted scopes need an annual CASA audit
+    at five figures, Slack caps new apps at one history request per minute,
+    Telegram's Bot API cannot read your own history, scripting Discord is
+    bannable, and Evernote's API was withdrawn. Every one of those reasons is
+    written down in `importers/__init__.py` so the next person does not redo
+    the search. Notion, OneNote and Outlook have real APIs and are the
+    candidates for a `connect` kind once an app is registered per instance.
+  - *Fidelity, deliberately* — Keep checklists keep their ticked state; ENEX
+    `<en-media>` hashes resolve back to filenames so images survive; Notion's
+    32-hex ids are stripped and its page links rewritten to `[[wikilinks]]`;
+    Joplin's notebook tree is rebuilt from `parent_id`; chat becomes one note
+    per channel per day with index notes so the graph has a shape; an
+    encrypted Standard Notes backup is reported as encrypted rather than as a
+    successful import of nothing. Converters emit `warnings` for whatever they
+    could not carry, shown to the user.
+  - *Safety* — uploads are untrusted: zip/tar readers bound expansion and
+    reject traversal, `defusedxml` parses ENEX, and HTML is stripped of
+    scripts and inline handlers before conversion.
+  - *Icons* — generated from simple-icons into a committed module
+    (`npm run icons:gen`), with monogram tiles for the brands that asked to be
+    removed from that set (Slack, Microsoft, Bear).
+  - Gates: `make verify` green, 30 new backend unit tests (115 total).
+    `web/e2e/import-integrations.spec.ts` is written and compiles but was not
+    executed locally — this machine's Postgres/Redis/API ports were held by
+    another project — so it needs a run against a live stack.

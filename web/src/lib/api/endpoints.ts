@@ -403,3 +403,45 @@ export const apiKeysApi = {
   create: (name: string, scopes: string[]) => apiJson<ApiKeyWithToken>("/api-keys", "POST", { name, scopes }),
   revoke: (id: string) => apiJson<ApiKey>(`/api-keys/${id}`, "DELETE"),
 };
+
+/** One importable source, as the picker renders it. */
+export interface ImportSource {
+  id: string;
+  name: string;
+  category: string;
+  category_label: string;
+  blurb: string;
+  steps: string[];
+  accepts: string[];
+  icon: string;
+  accent: string;
+  popular: boolean;
+  caveats: string[];
+  connect_note: string | null;
+}
+
+export interface ImportResult {
+  imported: number;
+  renamed: number;
+  imported_attachments?: number;
+  imported_pdf_notes?: number;
+  skipped_non_md?: number;
+  skipped_too_large?: number;
+  source: string;
+  source_name: string;
+  warnings: string[];
+}
+
+export const importApi = {
+  /** The catalogue is static per deployment, so it caches happily. */
+  sources: () => api<{ sources: ImportSource[]; categories: Record<string, string> }>("/integrations"),
+  run: (vaultId: string, sourceId: string, files: File[]) => {
+    const form = new FormData();
+    for (const file of files) {
+      // webkitRelativePath carries "Export/Notes/x.md" when a folder is picked;
+      // converters use it to rebuild the tree, so it must survive the upload.
+      form.append("files", file, file.webkitRelativePath || file.name);
+    }
+    return api<ImportResult>(`/vaults/${vaultId}/import/${sourceId}`, { method: "POST", body: form });
+  },
+};
