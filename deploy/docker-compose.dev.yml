@@ -99,6 +99,9 @@ services:
     container_name: nodum-web-dev
     environment:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      # The rewrite in next.config.ts runs inside this container, where
+      # localhost is the web server itself — the proxy must name the service.
+      - API_PROXY_URL=http://api:8000
       - NODE_ENV=development
     ports:
       - "127.0.0.1:3000:3000"
