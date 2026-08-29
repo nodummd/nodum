@@ -445,3 +445,54 @@ export const importApi = {
     return api<ImportResult>(`/vaults/${vaultId}/import/${sourceId}`, { method: "POST", body: form });
   },
 };
+
+/** A syncable data source this instance can offer. */
+export interface SyncProvider {
+  id: string;
+  name: string;
+  blurb: string;
+  caveats: string[];
+  scopes: string[];
+  available: boolean;
+  self_hosted_only: boolean;
+}
+
+export interface SyncStreamStatus {
+  stream: string;
+  backfill_done: boolean;
+  last_success_at: string | null;
+  syncing: boolean;
+}
+
+export interface ProviderConnection {
+  id: string;
+  provider: string;
+  provider_name: string;
+  vault_id: string;
+  email: string;
+  status: "active" | "transient_broken" | "needs_reauth" | "key_unavailable" | "paused";
+  error_class: string;
+  last_error: string;
+  connected_at: string | null;
+  last_success_at: string | null;
+  settings: Record<string, unknown>;
+  streams: SyncStreamStatus[];
+}
+
+export const connectionsApi = {
+  providers: () =>
+    api<{ configured: boolean; providers: SyncProvider[] }>("/connections/providers"),
+  list: () => api<ProviderConnection[]>("/connections/connections"),
+  /** Returns the Google consent URL for the browser to visit. */
+  start: (vaultId: string, provider: string) =>
+    apiJson<{ url: string; provider: string }>(
+      `/connections/google/start?vault_id=${encodeURIComponent(vaultId)}&provider=${encodeURIComponent(provider)}`,
+      "POST",
+    ),
+  syncNow: (connectionId: string) =>
+    apiJson<Record<string, number>>(`/connections/connections/${connectionId}/sync`, "POST"),
+  update: (connectionId: string, settings: Record<string, unknown>) =>
+    apiJson<ProviderConnection>(`/connections/connections/${connectionId}`, "PATCH", settings),
+  disconnect: (connectionId: string) =>
+    apiJson<{ disconnected: string }>(`/connections/connections/${connectionId}`, "DELETE"),
+};

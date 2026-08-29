@@ -10,7 +10,12 @@ celery_app = Celery(
     "nodum",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks.vault_io", "app.tasks.maintenance", "app.tasks.community"],
+    include=[
+        "app.tasks.vault_io",
+        "app.tasks.maintenance",
+        "app.tasks.community",
+        "app.tasks.provider_sync",
+    ],
 )
 
 celery_app.conf.update(
@@ -31,6 +36,13 @@ celery_app.conf.update(
         "flush-community-views": {
             "task": "tasks.flush_community_views",
             "schedule": 60.0,
+        },
+        # Polls connected Google accounts. The tick is cheap when nothing is
+        # due — one indexed query — so it runs often enough that a new calendar
+        # event shows up in a vault within a couple of minutes.
+        "sync-providers": {
+            "task": "tasks.sync_providers",
+            "schedule": float(settings.PROVIDER_SYNC_TICK_SECONDS),
         },
     },
 )

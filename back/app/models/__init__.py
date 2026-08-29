@@ -18,6 +18,7 @@ from app.models.community import (
     CommunityTopicRead,
 )
 from app.models.links import Link
+from app.models.providers import ExternalObject, ProviderConnection, SyncStream
 from app.models.publications import Publication, VaultPublication
 from app.models.tags import NoteTag, Tag
 from app.models.vaults import Canvas, Folder, Note, NoteAlias, NoteVersion, Vault
@@ -38,6 +39,7 @@ __all__ = [
     "CommunityTopic",
     "CommunityTopicRead",
     "EmailVerification",
+    "ExternalObject",
     "Folder",
     "Link",
     "Note",
@@ -45,8 +47,10 @@ __all__ = [
     "NoteTag",
     "NoteVersion",
     "OAuthConnection",
+    "ProviderConnection",
     "Publication",
     "Session",
+    "SyncStream",
     "Tag",
     "User",
     "Vault",

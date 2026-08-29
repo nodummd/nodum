@@ -1038,3 +1038,48 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     `web/e2e/import-integrations.spec.ts` is written and compiles but was not
     executed locally — this machine's Postgres/Redis/API ports were held by
     another project — so it needs a run against a live stack.
+
+- **2026-08-30: live one-way sync from Google (Calendar + Gmail)**
+  (`feature/30.live-sync_maqbool_300820260013`). Connect a Google account and
+  have events and mail threads arrive as notes that keep themselves current —
+  and, more importantly, that participate in the graph rather than sitting
+  beside it.
+  - *The verification verdict, which decided the shape of the whole feature.*
+    Calendar's read scopes are **sensitive** (one-time review, no fee) so
+    Calendar ships everywhere. Every Gmail scope — `gmail.metadata` included,
+    which reads like the cautious option and carries the identical burden — is
+    **restricted**, obliging a hosted multi-user service to pass a CASA
+    assessment by an authorised lab, renewed annually, priced from hundreds to
+    thousands of dollars a year. So Gmail is behind `GOOGLE_SYNC_GMAIL_ENABLED`,
+    off by default, self-hosted only, where Google's personal-use exemption
+    applies. `test_restricted_scopes_are_never_reachable_without_a_flag` fails
+    CI if a future adapter reopens that hole.
+  - *The 7-day trap.* A Google project left in "Testing" expires every refresh
+    token after seven days, so background sync dies silently a week after it is
+    set up and looks exactly like our bug. Three defences: a bolded docs step,
+    a connect-time refusal when the token response carries no refresh token,
+    and a heuristic that turns `invalid_grant` on a grant younger than eight
+    days into the one message that actually fixes it.
+  - *Engine.* Adapters are pure — token and cursor in, rendered records out —
+    and all the dangerous parts live once in `provider_sync_service`: write the
+    page, then advance the cursor, then commit, so a crash replays rather than
+    skipping; `external_objects` keyed on (connection, stream, external_id)
+    with a content hash makes replay free; `page_token` and `cursor_token` are
+    separate columns so the two cannot be confused; `cursor_params` is frozen
+    and compared, because Google invalidates a Calendar sync token when
+    `singleEvents` or `eventTypes` change and says nothing about it. Leases on
+    `sync_streams` rather than advisory locks, since the run commits per page.
+  - *Not overwriting people's writing.* Sync owns everything above `## Notes`
+    and nothing below it; updates go through `transform_content`, which holds
+    the row lock across the merge. A synced note the user deletes by hand is
+    never recreated.
+  - *Graph, not noise.* One date wikilink per note, rendered with the vault's
+    own daily-note format (the wrong format makes every date a ghost node);
+    People notes only above an interaction threshold; no organisation, URL or
+    keyword links. Remote text is escaped against the real parsers so a subject
+    line reading `#urgent` cannot tag someone's vault.
+  - Migration `0022`, 25 new unit tests (140 total), `make verify` green. The
+    Gmail address parser had a genuine backtracking bug — `dan@example.com`
+    became name "da" — which the tests caught before it shipped.
+  - Left for the operator: register a Google Cloud OAuth client, **publish the
+    consent screen**, and set `GOOGLE_SYNC_*`. docs/OWNER-SETUP.md §1b.
