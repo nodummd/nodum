@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 
 from app.services.daily_note_service import format_date
-from app.services.importers.base import tag_name
+from app.services.importers.base import safe_segment, tag_name
 from app.services.importers.html_md import html_to_markdown
 
 from .base import CursorInvalid, FetchContext, ProviderError, SyncPage, SyncRecord, escape_remote_text
@@ -216,7 +216,9 @@ class GoogleGmailAdapter:
 
         return SyncRecord(
             external_id=thread_id,
-            title=subject,
+            # "Re: Q3 roadmap" is a rejected segment, and that is most of any
+            # inbox. Sanitised for the filename; the heading keeps the subject.
+            title=safe_segment(subject, fallback="(no subject)"),
             folder=f"Mail/{first_at.strftime('%Y/%m')}",
             body="\n".join(lines).rstrip() + "\n",
             external_updated_at=last_at,

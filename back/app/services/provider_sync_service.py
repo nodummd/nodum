@@ -33,6 +33,7 @@ from app.core.logging import get_logger
 from app.models.providers import ExternalObject, ProviderConnection, SyncStream
 from app.models.vaults import Note, Vault
 from app.services import folder_service, note_service, providers
+from app.services.importers.base import safe_segment
 from app.services.providers import base as provider_base
 from app.services.providers import google_auth
 from app.services.service_response import ServiceResponse
@@ -181,7 +182,10 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
     if counts.get(name, 0) < threshold:
         return False
 
-    path = f"People/{name}"
+    safe_name = safe_segment(name, fallback="")
+    if not safe_name:
+        return False
+    path = f"People/{safe_name}"
     existing = await db.scalar(select(Note.id).where(Note.vault_id == connection.vault_id, Note.path == path))
     if existing is not None:
         return True
@@ -191,7 +195,7 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
         db,
         connection.vault_id,
         connection.user_id,
-        title=name,
+        title=safe_name,
         folder_id=folder.data if folder.success else None,
         content=f"---\nsource: {connection.provider}\ntype: person\n---\n\n# {name}\n",
     )
@@ -268,6 +272,17 @@ async def apply_record(
         content=providers.compose(body, ""),
     )
     if not created.success or created.data is None:
+        # Logged rather than swallowed: without this a record that can never be
+        # created is retried on every poll, forever, with nothing anywhere
+        # saying why.
+        logger.warning(
+            "record_create_failed",
+            connection=str(connection.id),
+            stream=stream,
+            external_id=record.external_id,
+            title=record.title,
+            reason=created.message or created.error_code,
+        )
         return "error"
     await _record_mapping(db, connection, stream, record, created.data.id, content_hash)
     return "created"

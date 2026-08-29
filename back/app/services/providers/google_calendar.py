@@ -29,6 +29,7 @@ from typing import Any
 import httpx
 
 from app.services.daily_note_service import format_date
+from app.services.importers.base import safe_segment
 
 from .base import CursorInvalid, FetchContext, ProviderError, SyncPage, SyncRecord, escape_remote_text
 
@@ -178,7 +179,13 @@ class GoogleCalendarAdapter:
         updated = _parse(str(item.get("updated") or ""))
         return SyncRecord(
             external_id=event_id,
-            title=summary,
+            # `create_note` *rejects* an illegal segment rather than repairing
+            # it, and a calendar is full of them: "1:1 with Amara", "Design /
+            # review", "Q3: planning". Unsanitised, those events silently never
+            # sync and retry forever with nothing surfaced to the user. The
+            # heading above still shows the real title — only the filename is
+            # made safe.
+            title=safe_segment(summary, fallback="Event"),
             folder=f"Calendar/{start_dt.strftime('%Y/%m')}",
             body="\n".join(lines).rstrip() + "\n",
             external_updated_at=updated,

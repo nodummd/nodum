@@ -381,3 +381,68 @@ def test_tracked_people_are_bounded() -> None:
     # The ones kept are the frequent ones; anything dropped is below any
     # sensible threshold by definition.
     assert min(trimmed.values()) > min(counts.values())
+
+
+# ── titles that a vault will actually accept ────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "summary",
+    ["1:1 with Amara", "Design / review", "Q3: planning", "Budget?", "a<b>c", "Weekly sync"],
+)
+async def test_event_titles_are_always_creatable(summary: str) -> None:
+    """`create_note` rejects an illegal path segment rather than repairing it,
+    and a real calendar is full of them — "1:1 with …" alone is most people's
+    week. Unsanitised, those events silently never sync and retry on every
+    poll forever, with nothing surfaced to the user."""
+    from app.utils.path_utils import validate_segment
+
+    adapter = _FakeCalendar(
+        {
+            "items": [
+                {
+                    "id": "evt1",
+                    "status": "confirmed",
+                    "summary": summary,
+                    "start": {"dateTime": "2026-09-02T14:00:00+00:00"},
+                    "end": {"dateTime": "2026-09-02T15:00:00+00:00"},
+                }
+            ]
+        }
+    )
+    record = (await adapter.fetch(_ctx())).records[0]
+    assert validate_segment(record.title) is None, f"{record.title!r} would be rejected"
+    assert record.title
+
+
+@pytest.mark.asyncio
+async def test_the_heading_keeps_the_real_title_even_when_the_filename_cannot() -> None:
+    """Only the filename is sanitised — the note still says what the meeting
+    is actually called, or the sync has quietly renamed the user's day."""
+    adapter = _FakeCalendar(
+        {
+            "items": [
+                {
+                    "id": "evt1",
+                    "status": "confirmed",
+                    "summary": "1:1 with Amara",
+                    "start": {"dateTime": "2026-09-02T14:00:00+00:00"},
+                    "end": {"dateTime": "2026-09-02T15:00:00+00:00"},
+                }
+            ]
+        }
+    )
+    record = (await adapter.fetch(_ctx())).records[0]
+    assert "# 1:1 with Amara" in record.body
+    assert ":" not in record.title
+
+
+def test_person_names_are_reduced_to_creatable_titles() -> None:
+    from app.services.importers.base import safe_segment
+    from app.utils.path_utils import validate_segment
+
+    for name in ("Amara Osei", "Ops/Platform Team", "R&D: EU", "Zoë Müller"):
+        safe = safe_segment(name, fallback="")
+        assert safe, name
+        assert validate_segment(safe) is None, f"{safe!r} would be rejected"
