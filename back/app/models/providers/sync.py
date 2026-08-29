@@ -95,6 +95,12 @@ class ProviderConnection(UUIDMixin, TimestampMixin, Base):
     #: message bodies, which calendars are enabled.
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
+    #: How many times each person has been seen across every sync run, so the
+    #: People-note threshold means "three interactions ever" rather than
+    #: "three in one page". Kept here rather than derived on demand because the
+    #: alternative is aggregating every external_objects payload on every run.
+    people_counts: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False, default=dict)
+
     __table_args__ = (
         UniqueConstraint("user_id", "provider", "external_account_id", "vault_id", name="uq_provider_conn_account"),
     )

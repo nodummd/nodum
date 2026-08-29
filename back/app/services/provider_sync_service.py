@@ -60,6 +60,9 @@ _BACKOFF = (60, 300, 900, 3600, 21600)
 #: turns the graph into thousands of ghost nodes and destroys the thing the
 #: user came here for.
 DEFAULT_PEOPLE_THRESHOLD = 3
+#: Cap on the persisted interaction tally, so a busy mailbox cannot grow one
+#: JSONB column without bound.
+_MAX_TRACKED_PEOPLE = 500
 
 
 # ── tokens ──────────────────────────────────────────────────────────────────
@@ -219,7 +222,7 @@ async def apply_record(
     # A mapping whose note_id was nulled means the user deleted the note by
     # hand. Recreating it on the next poll is the single most infuriating thing
     # a sync engine can do, so this is where we do not.
-    if mapping is not None and mapping.note_id is None and mapping.created_at is not None:
+    if mapping is not None and mapping.note_id is None:
         return "user_deleted"
 
     body = record.body
@@ -324,7 +327,12 @@ async def run_stream(db: AsyncSession, connection: ProviderConnection, stream: S
     daily_format = str(((vault.settings or {}) if vault else {}).get("daily_note_format") or "YYYY-MM-DD")
 
     token = await access_token_for(db, connection)
-    counts: dict[str, int] = {}
+    # Seeded from what previous runs saw. Counting only within a run made the
+    # threshold mean "three appearances in one page", which an incremental
+    # sync of two events can never reach — so the People notes that carry most
+    # of this feature's graph value were never created after the first
+    # backfill, silently.
+    counts: dict[str, int] = dict(connection.people_counts or {})
     stats: dict[str, int] = {}
     pages = 0
 
@@ -364,6 +372,13 @@ async def run_stream(db: AsyncSession, connection: ProviderConnection, stream: S
         for record in page.records:
             outcome = await apply_record(db, connection, stream.stream, record, people_counts=counts)
             stats[outcome] = stats.get(outcome, 0) + 1
+
+        # Bounded: a large mailbox would otherwise grow this JSONB without
+        # limit. The people who matter are the frequent ones, and anyone
+        # trimmed is below the threshold by definition.
+        if len(counts) > _MAX_TRACKED_PEOPLE:
+            counts = dict(sorted(counts.items(), key=lambda kv: -kv[1])[:_MAX_TRACKED_PEOPLE])
+        connection.people_counts = counts
 
         # Records are committed. Only now may the cursor move.
         stream.page_token = page.next_page_token

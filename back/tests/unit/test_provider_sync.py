@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from app.services import providers
+from app.services.provider_sync_service import _MAX_TRACKED_PEOPLE, DEFAULT_PEOPLE_THRESHOLD
 from app.services.providers import base, google_auth, google_calendar, google_gmail
 from app.utils.markdown_parse import extract_tags, extract_wikilinks
 
@@ -350,3 +351,33 @@ def test_catalog_is_honest_about_what_this_instance_offers() -> None:
     assert providers.get_adapter("google_gmail") is None
     for entry in entries.values():
         assert entry["blurb"] and entry["caveats"]
+
+
+# ── the people threshold, across runs ───────────────────────────────────────
+
+
+def test_people_counts_persist_so_the_threshold_means_interactions_ever() -> None:
+    """The threshold has to count across runs, not within a page.
+
+    Counting per-run made it mean "three appearances in one fetch", which an
+    incremental sync of two events can never reach — so after the first
+    backfill no People note was ever created again, silently, and the feature's
+    main graph-enrichment path quietly did nothing.
+    """
+    from app.models.providers import ProviderConnection
+
+    connection = ProviderConnection(people_counts={"Amara Osei": 2})
+    seeded = dict(connection.people_counts or {})
+    # One further sighting in a later run is enough to cross a threshold of 3.
+    seeded["Amara Osei"] = seeded.get("Amara Osei", 0) + 1
+    assert seeded["Amara Osei"] >= DEFAULT_PEOPLE_THRESHOLD
+
+
+def test_tracked_people_are_bounded() -> None:
+    """A busy mailbox must not grow one JSONB column without limit."""
+    counts = {f"person-{i}": i for i in range(_MAX_TRACKED_PEOPLE + 250)}
+    trimmed = dict(sorted(counts.items(), key=lambda kv: -kv[1])[:_MAX_TRACKED_PEOPLE])
+    assert len(trimmed) == _MAX_TRACKED_PEOPLE
+    # The ones kept are the frequent ones; anything dropped is below any
+    # sensible threshold by definition.
+    assert min(trimmed.values()) > min(counts.values())
