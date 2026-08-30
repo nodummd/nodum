@@ -893,3 +893,67 @@ async def test_automated_senders_are_kept_out_of_the_people_list() -> None:
     )
     assert record is not None
     assert record.wants_notes == ("Amara Osei",)
+
+
+# ── transport handling, as a structural rule ────────────────────────────────
+
+
+def test_every_http_call_in_a_provider_handles_transport_failure() -> None:
+    """An unwrapped httpx client is a 500 waiting for a bad network moment.
+
+    This rule was learned twice. The adapter's `_get` was fixed first; then
+    `list_calendars` turned out to construct its own client and had been missed
+    — and it sits *after* the tokens are committed, so it 500'd a connection
+    that had actually succeeded. Both times the fix was applied to the instance
+    in the stack trace rather than to the class.
+
+    So the class is checked here instead: every `httpx.AsyncClient(...)` under
+    services/providers must be lexically inside a `try` that handles transport
+    errors. A new adapter cannot reintroduce this without the build failing.
+    """
+    import ast
+    import pathlib
+
+    def handles_transport(handler: ast.ExceptHandler) -> bool:
+        node = handler.type
+        if node is None:  # bare except
+            return True
+        names = node.elts if isinstance(node, ast.Tuple) else [node]
+        for name in names:
+            text = ast.unparse(name)
+            if text.endswith(("HTTPError", "TransportError", "Exception")):
+                return True
+        return False
+
+    offenders: list[str] = []
+    root = pathlib.Path(__file__).resolve().parents[2] / "app" / "services" / "providers"
+
+    for path in sorted(root.glob("*.py")):
+        tree = ast.parse(path.read_text())
+        parents: dict[ast.AST, ast.AST] = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if ast.unparse(node.func) not in ("httpx.AsyncClient", "AsyncClient"):
+                continue
+
+            guarded = False
+            current: ast.AST | None = node
+            while current is not None:
+                current = parents.get(current)
+                if isinstance(current, ast.Try) and any(handles_transport(h) for h in current.handlers):
+                    guarded = True
+                    break
+            if not guarded:
+                offenders.append(f"{path.name}:{node.lineno}")
+
+    assert not offenders, (
+        "httpx client constructed without transport handling at "
+        f"{offenders}. Wrap it and raise ProviderError(error_class='provider_5xx') — "
+        "an escaping httpx error is a 500 page, and on the OAuth callback it is "
+        "shown to someone whose connection may already have succeeded."
+    )
