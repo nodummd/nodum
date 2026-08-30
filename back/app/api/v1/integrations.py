@@ -1,6 +1,7 @@
 """Connected data sources — connect, inspect, sync, disconnect."""
 
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -76,7 +77,7 @@ async def google_callback(
     base = get_settings().OAUTH_REDIRECT_BASE_URL.rstrip("/")
 
     def back(status: str, detail: str = "") -> RedirectResponse:
-        suffix = f"&detail={detail}" if detail else ""
+        suffix = f"&detail={quote(detail, safe='')}" if detail else ""
         return RedirectResponse(f"{base}/vault?connected={status}{suffix}", status_code=303)
 
     if error or not code or not state:

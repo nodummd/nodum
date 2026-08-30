@@ -446,3 +446,121 @@ def test_person_names_are_reduced_to_creatable_titles() -> None:
         safe = safe_segment(name, fallback="")
         assert safe, name
         assert validate_segment(safe) is None, f"{safe!r} would be rejected"
+
+
+# ── the callback must never 500 ─────────────────────────────────────────────
+
+
+class _Boom:
+    """An httpx client whose every call fails the way a real network does."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def __aenter__(self) -> _Boom:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def get(self, *args: object, **kwargs: object) -> None:
+        raise self._error
+
+    async def post(self, *args: object, **kwargs: object) -> None:
+        raise self._error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        __import__("httpx").ConnectError("refused"),
+        __import__("httpx").ReadTimeout("slow"),
+        __import__("httpx").RemoteProtocolError("truncated"),
+    ],
+)
+async def test_transport_failures_become_provider_errors(error: Exception, monkeypatch) -> None:
+    """These run on the OAuth callback, which is a top-level browser redirect.
+    An unhandled httpx error there is a raw 500 page shown mid-flow, with the
+    authorisation code already spent and no way back."""
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _Boom(error))
+
+    with pytest.raises(base.ProviderError) as caught:
+        await google_auth.exchange_code("code")
+    assert caught.value.error_class == "provider_5xx"
+
+    with pytest.raises(base.ProviderError) as caught:
+        await google_auth.fetch_userinfo("token")
+    assert caught.value.error_class == "provider_5xx"
+
+    with pytest.raises(base.ProviderError):
+        await google_auth.refresh_access_token("refresh")
+
+
+@pytest.mark.asyncio
+async def test_a_non_200_from_userinfo_does_not_escape_as_an_http_error(monkeypatch) -> None:
+    """`raise_for_status` used to throw httpx.HTTPStatusError here, which the
+    callback did not catch."""
+    import httpx as _httpx
+
+    class _Resp:
+        status_code = 403
+        text = "forbidden"
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {}
+
+    class _Client:
+        async def __aenter__(self) -> _Client:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def get(self, *args: object, **kwargs: object) -> _Resp:
+            return _Resp()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _Client())
+    with pytest.raises(base.ProviderError) as caught:
+        await google_auth.fetch_userinfo("token")
+    assert caught.value.error_class == "auth"
+
+
+@pytest.mark.asyncio
+async def test_googles_raw_error_body_is_never_shown_to_the_user(monkeypatch) -> None:
+    """Upstream bodies get logged, not rendered. They are third-party output
+    with nothing useful in them for the person reading the connections list."""
+    import httpx as _httpx
+
+    class _Resp:
+        status_code = 400
+        text = '{"error":"invalid_client","error_description":"Unauthorized: internal-detail-xyz"}'
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {}
+
+    class _Client:
+        async def __aenter__(self) -> _Client:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def post(self, *args: object, **kwargs: object) -> _Resp:
+            return _Resp()
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _Client())
+    with pytest.raises(base.ProviderError) as caught:
+        await google_auth.exchange_code("code")
+    assert "internal-detail-xyz" not in str(caught.value)
+    assert "try connecting again" in str(caught.value).lower()
+
+
+def test_the_revoke_endpoint_host_is_right() -> None:
+    """A typo'd host here revokes nothing and reports success — a disconnect
+    that leaves the grant alive at Google."""
+    assert google_auth.REVOKE_URL == "https://oauth2.googleapis.com/revoke"

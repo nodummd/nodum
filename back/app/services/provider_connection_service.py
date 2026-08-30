@@ -109,6 +109,12 @@ async def complete_google_connect(
         profile = await google_auth.fetch_userinfo(str(tokens.get("access_token") or ""))
     except provider_base.ProviderError as exc:
         return ServiceResponse.fail("validation_failed", str(exc))
+    except Exception:  # pragma: no cover - belt and braces on a redirect target
+        # This runs inside a top-level browser redirect. Anything escaping here
+        # is a raw 500 page rather than a handled error, so nothing is allowed
+        # to escape, including whatever a future refactor introduces.
+        logger.exception("google_connect_crashed")
+        return ServiceResponse.fail("validation_failed", "Could not complete the connection.")
 
     granted = str(tokens.get("scope") or "")
     # Which adapter this grant is for is decided by what Google actually

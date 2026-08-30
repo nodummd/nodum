@@ -36,7 +36,7 @@ logger = get_logger("google_sync")
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-REVOKE_URL = "https://oauth2.google.com/revoke"
+REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
 _STATE_KEY = "gsync_state:{state}"
 _STATE_TTL = 900
@@ -59,6 +59,24 @@ RESTRICTED_SCOPES = frozenset(
         "https://www.googleapis.com/auth/drive.readonly",
     }
 )
+
+
+async def _post(url: str, data: dict[str, str]) -> httpx.Response:
+    """POST to Google, turning transport failures into ProviderError.
+
+    Every call here sits on the OAuth callback, which is a top-level browser
+    redirect. An unhandled httpx error there is not a logged blip — it is a
+    raw 500 page shown to the user mid-flow, with the authorisation code
+    already spent and no way back except starting over.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            return await client.post(url, data=data)
+    except httpx.HTTPError as exc:
+        raise ProviderError(
+            "Could not reach Google. This is usually temporary — try again in a moment.",
+            error_class="provider_5xx",
+        ) from exc
 
 
 def sync_enabled() -> bool:
@@ -116,19 +134,22 @@ async def exchange_code(code: str) -> dict[str, Any]:
     that appears to work for a week and then dies.
     """
     s = get_settings()
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={
-                "code": code,
-                "client_id": s.GOOGLE_SYNC_CLIENT_ID,
-                "client_secret": s.GOOGLE_SYNC_CLIENT_SECRET,
-                "redirect_uri": redirect_uri(),
-                "grant_type": "authorization_code",
-            },
-        )
+    resp = await _post(
+        TOKEN_URL,
+        {
+            "code": code,
+            "client_id": s.GOOGLE_SYNC_CLIENT_ID,
+            "client_secret": s.GOOGLE_SYNC_CLIENT_SECRET,
+            "redirect_uri": redirect_uri(),
+            "grant_type": "authorization_code",
+        },
+    )
     if resp.status_code >= 400:
-        raise ProviderError(f"Google rejected the authorisation: {resp.text[:200]}", error_class="auth")
+        # The upstream body is logged, not shown. It is raw third-party output
+        # with no value to the person reading it, and it ends up rendered in
+        # the connections list.
+        logger.warning("google_code_exchange_failed", status=resp.status_code, body=resp.text[:300])
+        raise ProviderError("Google rejected the authorisation. Please try connecting again.", error_class="auth")
     payload = dict(resp.json())
     if not payload.get("refresh_token"):
         raise ProviderError(
@@ -142,19 +163,20 @@ async def exchange_code(code: str) -> dict[str, Any]:
 async def refresh_access_token(refresh_token: str) -> dict[str, Any]:
     """Refresh token → a new access token."""
     s = get_settings()
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={
-                "refresh_token": refresh_token,
-                "client_id": s.GOOGLE_SYNC_CLIENT_ID,
-                "client_secret": s.GOOGLE_SYNC_CLIENT_SECRET,
-                "grant_type": "refresh_token",
-            },
-        )
+    resp = await _post(
+        TOKEN_URL,
+        {
+            "refresh_token": refresh_token,
+            "client_id": s.GOOGLE_SYNC_CLIENT_ID,
+            "client_secret": s.GOOGLE_SYNC_CLIENT_SECRET,
+            "grant_type": "refresh_token",
+        },
+    )
     if resp.status_code == 400:
-        body = resp.text[:300]
-        raise ProviderError(body, error_class="auth")
+        # `classify_refresh_failure` reads this to tell invalid_grant apart, so
+        # the raw body is carried but never reaches the UI — the classifier
+        # replaces it with a message that says what to actually do.
+        raise ProviderError(resp.text[:300], error_class="auth")
     if resp.status_code >= 500:
         raise ProviderError(f"Google token endpoint returned {resp.status_code}", error_class="provider_5xx")
     if resp.status_code >= 400:
@@ -193,10 +215,24 @@ def classify_refresh_failure(message: str, *, connected_at: datetime | None) -> 
 
 
 async def fetch_userinfo(access_token: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
-        resp.raise_for_status()
-        return dict(resp.json())
+    """Identity for the freshly granted token.
+
+    `raise_for_status` here used to throw httpx.HTTPStatusError, which the
+    callback did not catch — so a single non-200 from Google turned the whole
+    consent flow into a 500 page.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
+    except httpx.HTTPError as exc:
+        raise ProviderError(
+            "Could not reach Google to read your account details. Please try again.",
+            error_class="provider_5xx",
+        ) from exc
+    if resp.status_code >= 400:
+        logger.warning("google_userinfo_failed", status=resp.status_code)
+        raise ProviderError("Google would not confirm which account this is.", error_class="auth")
+    return dict(resp.json())
 
 
 async def revoke(token: str) -> None:

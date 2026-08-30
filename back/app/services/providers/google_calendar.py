@@ -194,8 +194,15 @@ class GoogleCalendarAdapter:
         )
 
     async def _get(self, token: str, path: str, params: dict[str, str]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(f"{API}{path}", params=params, headers={"Authorization": f"Bearer {token}"})
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(f"{API}{path}", params=params, headers={"Authorization": f"Bearer {token}"})
+        except httpx.HTTPError as exc:
+            # Transient by definition: classified so the connection backs off
+            # and retries rather than being marked broken or killing the tick.
+            raise ProviderError(
+                f"Could not reach Google: {exc.__class__.__name__}", error_class="provider_5xx"
+            ) from exc
         if resp.status_code == 410:
             # The documented "your sync token is too old" signal. Not an error
             # to retry — the only correct response is to discard the cursor and
