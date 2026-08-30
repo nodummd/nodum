@@ -151,6 +151,13 @@ test.describe("returning from Google's consent screen", () => {
     await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
     await expect(dialog.getByText(/only ever reads/i)).toBeVisible();
 
+    // Exactly one notice. The Connections tab used to read `?connected=` too —
+    // written for a landing that never worked, because the vault dispatcher
+    // stripped the query string before anything saw it. Opening the tab as
+    // part of handling the outcome puts both readers on the same URL.
+    await expect(page.getByText(/Google account connected/i)).toHaveCount(1);
+    await expect(page.getByText(/Account connected\. The first sync is starting/i)).toHaveCount(0);
+
     // And the outcome does not survive into the URL, or a refresh replays it.
     await expect.poll(() => new URL(page.url()).searchParams.get("connected")).toBeNull();
   });

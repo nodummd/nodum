@@ -467,6 +467,26 @@ export interface SyncStreamStatus {
   syncing: boolean;
 }
 
+/** A calendar the connected Google account can see, captured at connect time. */
+export interface AvailableCalendar {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+/** The parts of a connection's settings blob the UI reads or writes.
+ *
+ *  The server validates every value (see connection_settings.py) and refuses
+ *  the request with a message naming the field, so this type is a convenience
+ *  rather than the guard. */
+export interface ConnectionSettings {
+  folder_root?: string;
+  people_threshold?: number;
+  available_calendars?: AvailableCalendar[];
+  calendar?: { calendar_ids?: string[]; backfill_days?: number };
+  gmail?: { labels?: string[]; backfill_days?: number; store_bodies?: boolean };
+}
+
 export interface ProviderConnection {
   id: string;
   provider: string;
@@ -478,7 +498,7 @@ export interface ProviderConnection {
   last_error: string;
   connected_at: string | null;
   last_success_at: string | null;
-  settings: Record<string, unknown>;
+  settings: ConnectionSettings;
   /** Outcome counts from the most recent run: created, updated, error… */
   last_run: Record<string, number>;
   /** Records the last run could not save. Non-zero means "not up to date". */
@@ -498,7 +518,7 @@ export const connectionsApi = {
     ),
   syncNow: (connectionId: string) =>
     apiJson<Record<string, number>>(`/connections/connections/${connectionId}/sync`, "POST"),
-  update: (connectionId: string, settings: Record<string, unknown>) =>
+  update: (connectionId: string, settings: ConnectionSettings) =>
     apiJson<ProviderConnection>(`/connections/connections/${connectionId}`, "PATCH", settings),
   disconnect: (connectionId: string) =>
     apiJson<{ disconnected: string }>(`/connections/connections/${connectionId}`, "DELETE"),

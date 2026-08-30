@@ -35,6 +35,15 @@ logger = get_logger("provider_connections")
 def _public(connection: ProviderConnection, streams: list[SyncStream]) -> dict[str, Any]:
     """The shape the UI gets. Tokens never appear here, in any form."""
     adapter = providers.get_adapter(connection.provider)
+    # Only the streams this connection currently syncs. Un-ticking a calendar
+    # stops it being synced but deliberately leaves its row behind, cursor and
+    # all, so re-ticking resumes instead of re-walking a year and rebuilding
+    # every note. Reporting those rows anyway would show the calendar you just
+    # removed, with its counts and its last-synced time, exactly as though
+    # nothing had changed.
+    if adapter is not None:
+        wanted = set(adapter.streams(connection.settings or {}))
+        streams = [s for s in streams if s.stream in wanted]
     last_success = max((s.last_success_at for s in streams if s.last_success_at), default=None)
     return {
         "id": str(connection.id),

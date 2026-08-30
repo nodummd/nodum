@@ -17,6 +17,7 @@
  * being echoed back.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
 
@@ -45,6 +46,7 @@ export function ConnectionCallbackNotice() {
   const router = useRouter();
   const push = useToastStore((s) => s.push);
   const openSettings = useWorkspaceStore((s) => s.openSettings);
+  const queryClient = useQueryClient();
   // React runs effects twice in development, and a duplicate toast reads as a
   // duplicate failure.
   const handled = useRef("");
@@ -60,6 +62,8 @@ export function ConnectionCallbackNotice() {
 
     if (outcome === "ok") {
       push("Google account connected. The first sync has started.", "info");
+      // The list was fetched before the connection existed.
+      void queryClient.invalidateQueries({ queryKey: ["sync-connections"] });
       // Land them where the result actually shows up, rather than on a vault
       // that looks no different than before.
       openSettings("Connections");
@@ -80,7 +84,7 @@ export function ConnectionCallbackNotice() {
     router.replace(query ? `${window.location.pathname}?${query}` : window.location.pathname, {
       scroll: false,
     });
-  }, [outcome, reason, search, push, openSettings, router]);
+  }, [outcome, reason, search, push, openSettings, router, queryClient]);
 
   return null;
 }

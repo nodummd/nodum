@@ -19,7 +19,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.core.db import async_session_factory
-from app.models.providers import ExternalObject, ProviderConnection
+from app.models.providers import ExternalObject, ProviderConnection, SyncStream
 from app.models.vaults import Note
 from app.services import provider_sync_service, providers
 
@@ -985,3 +985,67 @@ async def test_the_throttle_is_per_connection_not_per_account(workspace: dict, c
         celery_module.celery_app.send_task = original  # type: ignore[assignment]
 
     assert len(sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_removing_a_calendar_stops_reporting_it_but_keeps_its_place(
+    client: AsyncClient, workspace: dict, connection: ProviderConnection
+) -> None:
+    """Un-ticking a calendar has to stop it syncing *and* stop it being shown.
+
+    The stream row stays behind on purpose — cursor and all — so re-ticking
+    resumes rather than re-walking a year and rebuilding every note. But the
+    row is not evidence of anything current: reported anyway, the calendar you
+    just removed keeps showing its counts and its last-synced time, and the
+    settings panel appears to have done nothing.
+    """
+
+    url = f"/api/v1/connections/connections/{connection.id}"
+    both = await client.patch(
+        url, json={"calendar": {"calendar_ids": ["primary", "work"]}}, headers=workspace["headers"]
+    )
+    assert both.status_code == 200, both.text
+    assert {s["stream"] for s in both.json()["data"]["streams"]} == {
+        "calendar:events:primary",
+        "calendar:events:work",
+    }
+
+    async with async_session_factory() as session:
+        stream = await session.scalar(
+            select(SyncStream).where(
+                SyncStream.connection_id == connection.id, SyncStream.stream == "calendar:events:work"
+            )
+        )
+        assert stream is not None
+        stream.cursor_token = "sync-token-worth-keeping"
+        stream.records_seen = 42
+        await session.commit()
+
+    one = await client.patch(url, json={"calendar": {"calendar_ids": ["primary"]}}, headers=workspace["headers"])
+    assert one.status_code == 200, one.text
+    assert {s["stream"] for s in one.json()["data"]["streams"]} == {"calendar:events:primary"}
+
+    # The engine agrees: a removed calendar is not run.
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        running = {s.stream for s in await provider_sync_service.ensure_streams(session, row)}
+        assert running == {"calendar:events:primary"}
+
+        # And its place in the sync survived, so re-ticking is cheap.
+        kept = await session.scalar(
+            select(SyncStream).where(
+                SyncStream.connection_id == connection.id, SyncStream.stream == "calendar:events:work"
+            )
+        )
+        assert kept is not None and kept.cursor_token == "sync-token-worth-keeping"
+
+    back = await client.patch(
+        url, json={"calendar": {"calendar_ids": ["primary", "work"]}}, headers=workspace["headers"]
+    )
+    assert {s["stream"] for s in back.json()["data"]["streams"]} == {
+        "calendar:events:primary",
+        "calendar:events:work",
+    }
+    resumed = next(s for s in back.json()["data"]["streams"] if s["stream"].endswith("work"))
+    assert resumed["records_seen"] == 42, "re-ticking threw away what it had already synced"

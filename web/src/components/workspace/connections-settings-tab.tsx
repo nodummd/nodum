@@ -1,9 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, Link2, Loader2, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Check, ChevronDown, Link2, Loader2, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { useState } from "react";
 
+import { ConnectionSettingsPanel } from "./connection-settings-panel";
 import { confirmDelete } from "./confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,25 +47,6 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
       return running || Date.now() < pollUntil ? 3000 : false;
     },
   });
-
-  // Google bounces the browser back to /vault?connected=… after consent.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const status = params.get("connected");
-    if (!status) return;
-    if (status === "ok") {
-      toast("Account connected. The first sync is starting.", "info");
-      void queryClient.invalidateQueries({ queryKey: ["sync-connections"] });
-    } else if (status === "denied") {
-      toast("Connection cancelled.", "info");
-    } else {
-      toast("Could not complete the connection. Please try again.", "error");
-    }
-    params.delete("connected");
-    params.delete("detail");
-    const query = params.toString();
-    window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-  }, [queryClient, toast]);
 
   const connect = useMutation({
     mutationFn: (provider: string) => connectionsApi.start(vaultId, provider),
@@ -188,6 +170,7 @@ function ConnectionRow({
   onReconnect: () => void;
   onDisconnect: () => void;
 }) {
+  const [showSettings, setShowSettings] = useState(false);
   const syncing = connection.streams.some((s) => s.syncing);
   const backfilling = connection.streams.some((s) => !s.backfill_done);
   const seen = connection.streams.reduce((total, s) => total + (s.records_seen || 0), 0);
@@ -205,6 +188,21 @@ function ConnectionRow({
             <Button size="sm" variant="ghost" disabled={busy || syncing} onClick={onSync}>
               <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} strokeWidth={2} />
               <span className="sr-only">Sync now</span>
+            </Button>
+          )}
+          {!broken && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={showSettings}
+              onClick={() => setShowSettings((open) => !open)}
+            >
+              <Settings2 className="size-3.5" strokeWidth={2} />
+              <ChevronDown
+                className={cn("size-3 transition-transform", showSettings && "rotate-180")}
+                strokeWidth={2}
+              />
+              <span className="sr-only">Sync settings</span>
             </Button>
           )}
           <Button
@@ -255,6 +253,8 @@ function ConnectionRow({
           </div>
         </div>
       )}
+
+      {showSettings && !broken && <ConnectionSettingsPanel connection={connection} />}
     </li>
   );
 }

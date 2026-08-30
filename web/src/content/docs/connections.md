@@ -80,6 +80,29 @@ Text that arrives from outside is escaped before it lands: a subject line
 reading `#urgent` will not tag your vault, and one containing `[[Roadmap]]`
 will not invent a link into it.
 
+## Choosing what syncs
+
+The gear beside a connection opens its settings.
+
+**Calendars.** A Google account usually has several — your own, a shared team
+one, a subscribed holiday feed. Tick the ones you want. Each keeps its own
+place in the sync, so one that fails does not make the others start over.
+
+**Folder.** Where synced notes go. Empty puts `Calendar/` and `Mail/` at the
+top of the vault; set `Sources/Google` and they land under that instead.
+
+**Link a person after.** How many appearances before someone gets their own
+note, three by default. Lower it and more of your correspondents become nodes
+in the graph — including the one-offs, which is the flood the threshold exists
+to stop.
+
+**Store message bodies** (Gmail only). Off by default: notes carry who wrote,
+when, and the subject, but not the text. Turn it on and the message bodies are
+stored in your vault.
+
+Changes apply from the next sync. Notes already written are not rearranged —
+changing the folder affects new notes, not old ones.
+
 ## Keeping up
 
 Each stream is checked every five minutes; a new event usually appears within
