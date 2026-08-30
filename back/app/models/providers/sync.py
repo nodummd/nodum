@@ -155,6 +155,11 @@ class SyncStream(UUIDMixin, TimestampMixin, Base):
 
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Records seen on this stream, cumulative. Shown during a backfill so the
+    #: UI can say "412 events so far" rather than an indefinite spinner.
+    #: Deliberately a count and not a percentage: neither Gmail nor Calendar
+    #: tells us the total, so a progress bar would be an invention.
+    records_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     poll_interval_s: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
 
     __table_args__ = (UniqueConstraint("connection_id", "stream", name="uq_sync_stream"),)

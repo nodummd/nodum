@@ -190,6 +190,7 @@ function ConnectionRow({
 }) {
   const syncing = connection.streams.some((s) => s.syncing);
   const backfilling = connection.streams.some((s) => !s.backfill_done);
+  const seen = connection.streams.reduce((total, s) => total + (s.records_seen || 0), 0);
   const broken = connection.status === "needs_reauth" || connection.status === "key_unavailable";
 
   return (
@@ -220,7 +221,12 @@ function ConnectionRow({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-        <StatusPill connection={connection} syncing={syncing} backfilling={backfilling} />
+        <StatusPill
+          connection={connection}
+          syncing={syncing}
+          backfilling={backfilling}
+          seen={seen}
+        />
         {connection.last_success_at && !broken && (
           <span className="text-ob-faint">
             Last synced {new Date(connection.last_success_at).toLocaleString()}
@@ -270,16 +276,23 @@ function StatusPill({
   connection,
   syncing,
   backfilling,
+  seen,
 }: {
   connection: ProviderConnection;
   syncing: boolean;
   backfilling: boolean;
+  seen: number;
 }) {
   if (syncing) {
+    // A running count rather than a bar. Neither Google API reports how much
+    // history there is, so a percentage would be made up — and an indefinite
+    // spinner during a first import that takes several minutes reads as a
+    // hang. A number that keeps going up is honest and visibly alive.
+    const progress = seen > 0 ? ` ${seen.toLocaleString()} so far` : "";
     return (
       <span className="flex items-center gap-1 text-ob-accent">
         <Loader2 className="size-3 animate-spin" />
-        {backfilling ? "Importing history…" : "Syncing…"}
+        {backfilling ? `Importing history…${progress}` : "Syncing…"}
       </span>
     );
   }

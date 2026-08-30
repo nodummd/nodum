@@ -460,6 +460,9 @@ export interface SyncProvider {
 export interface SyncStreamStatus {
   stream: string;
   backfill_done: boolean;
+  /** Cumulative records seen. A count, not a percentage — neither Google API
+   *  reports a total, so a progress bar would be invented. */
+  records_seen: number;
   last_success_at: string | null;
   syncing: boolean;
 }

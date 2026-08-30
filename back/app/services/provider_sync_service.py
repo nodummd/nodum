@@ -420,6 +420,8 @@ async def run_stream(db: AsyncSession, connection: ProviderConnection, stream: S
             counts = dict(sorted(counts.items(), key=lambda kv: -kv[1])[:_MAX_TRACKED_PEOPLE])
         connection.people_counts = counts
 
+        stream.records_seen = (stream.records_seen or 0) + len(page.records)
+
         # Records are committed. Only now may the cursor move.
         stream.page_token = page.next_page_token
         if page.done:

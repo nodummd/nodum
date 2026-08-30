@@ -564,3 +564,46 @@ def test_the_revoke_endpoint_host_is_right() -> None:
     """A typo'd host here revokes nothing and reports success — a disconnect
     that leaves the grant alive at Google."""
     assert google_auth.REVOKE_URL == "https://oauth2.googleapis.com/revoke"
+
+
+# ── the scheduler wiring ────────────────────────────────────────────────────
+
+
+def test_every_scheduled_job_points_at_a_task_that_exists() -> None:
+    """A beat entry naming a task the worker never imported is a job that
+    silently never runs — no error, no log, nothing.
+
+    That is the top-level version of every silent-failure bug this feature has
+    had: the whole sync depends on `tasks.sync_providers` firing every minute,
+    and if someone adds a task module without adding it to `include`, the
+    feature stops working and looks exactly like a Google problem.
+    """
+    from app.core.celery import celery_app
+
+    # What a worker does at startup — without it, only whatever this test
+    # happened to import would be registered, and the check would be a lie.
+    celery_app.loader.import_default_modules()
+
+    unregistered = [
+        (name, entry["task"])
+        for name, entry in celery_app.conf.beat_schedule.items()
+        if entry["task"] not in celery_app.tasks
+    ]
+    assert not unregistered, (
+        f"beat schedules a task the worker will not have: {unregistered}. "
+        "Add its module to celery_app's `include` list."
+    )
+
+
+def test_the_sync_sweep_is_actually_scheduled() -> None:
+    """Nothing about this feature works if the sweep is not on the schedule."""
+    from app.core.celery import celery_app
+
+    tasks = {entry["task"] for entry in celery_app.conf.beat_schedule.values()}
+    assert "tasks.sync_providers" in tasks
+    schedule = next(
+        e["schedule"] for e in celery_app.conf.beat_schedule.values() if e["task"] == "tasks.sync_providers"
+    )
+    # Frequent enough that a new calendar event lands within a couple of
+    # minutes, which is the whole promise of "live".
+    assert 0 < float(schedule) <= 300

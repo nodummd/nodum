@@ -57,6 +57,7 @@ def _public(connection: ProviderConnection, streams: list[SyncStream]) -> dict[s
             {
                 "stream": s.stream,
                 "backfill_done": s.backfill_done,
+                "records_seen": s.records_seen or 0,
                 "last_success_at": s.last_success_at.isoformat() if s.last_success_at else None,
                 "syncing": bool(s.lease_expires_at and s.lease_expires_at > datetime.now(UTC)),
             }
