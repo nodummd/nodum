@@ -957,3 +957,114 @@ def test_every_http_call_in_a_provider_handles_transport_failure() -> None:
         "an escaping httpx error is a 500 page, and on the OAuth callback it is "
         "shown to someone whose connection may already have succeeded."
     )
+
+
+# ── Gmail incremental: the path that runs forever ───────────────────────────
+
+
+class _FakeHistory(google_gmail.GoogleGmailAdapter):
+    """History responses keyed by the pageToken asked for; threads are stubs."""
+
+    def __init__(self, pages: dict[str, dict[str, Any]]) -> None:
+        self._pages = pages
+        self.thread_calls: list[str] = []
+        self.history_calls: list[str] = []
+
+    async def _get(self, path: str, token: str, params: dict[str, str]) -> dict[str, Any]:
+        if path == "/history":
+            asked = params.get("pageToken", "")
+            self.history_calls.append(asked)
+            return self._pages[asked]
+        thread_id = path.rsplit("/", 1)[-1]
+        self.thread_calls.append(thread_id)
+        return {
+            "id": thread_id,
+            "historyId": "500",
+            "messages": [_message(sender="a@b.com", subject=f"Thread {thread_id}")],
+        }
+
+
+def _history(thread_ids: list[str], *, next_page: str = "", history_id: str = "999") -> dict[str, Any]:
+    return {
+        "history": [{"messagesAdded": [{"message": {"threadId": tid}}]} for tid in thread_ids],
+        **({"nextPageToken": next_page} if next_page else {}),
+        "historyId": history_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_history_page_naming_more_threads_than_the_batch_loses_none() -> None:
+    """The batch size is a pagination bound, not a truncation.
+
+    One history response routinely names far more changed threads than a batch
+    — bulk-archiving a hundred messages does it in a single response. Taking
+    the first 25 and advancing the cursor past the rest loses them
+    permanently, and this runs on the path that operates forever.
+    """
+    ids = [f"t{i}" for i in range(60)]
+    adapter = _FakeHistory({"": _history(ids)})
+
+    fetched: list[str] = []
+    page_token = ""
+    for _ in range(10):
+        page = await adapter.fetch(_ctx(stream="gmail:messages", cursor_token="100", page_token=page_token))
+        fetched.extend(r.external_id for r in page.records)
+        if page.done:
+            assert page.next_cursor == "999", "the walk finished without advancing the cursor"
+            break
+        assert page.next_cursor == "", "the cursor moved while threads were still unprocessed"
+        page_token = page.next_page_token
+    else:
+        raise AssertionError("the walk never finished")
+
+    assert fetched == ids, "threads were dropped between batches"
+    assert len(adapter.thread_calls) == len(ids)
+
+
+@pytest.mark.asyncio
+async def test_the_cursor_only_lands_after_the_last_history_page() -> None:
+    adapter = _FakeHistory(
+        {
+            "": _history(["a", "b"], next_page="h2"),
+            "h2": _history(["c"], history_id="999"),
+        }
+    )
+
+    first = await adapter.fetch(_ctx(stream="gmail:messages", cursor_token="100"))
+    assert first.done is False
+    assert first.next_cursor == ""
+    assert first.next_page_token == "h2|0"
+
+    second = await adapter.fetch(_ctx(stream="gmail:messages", cursor_token="100", page_token=first.next_page_token))
+    assert second.done is True
+    assert second.next_cursor == "999"
+    assert adapter.history_calls == ["", "h2"]
+
+
+@pytest.mark.asyncio
+async def test_a_thread_touched_repeatedly_is_fetched_once() -> None:
+    """A message added and then labelled shows up several times in one page."""
+    payload = {
+        "history": [
+            {"messagesAdded": [{"message": {"threadId": "t1"}}]},
+            {"labelsAdded": [{"message": {"threadId": "t1"}}]},
+            {"labelsRemoved": [{"message": {"threadId": "t1"}}]},
+            {"messagesAdded": [{"message": {"threadId": "t2"}}]},
+        ],
+        "historyId": "999",
+    }
+    adapter = _FakeHistory({"": payload})
+    page = await adapter.fetch(_ctx(stream="gmail:messages", cursor_token="100"))
+    assert adapter.thread_calls == ["t1", "t2"]
+    assert len(page.records) == 2
+
+
+@pytest.mark.asyncio
+async def test_an_empty_history_still_advances_the_cursor() -> None:
+    """Nothing changed is the common case; it must not stall the cursor, or
+    every future poll re-reads the same window forever."""
+    adapter = _FakeHistory({"": {"history": [], "historyId": "1234"}})
+    page = await adapter.fetch(_ctx(stream="gmail:messages", cursor_token="100"))
+    assert page.records == []
+    assert page.done is True
+    assert page.next_cursor == "1234"

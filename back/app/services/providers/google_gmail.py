@@ -39,6 +39,11 @@ STREAM = "gmail:messages"
 DEFAULT_BACKFILL_DAYS = 90
 #: Threads fetched per page. Each is its own API call, so this bounds both the
 #: page's wall time and the damage a rate limit can do mid-walk.
+#:
+#: Crucially it is a *pagination* bound, not a truncation. One history page can
+#: name far more changed threads than this — bulk-archiving a hundred messages
+#: does it in a single response — and the incremental walk used to process the
+#: first 25, advance the cursor past the rest, and lose them permanently.
 THREADS_PER_PAGE = 25
 
 #: Labels that describe Gmail's own plumbing rather than anything the user
@@ -124,9 +129,16 @@ class GoogleGmailAdapter:
     # ── incremental ──────────────────────────────────────────────────────
 
     async def _incremental(self, ctx: FetchContext) -> SyncPage:
+        # The engine's page token is opaque to it, so the offset within a
+        # history page rides along in it: "<historyPageToken>|<offset>". That
+        # is what lets a page naming 200 changed threads be worked through in
+        # batches without ever advancing the cursor past unprocessed ones.
+        history_token, _, raw_offset = (ctx.page_token or "").partition("|")
+        offset = int(raw_offset) if raw_offset.isdigit() else 0
+
         params = {"startHistoryId": ctx.cursor_token, "maxResults": "200"}
-        if ctx.page_token:
-            params["pageToken"] = ctx.page_token
+        if history_token:
+            params["pageToken"] = history_token
 
         payload = await self._get("/history", ctx.access_token, params)
 
@@ -139,11 +151,26 @@ class GoogleGmailAdapter:
                     if thread_id and thread_id not in touched:
                         touched.append(thread_id)
 
-        records = [r for r in [await self._thread(tid, ctx) for tid in touched[:THREADS_PER_PAGE]] if r]
+        batch = touched[offset : offset + THREADS_PER_PAGE]
+        records = [r for r in [await self._thread(tid, ctx) for tid in batch] if r]
+
+        if offset + THREADS_PER_PAGE < len(touched):
+            # Still threads left in *this* history page. Come back to the same
+            # page at the next offset, and on no account move the cursor:
+            # advancing here is what silently dropped every thread past the
+            # first batch.
+            return SyncPage(
+                records=records,
+                next_page_token=f"{history_token}|{offset + THREADS_PER_PAGE}",
+                next_cursor="",
+                done=False,
+            )
+
         next_page = str(payload.get("nextPageToken") or "")
         return SyncPage(
             records=records,
-            next_page_token=next_page,
+            # A fresh history page always restarts at offset zero.
+            next_page_token=f"{next_page}|0" if next_page else "",
             next_cursor="" if next_page else str(payload.get("historyId") or ""),
             done=not next_page,
         )
