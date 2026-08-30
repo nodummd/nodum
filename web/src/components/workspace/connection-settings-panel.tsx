@@ -14,7 +14,7 @@
  * two drift until the form allows something the API rejects.
  */
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -32,7 +32,16 @@ export function ConnectionSettingsPanel({ connection }: { connection: ProviderCo
   const settings = connection.settings ?? {};
   const isCalendar = connection.provider === "google_calendar";
 
-  const available = settings.available_calendars ?? [];
+  // Refetched on open. The stored list is whatever Google said at connect
+  // time, so a calendar made since then would otherwise be unselectable —
+  // with disconnect-and-reconnect as the only way to see it.
+  const { data: fetched } = useQuery({
+    queryKey: ["sync-calendars", connection.id],
+    queryFn: () => connectionsApi.calendars(connection.id),
+    enabled: isCalendar,
+    staleTime: 60_000,
+  });
+  const available = fetched?.calendars ?? settings.available_calendars ?? [];
   const [selected, setSelected] = useState<string[]>(settings.calendar?.calendar_ids ?? ["primary"]);
   const [folderRoot, setFolderRoot] = useState(settings.folder_root ?? "");
   const [threshold, setThreshold] = useState(String(settings.people_threshold ?? 3));
@@ -96,6 +105,11 @@ export function ConnectionSettingsPanel({ connection }: { connection: ProviderCo
           {selected.length === 0 && (
             <p className="mt-1 text-[11px] text-ob-accent">
               Nothing selected — your primary calendar will be used.
+            </p>
+          )}
+          {fetched?.stale && (
+            <p className="mt-1 text-[11px] text-ob-faint">
+              This list could not be refreshed just now, so it may be out of date.
             </p>
           )}
         </fieldset>

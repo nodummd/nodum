@@ -86,7 +86,12 @@ The gear beside a connection opens its settings.
 
 **Calendars.** A Google account usually has several — your own, a shared team
 one, a subscribed holiday feed. Tick the ones you want. Each keeps its own
-place in the sync, so one that fails does not make the others start over.
+place in the sync, so one that fails does not make the others start over, and
+un-ticking one keeps its place rather than throwing it away: tick it again and
+it carries on instead of re-importing everything.
+
+The list is refetched from Google each time you open the settings, so a
+calendar you made after connecting is there without reconnecting.
 
 **Folder.** Where synced notes go. Empty puts `Calendar/` and `Mail/` at the
 top of the vault; set `Sources/Google` and they land under that instead.

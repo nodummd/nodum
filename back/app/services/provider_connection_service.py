@@ -9,7 +9,7 @@ and cursor logic in the request path.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, select
@@ -266,6 +266,62 @@ async def sync_now(db: AsyncSession, connection_id: UUID, user_id: UUID) -> Serv
             "Check that the Celery worker is running.",
         )
     return ServiceResponse.ok({"queued": True})
+
+
+#: How long a fetched calendar list is treated as current. The panel refetches
+#: whenever it opens, and without this every open is a Google API call — enough
+#: to matter on a page that is easy to toggle.
+CALENDAR_LIST_TTL = 300
+
+
+async def refresh_calendars(db: AsyncSession, connection_id: UUID, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    """The calendars this grant can see, refetched from Google.
+
+    The list was captured once, at connect, and then never again — so a
+    calendar created afterwards could not be selected at all, and the only way
+    to see it was to disconnect and reconnect. That is a heavy, lossy thing to
+    ask for a list that changes.
+
+    Falls back to the stored list rather than failing: a broken grant should
+    show what it last knew, not an empty picker that reads as "you have no
+    calendars".
+    """
+    connection = await _owned(db, connection_id, user_id)
+    if connection is None:
+        return ServiceResponse.fail("not_found", "Connection not found.")
+
+    settings = dict(connection.settings or {})
+    stored = settings.get("available_calendars") or []
+    if connection.provider != "google_calendar":
+        return ServiceResponse.ok({"calendars": [], "stale": False})
+
+    fetched_at = settings.get("available_calendars_at")
+    if stored and isinstance(fetched_at, str):
+        try:
+            age = datetime.now(UTC) - datetime.fromisoformat(fetched_at)
+        except ValueError:
+            age = None
+        if age is not None and age < timedelta(seconds=CALENDAR_LIST_TTL):
+            return ServiceResponse.ok({"calendars": stored, "stale": False})
+
+    try:
+        # Imported here for the same reason `update_settings` does: the sync
+        # service imports this module back.
+        from app.services import provider_sync_service
+
+        token = await provider_sync_service.access_token_for(db, connection)
+        calendars = await google_calendar.list_calendars(token)
+    except provider_base.ProviderError as exc:
+        # Logged, not shown: the user opened a settings panel, and "Google
+        # returned 403" in place of their calendar list helps nobody.
+        logger.warning("calendar_list_refresh_failed", connection=str(connection_id), detail=str(exc)[:300])
+        return ServiceResponse.ok({"calendars": stored, "stale": True})
+
+    settings["available_calendars"] = calendars
+    settings["available_calendars_at"] = datetime.now(UTC).isoformat()
+    connection.settings = settings
+    await db.commit()
+    return ServiceResponse.ok({"calendars": calendars, "stale": False})
 
 
 async def update_settings(

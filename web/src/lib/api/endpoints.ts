@@ -519,6 +519,12 @@ export const connectionsApi = {
     ),
   syncNow: (connectionId: string) =>
     apiJson<Record<string, number>>(`/connections/connections/${connectionId}/sync`, "POST"),
+  /** Refetched from Google, so a calendar made after connecting is selectable.
+   *  `stale` means the fetch failed and this is the last known list. */
+  calendars: (connectionId: string) =>
+    api<{ calendars: AvailableCalendar[]; stale: boolean }>(
+      `/connections/connections/${connectionId}/calendars`,
+    ),
   update: (connectionId: string, settings: ConnectionSettings) =>
     apiJson<ProviderConnection>(`/connections/connections/${connectionId}`, "PATCH", settings),
   disconnect: (connectionId: string) =>

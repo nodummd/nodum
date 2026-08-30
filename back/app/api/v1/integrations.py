@@ -136,6 +136,17 @@ async def sync_now(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) 
     return {"data": data}
 
 
+@router.get("/connections/{connection_id}/calendars")
+async def list_connection_calendars(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """The calendars this connection could sync, refetched from Google.
+
+    Read-only and idempotent, but it does reach Google, so the service caches
+    the answer briefly — the settings panel asks every time it opens.
+    """
+    data = (await provider_connection_service.refresh_calendars(db, connection_id, user_id)).unwrap()
+    return {"data": data}
+
+
 @router.patch("/connections/{connection_id}")
 async def update_connection(
     connection_id: UUID, settings: dict[str, Any], user_id: CurrentUserId, db: SessionDep

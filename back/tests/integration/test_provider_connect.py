@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.core.db import async_session_factory
 from app.models.providers import ProviderConnection
 from app.services import provider_connection_service
+from app.services.providers import base as provider_base
 from app.services.providers import google_auth, google_calendar
 
 CALENDAR_SCOPES = (
@@ -275,3 +276,129 @@ async def test_starting_a_flow_for_someone_elses_vault_is_refused_before_google(
             assert "accounts.google.com" not in refused.text
     finally:
         settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET = original
+
+
+# ── keeping the calendar picker current ─────────────────────────────────────
+
+
+async def _calendar_connection(workspace: dict, *, settings: dict | None = None) -> ProviderConnection:
+    from app.utils.crypto_utils import encrypt_secret
+
+    async with async_session_factory() as session:
+        row = ProviderConnection(
+            user_id=workspace["user_id"],
+            vault_id=workspace["vault_id"],
+            provider="google_calendar",
+            external_account_id=uuid.uuid4().hex,
+            external_email="tester@example.com",
+            connected_at=datetime.now(UTC),
+            refresh_ciphertext=encrypt_secret("refresh-token", purpose="oauth"),
+            access_ciphertext=encrypt_secret("access-token", purpose="oauth"),
+            access_expires_at=datetime.now(UTC) + timedelta(hours=1),
+            settings=settings if settings is not None else {},
+            people_counts={},
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+
+@pytest.mark.asyncio
+async def test_a_calendar_made_after_connecting_can_still_be_chosen(client: AsyncClient, workspace: dict) -> None:
+    """The list was captured once, at connect, and never again — so a calendar
+    created afterwards could not be selected at all, and the only way to see it
+    was to disconnect and reconnect. That is a heavy, lossy thing to ask for a
+    list that changes."""
+    connection = await _calendar_connection(
+        workspace,
+        settings={"available_calendars": [{"id": "primary", "summary": "Me", "primary": True}]},
+    )
+
+    later = [
+        {"id": "primary", "summary": "Me", "primary": True},
+        {"id": "team@example.com", "summary": "Team", "primary": False},
+    ]
+    original = google_calendar.list_calendars
+    google_calendar.list_calendars = lambda token: _async(later)  # type: ignore[assignment]
+    try:
+        resp = await client.get(
+            f"/api/v1/connections/connections/{connection.id}/calendars", headers=workspace["headers"]
+        )
+    finally:
+        google_calendar.list_calendars = original  # type: ignore[assignment]
+
+    assert resp.status_code == 200, resp.text
+    assert [c["id"] for c in resp.json()["data"]["calendars"]] == ["primary", "team@example.com"]
+
+    # And it is persisted, so the picker is right even if the next open is
+    # served from the cache.
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        assert len(row.settings["available_calendars"]) == 2
+
+
+def _async(value):
+    async def _run(*_args, **_kwargs):
+        return value
+
+    return _run()
+
+
+@pytest.mark.asyncio
+async def test_a_broken_grant_shows_the_last_known_list_not_an_empty_one(client: AsyncClient, workspace: dict) -> None:
+    """An empty picker reads as "you have no calendars", which is a different
+    and wrong statement about the user's Google account."""
+    stored = [{"id": "primary", "summary": "Me", "primary": True}]
+    connection = await _calendar_connection(workspace, settings={"available_calendars": stored})
+
+    async def _refuse(_token):
+        raise provider_base.ProviderError("Could not list calendars: 403", error_class="auth")
+
+    original = google_calendar.list_calendars
+    google_calendar.list_calendars = _refuse  # type: ignore[assignment]
+    try:
+        resp = await client.get(
+            f"/api/v1/connections/connections/{connection.id}/calendars", headers=workspace["headers"]
+        )
+    finally:
+        google_calendar.list_calendars = original  # type: ignore[assignment]
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["data"]
+    assert [c["id"] for c in body["calendars"]] == ["primary"]
+    assert body["stale"] is True, "the UI has no way to say the list may be out of date"
+    # Google's own words never reach the client.
+    assert "403" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_the_list_is_not_refetched_on_every_panel_open(client: AsyncClient, workspace: dict) -> None:
+    """The panel asks whenever it opens, and a settings tab is easy to toggle."""
+    connection = await _calendar_connection(workspace)
+
+    calls: list[str] = []
+
+    async def _count(token):
+        calls.append(token)
+        return [{"id": "primary", "summary": "Me", "primary": True}]
+
+    original = google_calendar.list_calendars
+    google_calendar.list_calendars = _count  # type: ignore[assignment]
+    try:
+        url = f"/api/v1/connections/connections/{connection.id}/calendars"
+        for _ in range(3):
+            assert (await client.get(url, headers=workspace["headers"])).status_code == 200
+    finally:
+        google_calendar.list_calendars = original  # type: ignore[assignment]
+
+    assert len(calls) == 1, f"{len(calls)} calls to Google for three opens"
+
+
+@pytest.mark.asyncio
+async def test_the_calendar_list_is_scoped_to_its_owner(client: AsyncClient, workspace: dict) -> None:
+    connection = await _calendar_connection(workspace)
+    stranger = await _signup(client, "stranger-cal")
+    resp = await client.get(f"/api/v1/connections/connections/{connection.id}/calendars", headers=stranger["headers"])
+    assert resp.status_code == 404, resp.text
