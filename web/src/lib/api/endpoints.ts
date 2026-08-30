@@ -476,6 +476,10 @@ export interface ProviderConnection {
   connected_at: string | null;
   last_success_at: string | null;
   settings: Record<string, unknown>;
+  /** Outcome counts from the most recent run: created, updated, error… */
+  last_run: Record<string, number>;
+  /** Records the last run could not save. Non-zero means "not up to date". */
+  failed_records: number;
   streams: SyncStreamStatus[];
 }
 

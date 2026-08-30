@@ -218,6 +218,10 @@ function ConnectionRow({
         )}
       </div>
 
+      {!broken && Object.keys(connection.last_run).length > 0 && (
+        <p className="mt-1 text-[12px] text-ob-faint">{describeRun(connection.last_run)}</p>
+      )}
+
       {broken && (
         <div className="nodum-import-caveats mt-2">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-ob-accent" />
@@ -237,6 +241,19 @@ function ConnectionRow({
       )}
     </li>
   );
+}
+
+/** "Last run: 3 new, 1 updated, 12 unchanged." Nothing when it was a no-op. */
+function describeRun(stats: Record<string, number>): string {
+  const parts = [
+    stats.created ? `${stats.created} new` : null,
+    stats.updated ? `${stats.updated} updated` : null,
+    stats.unchanged ? `${stats.unchanged} unchanged` : null,
+    stats.tombstoned ? `${stats.tombstoned} cancelled` : null,
+    stats.user_deleted ? `${stats.user_deleted} skipped (you deleted them)` : null,
+    stats.error ? `${stats.error} failed` : null,
+  ].filter(Boolean);
+  return parts.length ? `Last run: ${parts.join(", ")}.` : "";
 }
 
 function StatusPill({
@@ -267,6 +284,16 @@ function StatusPill({
   }
   if (backfilling) {
     return <span className="text-ob-muted">Waiting to import history</span>;
+  }
+  if (connection.failed_records > 0) {
+    // "Up to date" next to a run that dropped records is exactly the kind of
+    // reassuring lie that lets a sync bug go unnoticed for months.
+    return (
+      <span className="text-amber-400">
+        {connection.failed_records} item{connection.failed_records === 1 ? "" : "s"} could not be
+        saved
+      </span>
+    );
   }
   return (
     <span className="flex items-center gap-1 text-ob-muted">

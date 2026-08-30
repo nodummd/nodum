@@ -229,3 +229,73 @@ async def test_two_records_do_not_collide_on_one_note(connection: ProviderConnec
     second = await _mapping(connection, "evt2")
     assert first is not None and second is not None
     assert first.note_id != second.note_id
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_dropped_records_does_not_report_health(
+    connection: ProviderConnection,
+) -> None:
+    """The meta-bug: outcome counts were computed and discarded, and status was
+    set to "active" unconditionally — so a run that failed to save every single
+    record still showed "Up to date" with a fresh timestamp. That is the
+    reassuring lie that let several real record-dropping bugs go unnoticed
+    during development, and it is worth a test of its own."""
+
+    class _AllFail:
+        """An adapter whose records can never be created."""
+
+        id = "google_calendar"
+        name = "Google Calendar"
+        scopes = ()
+
+        def streams(self, settings):
+            return [STREAM]
+
+        def cursor_params(self, stream, settings):
+            return {}
+
+        async def fetch(self, ctx):
+            # Over the 2 MB note ceiling, so create_note refuses it. A real
+            # cause rather than a contrived one: a long mail thread with images
+            # inlined as data URLs reaches this without trying.
+            from app.constants.limits import MAX_NOTE_SIZE_BYTES
+
+            return providers.SyncPage(
+                records=[
+                    providers.SyncRecord(
+                        external_id="huge1",
+                        title="Enormous thread",
+                        folder="Mail/2026/08",
+                        body="x" * (MAX_NOTE_SIZE_BYTES + 1024),
+                    )
+                ],
+                done=True,
+            )
+
+    import app.services.provider_sync_service as engine
+
+    original_adapter = providers.get_adapter
+    original_token = engine.access_token_for
+    providers.get_adapter = lambda _id: _AllFail()  # type: ignore[assignment]
+    engine.access_token_for = lambda db, conn: _noop_token()  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            fresh = await session.get(ProviderConnection, connection.id)
+            assert fresh is not None
+            result = await engine.sync_connection(session, fresh)
+    finally:
+        providers.get_adapter = original_adapter  # type: ignore[assignment]
+        engine.access_token_for = original_token  # type: ignore[assignment]
+
+    assert result.success, "a record failure is not a connection failure"
+    async with async_session_factory() as session:
+        after = await session.get(ProviderConnection, connection.id)
+    assert after is not None
+    # The connection is healthy — auth worked, the cursor advanced — but the
+    # run must not be reported as clean.
+    assert after.status == "active"
+    assert after.last_run_stats.get("error", 0) >= 1, "the failure was thrown away again"
+
+
+async def _noop_token() -> str:
+    return "token"

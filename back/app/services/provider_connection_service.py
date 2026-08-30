@@ -48,6 +48,11 @@ def _public(connection: ProviderConnection, streams: list[SyncStream]) -> dict[s
         "connected_at": connection.connected_at.isoformat() if connection.connected_at else None,
         "last_success_at": last_success.isoformat() if last_success else None,
         "settings": connection.settings or {},
+        "last_run": connection.last_run_stats or {},
+        # Pulled out rather than left for the client to find: a partly-failing
+        # sync must be visible without the UI having to know the shape of the
+        # stats blob.
+        "failed_records": int((connection.last_run_stats or {}).get("error", 0)),
         "streams": [
             {
                 "stream": s.stream,

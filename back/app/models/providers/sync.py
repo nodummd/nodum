@@ -95,6 +95,14 @@ class ProviderConnection(UUIDMixin, TimestampMixin, Base):
     #: message bodies, which calendars are enabled.
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
+    #: Outcome counts from the most recent run: created / updated /
+    #: unchanged / error and so on. Persisted because the alternative is what
+    #: this code did before — compute them, discard them, and unconditionally
+    #: report "active", so a connection that failed to save every single record
+    #: still showed "Up to date" with a fresh timestamp. That is the failure
+    #: mode that hid several real bugs during development.
+    last_run_stats: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False, default=dict)
+
     #: How many times each person has been seen across every sync run, so the
     #: People-note threshold means "three interactions ever" rather than
     #: "three in one page". Kept here rather than derived on demand because the

@@ -480,11 +480,23 @@ async def sync_connection(db: AsyncSession, connection: ProviderConnection) -> S
         await _record_failure(db, connection, provider_base.ProviderError(str(exc), error_class="bug"))
         return ServiceResponse.fail("bug", "Sync failed unexpectedly.")
 
+    # The run finished, which says the *connection* is healthy: auth worked,
+    # the cursor advanced. It does not say every record was saved, and
+    # conflating the two is what let earlier bugs drop records in silence while
+    # the UI reported "Up to date".
     connection.status = "active"
     connection.error_class = ""
     connection.last_error = ""
     connection.consecutive_failures = 0
     connection.disabled_until = None
+    connection.last_run_stats = {k: v for k, v in totals.items() if isinstance(v, int)}
+    if totals.get("error"):
+        logger.warning(
+            "sync_completed_with_failed_records",
+            connection=str(connection.id),
+            failed=totals["error"],
+            **{k: v for k, v in totals.items() if isinstance(v, int) and k != "error"},
+        )
     await db.commit()
     return ServiceResponse.ok(totals)
 
