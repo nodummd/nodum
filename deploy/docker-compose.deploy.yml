@@ -76,6 +76,28 @@ x-backend-env: &backend-env
   # Empty disables bring-your-own-key AI entirely.
   AI_ENCRYPTION_KEY: ${AI_ENCRYPTION_KEY:-}
   AI_ALLOW_PRIVATE_BASE_URLS: ${AI_ALLOW_PRIVATE_BASE_URLS:-false}
+  # ── Live sync from Google ───────────────────────────────
+  # In the shared anchor, not on `api`, because the split is the whole hazard:
+  # the API exchanges the authorisation code and encrypts the tokens, and the
+  # worker refreshes and decrypts them on every run. Wire these to the API
+  # alone and connecting appears to work, then every background run fails —
+  # `key_unavailable` without the key, `needs_reauth` without the client.
+  #
+  # A separate OAuth client from sign-in, and separate on purpose: sharing one
+  # would drag the login flow into Gmail's restricted-scope compliance regime
+  # the first time anyone connected a mailbox. Empty disables sync entirely.
+  GOOGLE_SYNC_CLIENT_ID: ${GOOGLE_SYNC_CLIENT_ID:-}
+  GOOGLE_SYNC_CLIENT_SECRET: ${GOOGLE_SYNC_CLIENT_SECRET:-}
+  # Gmail's scopes are Google-restricted: a hosted, multi-user deployment that
+  # requests them owes an annual paid security audit. Leave this off unless you
+  # are self-hosting for yourself, where Google's personal-use exemption
+  # applies. See docs/OWNER-SETUP.md.
+  GOOGLE_SYNC_GMAIL_ENABLED: ${GOOGLE_SYNC_GMAIL_ENABLED:-false}
+  # Falls back to AI_ENCRYPTION_KEY when unset. Set it separately if you would
+  # rather the two families of secrets not share one key.
+  OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY:-}
+  PROVIDER_SYNC_TICK_SECONDS: ${PROVIDER_SYNC_TICK_SECONDS:-60}
+  PROVIDER_SYNC_DEFAULT_INTERVAL: ${PROVIDER_SYNC_DEFAULT_INTERVAL:-300}
   SENTRY_DSN: ${SENTRY_DSN:-}
   SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
   # ── Email verification ──────────────────────────────────

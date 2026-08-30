@@ -1141,3 +1141,62 @@ def test_the_client_has_words_for_every_reason_the_server_can_send() -> None:
     assert not unknown, f"the UI has no wording for {sorted(unknown)} and will show generic copy instead"
     stale = known - CALLBACK_REASONS
     assert not stale, f"the UI carries wording for {sorted(stale)}, which the server can no longer send"
+
+
+# ── the deployment contract ─────────────────────────────────────────────────
+
+
+def test_sync_settings_reach_every_container_that_reads_them() -> None:
+    """The whole feature shipped unreachable once, and nothing noticed.
+
+    Settings exist and default to empty, so an unwired variable is not an
+    error anywhere — the operator sets GOOGLE_SYNC_CLIENT_ID in their env file,
+    restarts, and Connections still says "not configured on this server", with
+    no way to find out why. There is no import to break and no log line.
+
+    The api/worker split is the sharper half. The API exchanges the code and
+    encrypts; the worker refreshes and decrypts on every run. Wire these to the
+    API alone and connecting appears to work, and then every background run
+    fails — `key_unavailable` without the key, `needs_reauth` without the
+    client — which reads as a Google problem rather than as a compose file.
+
+    So they belong in the shared anchor, and that is what this asserts.
+    """
+    compose = Path("../deploy/docker-compose.deploy.yml")
+    if not compose.exists():  # pragma: no cover - backend-only checkouts
+        pytest.skip("deploy/ not present")
+
+    text = compose.read_text()
+    # The anchor ends where `services:` begins; anything after that is per-service.
+    anchor = text[text.index("x-backend-env:") : text.index("\nservices:")]
+
+    settings_source = Path("app/settings/common.py").read_text()
+    declared = set(
+        re.findall(
+            r"^\s{4}((?:GOOGLE_SYNC|PROVIDER_SYNC|OAUTH_ENCRYPTION)[A-Z_0-9]*)\s*:",
+            settings_source,
+            re.MULTILINE,
+        )
+    )
+    assert declared, "no sync settings found — this test stopped testing anything"
+
+    missing = {name for name in declared if f"\n  {name}:" not in anchor}
+    assert not missing, (
+        f"{sorted(missing)} never reach the containers. The API, the Celery worker and beat all "
+        "read them, so they belong in the x-backend-env anchor rather than on one service."
+    )
+
+
+def test_an_operator_can_discover_the_sync_settings_exist() -> None:
+    """A setting nobody is told about is off forever in practice."""
+    for name in ("../deploy/.env.prod.example", "../deploy/.env.example"):
+        example = Path(name)
+        if not example.exists():  # pragma: no cover - backend-only checkouts
+            pytest.skip("deploy/ not present")
+        text = example.read_text()
+        for key in ("GOOGLE_SYNC_CLIENT_ID", "GOOGLE_SYNC_CLIENT_SECRET", "OAUTH_ENCRYPTION_KEY"):
+            assert key in text, f"{key} is undocumented in {name}"
+        # The seven-day trap costs more support time than every other failure
+        # in this feature combined, and the fix is a button in Google Cloud
+        # that nothing in the product can press.
+        assert "ublish" in text, f"{name} does not warn about Testing mode"
