@@ -85,6 +85,12 @@ async def _apply(connection: ProviderConnection, record) -> str:
         return await provider_sync_service.apply_record(session, fresh, STREAM, record, people_counts={})
 
 
+async def _is_due(session, connection: ProviderConnection) -> bool:
+    """Whether the scheduler would pick this connection up right now."""
+    due = await provider_sync_service.due_connections(session, limit=10_000)
+    return any(c.id == connection.id for c in due)
+
+
 async def _mapping(connection: ProviderConnection, external_id: str = "evt1") -> ExternalObject | None:
     async with async_session_factory() as session:
         return await session.get(ExternalObject, (connection.id, STREAM, external_id))
@@ -432,7 +438,13 @@ async def test_a_freshly_synced_connection_is_not_due_again_immediately(
         fresh = await session.get(ProviderConnection, connection.id)
         assert fresh is not None
         # No streams yet: never run, so due.
-        assert any(c.id == connection.id for c in await provider_sync_service.due_connections(session))
+        #
+        # The generous limit is load-bearing. due_connections pages at 50,
+        # ordered by staleness, and this database is not truncated between
+        # runs — so with rows accumulated from earlier runs the newest
+        # connection falls outside the window and the assertion fails for a
+        # reason that has nothing to do with the behaviour under test.
+        assert await _is_due(session, connection)
 
         session.add(
             SyncStream(
@@ -445,8 +457,7 @@ async def test_a_freshly_synced_connection_is_not_due_again_immediately(
         await session.commit()
 
     async with async_session_factory() as session:
-        due = await provider_sync_service.due_connections(session)
-        assert not any(c.id == connection.id for c in due), "synced seconds ago and already due again"
+        assert not await _is_due(session, connection), "synced seconds ago and already due again"
 
     # Wind the clock back past the interval and it becomes due.
     async with async_session_factory() as session:
@@ -460,8 +471,7 @@ async def test_a_freshly_synced_connection_is_not_due_again_immediately(
         await session.commit()
 
     async with async_session_factory() as session:
-        due = await provider_sync_service.due_connections(session)
-        assert any(c.id == connection.id for c in due), "past its interval and still not due"
+        assert await _is_due(session, connection), "past its interval and still not due"
 
 
 @pytest.mark.asyncio
@@ -478,5 +488,214 @@ async def test_a_connection_in_backoff_is_left_alone(connection: ProviderConnect
         await session.commit()
 
     async with async_session_factory() as session:
-        due = await provider_sync_service.due_connections(session)
-    assert not any(c.id == connection.id for c in due)
+        assert not await _is_due(session, connection)
+
+
+# ── the page loop ───────────────────────────────────────────────────────────
+#
+# Everything above hands the engine a single done=True page, so pagination,
+# mid-walk resume and the "cursor only advances on the final page" rule have
+# been assertions in comments rather than in tests. They are also the highest
+# consequence part of the design: a mishandled cursor skips records silently
+# and permanently, with no error and nothing in a log.
+
+
+class _Scripted:
+    """An adapter that replays a fixed list of pages and records its inputs."""
+
+    id = "google_calendar"
+    name = "Google Calendar"
+    scopes = ()
+
+    def __init__(self, pages: list[providers.SyncPage], *, fail_on: int | None = None) -> None:
+        self._pages = pages
+        self._fail_on = fail_on
+        self.seen: list[tuple[str, str]] = []  # (cursor_token, page_token) per call
+        self.calls = 0
+
+    def streams(self, settings):
+        return [STREAM]
+
+    def cursor_params(self, stream, settings):
+        return {"singleEvents": "false"}
+
+    async def fetch(self, ctx):
+        self.seen.append((ctx.cursor_token, ctx.page_token))
+        index = self.calls
+        self.calls += 1
+        if self._fail_on is not None and index == self._fail_on:
+            raise providers.ProviderError("upstream fell over", error_class="provider_5xx")
+        return self._pages[index]
+
+
+def _page(ids: list[str], *, next_page: str = "", cursor: str = "") -> providers.SyncPage:
+    return providers.SyncPage(
+        records=[
+            providers.SyncRecord(external_id=i, title=f"Event {i}", folder="Calendar/2026/09", body=f"# Event {i}\n")
+            for i in ids
+        ],
+        next_page_token=next_page,
+        next_cursor=cursor,
+        done=not next_page,
+    )
+
+
+async def _run_with(connection: ProviderConnection, adapter) -> None:
+    import app.services.provider_sync_service as engine
+
+    async def _token(db, conn) -> str:
+        return "token"
+
+    original_adapter, original_token = providers.get_adapter, engine.access_token_for
+    providers.get_adapter = lambda _id: adapter  # type: ignore[assignment]
+    engine.access_token_for = _token  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            fresh = await session.get(ProviderConnection, connection.id)
+            assert fresh is not None
+            await engine.sync_connection(session, fresh)
+    finally:
+        providers.get_adapter = original_adapter  # type: ignore[assignment]
+        engine.access_token_for = original_token  # type: ignore[assignment]
+
+
+async def _stream_row(connection: ProviderConnection):
+    from app.models.providers import SyncStream
+
+    async with async_session_factory() as session:
+        return (
+            (await session.execute(select(SyncStream).where(SyncStream.connection_id == connection.id)))
+            .scalars()
+            .first()
+        )
+
+
+async def _note_titles(connection: ProviderConnection) -> list[str]:
+    async with async_session_factory() as session:
+        rows = await session.execute(
+            select(Note.title).where(Note.vault_id == connection.vault_id, Note.title.like("Event %"))
+        )
+        return sorted(rows.scalars())
+
+
+@pytest.mark.asyncio
+async def test_a_multi_page_walk_imports_everything_and_advances_once(
+    connection: ProviderConnection,
+) -> None:
+    """The cursor may only move on the final page. Persisting one from the
+    middle of a walk skips every record after it, forever, in silence."""
+    adapter = _Scripted(
+        [
+            _page(["a", "b"], next_page="p2", cursor="MIDDLE_TOKEN_MUST_BE_IGNORED"),
+            _page(["c", "d"], next_page="p3", cursor="ALSO_IGNORED"),
+            _page(["e"], cursor="FINAL"),
+        ]
+    )
+    await _run_with(connection, adapter)
+
+    assert await _note_titles(connection) == ["Event a", "Event b", "Event c", "Event d", "Event e"]
+
+    stream = await _stream_row(connection)
+    assert stream is not None
+    assert stream.cursor_token == "FINAL", "a mid-walk token was promoted to the cursor"
+    assert stream.page_token == "", "the walk finished but a page token was left behind"
+    assert stream.backfill_done is True
+    # Each page must carry the previous page's token, or the walk repeats page 1.
+    assert [pt for _, pt in adapter.seen] == ["", "p2", "p3"]
+
+
+@pytest.mark.asyncio
+async def test_a_crash_mid_walk_loses_nothing_on_replay(connection: ProviderConnection) -> None:
+    """The write-then-advance ordering exists for exactly this. A failure part
+    way through must replay the page, and replay must be free."""
+    # Page one carries BOTH a next page and a cursor. Google would not send
+    # that combination, and the point is precisely that: if the engine ever
+    # promotes a cursor from a non-final page, the crash below leaves a token
+    # that skips "c" forever. Asserting only the end state of a *completed*
+    # walk cannot see that — the final value is the same either way, which is
+    # how the first version of this test passed against a deliberately broken
+    # engine.
+    first = _Scripted(
+        [
+            _page(["a", "b"], next_page="p2", cursor="MUST_NOT_BE_PROMOTED"),
+            _page(["c"], cursor="FINAL"),
+        ],
+        fail_on=1,  # dies fetching the second page
+    )
+    await _run_with(connection, first)
+
+    # Page one landed; the cursor did not move.
+    assert await _note_titles(connection) == ["Event a", "Event b"]
+    stream = await _stream_row(connection)
+    assert stream is not None
+    assert stream.cursor_token == "", "the cursor advanced despite an incomplete walk"
+    assert stream.page_token == "p2", "the resume point was lost"
+
+    async with async_session_factory() as session:
+        broken = await session.get(ProviderConnection, connection.id)
+        assert broken is not None
+        assert broken.status == "transient_broken"
+        broken.disabled_until = None  # skip the backoff for the test
+        await session.commit()
+
+    # Replay from the stored page token.
+    second = _Scripted([_page(["c"], cursor="FINAL")])
+    await _run_with(connection, second)
+
+    assert await _note_titles(connection) == ["Event a", "Event b", "Event c"], "records lost or duplicated"
+    assert second.seen[0][1] == "p2", "the replay did not resume from the stored page token"
+    stream = await _stream_row(connection)
+    assert stream is not None and stream.cursor_token == "FINAL"
+
+
+@pytest.mark.asyncio
+async def test_one_run_is_bounded_and_the_next_tick_continues(
+    connection: ProviderConnection,
+) -> None:
+    """A backfill must not hold a worker indefinitely; it should make progress
+    and hand back."""
+    from app.services.provider_sync_service import MAX_PAGES_PER_RUN
+
+    pages = [_page([f"n{i}"], next_page=f"p{i + 1}") for i in range(MAX_PAGES_PER_RUN + 2)]
+    pages[-1] = _page([f"n{len(pages) - 1}"], cursor="FINAL")
+
+    adapter = _Scripted(list(pages))
+    await _run_with(connection, adapter)
+
+    assert adapter.calls == MAX_PAGES_PER_RUN, "the run did not stop at its page bound"
+    stream = await _stream_row(connection)
+    assert stream is not None
+    assert stream.cursor_token == "", "an unfinished walk advanced the cursor"
+    assert stream.page_token, "the next tick has no resume point"
+    assert len(await _note_titles(connection)) == MAX_PAGES_PER_RUN
+
+
+@pytest.mark.asyncio
+async def test_changing_the_frozen_query_forces_a_full_resync(
+    connection: ProviderConnection,
+) -> None:
+    """Google invalidates a Calendar sync token when singleEvents or eventTypes
+    change, and says nothing — it returns a plausible partial result. Comparing
+    the stored params turns that into a deliberate resync."""
+    from app.models.providers import SyncStream
+
+    await _run_with(connection, _Scripted([_page(["a"], cursor="FIRST")]))
+
+    async with async_session_factory() as session:
+        stream = (
+            (await session.execute(select(SyncStream).where(SyncStream.connection_id == connection.id)))
+            .scalars()
+            .first()
+        )
+        assert stream is not None and stream.cursor_token == "FIRST"
+        # Simulate the adapter's frozen params having changed since minting.
+        stream.cursor_params = {"singleEvents": "true"}
+        await session.commit()
+
+    adapter = _Scripted([_page(["a", "b"], cursor="SECOND")])
+    await _run_with(connection, adapter)
+
+    # The stale cursor must not have been sent.
+    assert adapter.seen[0][0] == "", "a cursor minted under different params was reused"
+    stream = await _stream_row(connection)
+    assert stream is not None and stream.cursor_token == "SECOND"
