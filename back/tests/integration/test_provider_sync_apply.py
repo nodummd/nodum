@@ -699,3 +699,77 @@ async def test_changing_the_frozen_query_forces_a_full_resync(
     assert adapter.seen[0][0] == "", "a cursor minted under different params was reused"
     stream = await _stream_row(connection)
     assert stream is not None and stream.cursor_token == "SECOND"
+
+
+# ── settings: the one blob a user writes into the engine's own config ───────
+
+
+@pytest.mark.asyncio
+async def test_the_settings_patch_refuses_a_value_that_would_kill_the_poller(
+    client: AsyncClient, workspace: dict, connection: ProviderConnection
+) -> None:
+    """Through the real endpoint, because the validator only matters if it is
+    actually wired to the route the UI calls."""
+    url = f"/api/v1/connections/connections/{connection.id}"
+    for patch in (
+        {"people_threshold": "soon"},
+        {"calendar": {"calendar_ids": ["c"] * 40}},
+        {"calendar": {"calendar_ids": "primary"}},
+        {"gmail": {"store_bodies": "yes"}},
+    ):
+        resp = await client.patch(url, json=patch, headers=workspace["headers"])
+        assert resp.status_code == 422, f"{patch} was accepted: {resp.text}"
+        assert resp.json()["error"]["message"]
+
+    # And nothing was half-written on the way to being refused.
+    async with async_session_factory() as session:
+        fresh = await session.get(ProviderConnection, connection.id)
+        assert fresh is not None
+        assert fresh.settings == {}
+
+
+@pytest.mark.asyncio
+async def test_a_good_patch_is_stored_and_reconciles_streams(
+    client: AsyncClient, workspace: dict, connection: ProviderConnection
+) -> None:
+    resp = await client.patch(
+        f"/api/v1/connections/connections/{connection.id}",
+        json={
+            "folder_root": "Sources/../Google",
+            "people_threshold": 5,
+            "calendar": {"calendar_ids": ["primary", "b"]},
+        },
+        headers=workspace["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["data"]
+    assert body["settings"]["folder_root"] == "Sources/Google"
+    assert body["settings"]["people_threshold"] == 5
+    assert {s["stream"] for s in body["streams"]} == {"calendar:events:primary", "calendar:events:b"}
+    # Tokens never appear in a settings response any more than in a list one.
+    assert "refresh" not in resp.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_a_poisoned_settings_blob_still_syncs(connection: ProviderConnection) -> None:
+    """Rows written before the validator existed are still in the table, and
+    `clean` cannot reach them. The engine has to survive its own history."""
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.settings = {
+            "people_threshold": "soon",
+            "folder_root": "../../etc",
+            "calendar": {"calendar_ids": "primary", "backfill_days": "many"},
+        }
+        await session.commit()
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        outcome = await provider_sync_service.apply_record(session, row, STREAM, _record(), people_counts={})
+        assert outcome == "created"
+        note = await session.scalar(select(Note).where(Note.vault_id == row.vault_id, Note.title == "Design review"))
+        assert note is not None
+        # The traversal prefix collapsed instead of escaping the folder tree.
+        assert note.path.startswith("etc/Calendar/2026/09"), note.path

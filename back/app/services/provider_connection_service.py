@@ -18,7 +18,7 @@ from app.core.logging import get_logger
 from app.models.providers import ExternalObject, ProviderConnection, SyncStream
 from app.services import providers
 from app.services.providers import base as provider_base
-from app.services.providers import google_auth, google_calendar
+from app.services.providers import connection_settings, google_auth, google_calendar
 from app.services.service_response import ServiceResponse
 from app.services.vault_service import get_owned_vault
 from app.utils.crypto_utils import decrypt_secret, encrypt_secret, encryption_available
@@ -238,14 +238,14 @@ async def update_settings(
     if connection is None:
         return ServiceResponse.fail("not_found", "Connection not found.")
 
-    # Only the keys a user is allowed to set. A settings blob written straight
-    # from a request body is an injection surface into the sync engine.
-    allowed = {"calendar", "gmail", "folder_root", "people_threshold"}
-    merged = dict(connection.settings or {})
-    for key, value in patch.items():
-        if key in allowed:
-            merged[key] = value
-    connection.settings = merged
+    # A settings blob written straight from a request body is an injection
+    # surface into the sync engine, and the keys are the smaller half of it —
+    # see connection_settings for what the values can do.
+    try:
+        cleaned = connection_settings.clean(patch)
+    except connection_settings.InvalidSetting as exc:
+        return ServiceResponse.fail("validation_failed", str(exc))
+    connection.settings = {**(connection.settings or {}), **cleaned}
     await db.commit()
 
     # Changing which calendars or labels are in scope changes what the cursor

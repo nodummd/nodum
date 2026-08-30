@@ -31,6 +31,7 @@ from app.services.daily_note_service import format_date
 from app.services.importers.base import safe_segment, tag_name
 from app.services.importers.html_md import html_to_markdown
 
+from . import connection_settings as settings_schema
 from .base import CursorInvalid, FetchContext, ProviderError, SyncPage, SyncRecord, escape_remote_text
 
 API = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -79,6 +80,12 @@ _AUTOMATED = (
 # needs. Two explicit cases are longer and cannot do that.
 
 
+def _labels(settings: dict[str, Any]) -> list[str]:
+    """Which labels are in scope. Read by both the cursor and the query that
+    fills it, so the two cannot drift apart and resync the wrong window."""
+    return settings_schema.identifiers(settings, "gmail", "labels", default=["INBOX"], limit=settings_schema.MAX_LABELS)
+
+
 class GoogleGmailAdapter:
     id = "google_gmail"
     name = "Gmail"
@@ -88,10 +95,9 @@ class GoogleGmailAdapter:
         return [STREAM]
 
     def cursor_params(self, stream: str, settings: dict[str, Any]) -> dict[str, Any]:
-        gmail = settings.get("gmail") or {}
         # The label filter is part of what the cursor means: widening it later
         # must trigger a resync, or the newly included threads are never seen.
-        return {"labels": sorted(gmail.get("labels") or ["INBOX"])}
+        return {"labels": sorted(_labels(settings))}
 
     async def fetch(self, ctx: FetchContext) -> SyncPage:
         return await (self._incremental(ctx) if ctx.cursor_token and not ctx.backfill else self._backfill(ctx))
@@ -99,9 +105,8 @@ class GoogleGmailAdapter:
     # ── first walk ───────────────────────────────────────────────────────
 
     async def _backfill(self, ctx: FetchContext) -> SyncPage:
-        gmail = ctx.settings.get("gmail") or {}
-        days = int(gmail.get("backfill_days") or DEFAULT_BACKFILL_DAYS)
-        labels = gmail.get("labels") or ["INBOX"]
+        days = settings_schema.backfill_days(ctx.settings, "gmail", DEFAULT_BACKFILL_DAYS)
+        labels = _labels(ctx.settings)
 
         params = {
             "maxResults": str(THREADS_PER_PAGE),
@@ -178,8 +183,7 @@ class GoogleGmailAdapter:
     # ── one thread → one note ────────────────────────────────────────────
 
     async def _thread(self, thread_id: str, ctx: FetchContext) -> SyncRecord | None:
-        gmail = ctx.settings.get("gmail") or {}
-        store_bodies = bool(gmail.get("store_bodies"))
+        store_bodies = settings_schema.store_bodies(ctx.settings)
         fmt = "full" if store_bodies else "metadata"
 
         try:

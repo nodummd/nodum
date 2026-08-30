@@ -31,6 +31,7 @@ import httpx
 from app.services.daily_note_service import format_date
 from app.services.importers.base import safe_segment
 
+from . import connection_settings as settings_schema
 from .base import CursorInvalid, FetchContext, ProviderError, SyncPage, SyncRecord, escape_remote_text
 
 API = "https://www.googleapis.com/calendar/v3"
@@ -61,7 +62,9 @@ class GoogleCalendarAdapter:
         Putting all calendars behind one cursor would force every calendar to
         resync whenever any single one faulted.
         """
-        calendars = (connection_settings.get("calendar") or {}).get("calendar_ids") or ["primary"]
+        calendars = settings_schema.identifiers(
+            connection_settings, "calendar", "calendar_ids", default=["primary"], limit=settings_schema.MAX_CALENDARS
+        )
         return [f"{STREAM_PREFIX}{cid}" for cid in calendars]
 
     def cursor_params(self, stream: str, settings: dict[str, Any]) -> dict[str, Any]:
@@ -83,7 +86,7 @@ class GoogleCalendarAdapter:
             # First walk only: bound the history. timeMin is illegal once a
             # syncToken exists, so this is the one chance to set it, and the
             # token that comes back is permanently bound to this window.
-            days = int((ctx.settings.get("calendar") or {}).get("backfill_days") or DEFAULT_BACKFILL_DAYS)
+            days = settings_schema.backfill_days(ctx.settings, "calendar", DEFAULT_BACKFILL_DAYS)
             params["timeMin"] = (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
         payload = await self._get(ctx.access_token, f"/calendars/{_quote(calendar_id)}/events", params)

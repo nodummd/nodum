@@ -35,7 +35,7 @@ from app.models.vaults import Note, Vault
 from app.services import folder_service, note_service, providers
 from app.services.importers.base import safe_segment
 from app.services.providers import base as provider_base
-from app.services.providers import google_auth
+from app.services.providers import connection_settings, google_auth
 from app.services.service_response import ServiceResponse
 from app.settings import get_settings
 from app.utils.crypto_utils import decrypt_secret, encrypt_secret
@@ -59,8 +59,9 @@ _BACKOFF = (60, 300, 900, 3600, 21600)
 #: A person must appear this many times before they get their own note. Below
 #: it their name is plain text. Without a threshold, one note per unique sender
 #: turns the graph into thousands of ghost nodes and destroys the thing the
-#: user came here for.
-DEFAULT_PEOPLE_THRESHOLD = 3
+#: user came here for. Defined next to the validator that bounds it, because
+#: two copies of a default are two copies that drift.
+DEFAULT_PEOPLE_THRESHOLD = connection_settings.DEFAULT_PEOPLE_THRESHOLD
 #: Cap on the persisted interaction tally, so a busy mailbox cannot grow one
 #: JSONB column without bound.
 _MAX_TRACKED_PEOPLE = 500
@@ -168,7 +169,7 @@ async def release_stream(db: AsyncSession, stream_id: UUID) -> None:
 
 
 def _folder_root(connection: ProviderConnection, adapter_id: str) -> str:
-    return str((connection.settings or {}).get("folder_root") or "").strip("/")
+    return connection_settings.folder_root(connection.settings)
 
 
 async def _person_note(db: AsyncSession, connection: ProviderConnection, name: str, counts: dict[str, int]) -> bool:
@@ -178,7 +179,7 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
     because a link whose target does not exist becomes a ghost node, and one
     ghost per unique correspondent is exactly how a graph stops being readable.
     """
-    threshold = int((connection.settings or {}).get("people_threshold") or DEFAULT_PEOPLE_THRESHOLD)
+    threshold = connection_settings.people_threshold(connection.settings)
     if counts.get(name, 0) < threshold:
         return False
 
