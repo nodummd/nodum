@@ -237,6 +237,38 @@ async def update_settings(
     return ServiceResponse.ok(_public(connection, streams))
 
 
+async def revoke_grants(db: AsyncSession, *, user_id: UUID | None = None, vault_id: UUID | None = None) -> int:
+    """Revoke every Google grant matching the filter, before its rows vanish.
+
+    Called on account and vault deletion. Without it, deleting an account
+    cascades the connection row away while leaving Nodum listed in the
+    person's Google permissions with a live refresh token — and because the
+    ciphertext went with the row, nothing can ever revoke it afterwards. They
+    closed their account expecting everything gone; instead they are left with
+    a standing permission to read their mail that they do not know about and
+    we can no longer withdraw.
+
+    Best-effort per connection: one unreachable revoke endpoint must not block
+    a deletion the user has already confirmed.
+    """
+    query = select(ProviderConnection)
+    if user_id is not None:
+        query = query.where(ProviderConnection.user_id == user_id)
+    if vault_id is not None:
+        query = query.where(ProviderConnection.vault_id == vault_id)
+
+    revoked = 0
+    for connection in (await db.execute(query)).scalars():
+        token = decrypt_secret(connection.refresh_ciphertext, purpose="oauth")
+        if not token:
+            continue
+        await google_auth.revoke(token)
+        revoked += 1
+    if revoked:
+        logger.info("provider_grants_revoked", count=revoked, user=str(user_id or ""), vault=str(vault_id or ""))
+    return revoked
+
+
 async def disconnect(db: AsyncSession, connection_id: UUID, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
     """Revoke upstream, then delete the grant. Synced notes are left alone.
 

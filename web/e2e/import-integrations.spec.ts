@@ -48,6 +48,9 @@ async function vaultPaths(page: import("@playwright/test").Page): Promise<string
     const vaults = await (await fetch("/api/v1/vaults", { headers })).json();
     const id = vaults.data[0].id;
     const tree = await (await fetch(`/api/v1/vaults/${id}/tree`, { headers })).json();
+    // { vault_id, items: [...] } at the root, and a folder nests its
+    // contents under `children` — two different keys, which is exactly why
+    // this is read from vault_service.get_tree rather than guessed at.
     const out: string[] = [];
     const walk = (nodes: { path?: string; children?: unknown[] }[]) => {
       for (const node of nodes ?? []) {
@@ -55,7 +58,7 @@ async function vaultPaths(page: import("@playwright/test").Page): Promise<string
         if (Array.isArray(node.children)) walk(node.children as typeof nodes);
       }
     };
-    walk(tree.data.notes ?? tree.data.children ?? tree.data ?? []);
+    walk(tree?.data?.items ?? []);
     return out;
   });
 }

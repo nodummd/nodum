@@ -143,11 +143,14 @@ export function ImportDialog({
             )}
             {picked ? `Import from ${picked.name}` : "Import data"}
           </DialogTitle>
-          <DialogDescription className={picked ? "text-[13px]" : "sr-only"}>
-            {picked
-              ? picked.blurb
-              : "Bring your notes in from another app. Everything becomes plain markdown."}
+          {/* Constant on purpose. This is the dialog's accessible
+              description, and a description that changes out from under a
+              screen-reader user mid-interaction is worse than a generic one.
+              The picked source's blurb is body copy instead, below. */}
+          <DialogDescription className="sr-only">
+            Bring your notes in from another app. Everything becomes plain markdown.
           </DialogDescription>
+          {picked && <p className="mt-1 text-[13px] text-ob-muted">{picked.blurb}</p>}
         </DialogHeader>
 
         <div className="h-[min(560px,76vh)] overflow-y-auto">

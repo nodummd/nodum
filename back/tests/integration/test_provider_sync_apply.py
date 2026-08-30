@@ -299,3 +299,41 @@ async def test_a_run_that_dropped_records_does_not_report_health(
 
 async def _noop_token() -> str:
     return "token"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_vault_hands_the_google_grant_back(connection: ProviderConnection) -> None:
+    """Closing an account or deleting a vault cascades the connection away —
+    and with it the encrypted refresh token, after which nobody can revoke the
+    grant. Left alone, someone who deleted their account keeps Nodum listed in
+    their Google permissions with standing access to their mail, indefinitely,
+    with no way to know and no way for us to withdraw it.
+
+    So the revoke has to happen in the window *before* the row disappears.
+    """
+    from app.services import provider_connection_service
+    from app.utils.crypto_utils import encrypt_secret
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.refresh_ciphertext = encrypt_secret("refresh-token-value", purpose="oauth")
+        await session.commit()
+
+    revoked: list[str] = []
+
+    async def _capture(token: str) -> None:
+        revoked.append(token)
+
+    from app.services.providers import google_auth
+
+    original = google_auth.revoke
+    google_auth.revoke = _capture  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            count = await provider_connection_service.revoke_grants(session, vault_id=connection.vault_id)
+    finally:
+        google_auth.revoke = original  # type: ignore[assignment]
+
+    assert count == 1
+    assert revoked == ["refresh-token-value"], "the grant was not handed back to Google"

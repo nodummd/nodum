@@ -92,6 +92,14 @@ async def delete_vault(db: AsyncSession, vault_id: UUID, user_id: UUID) -> Servi
     vault = await get_owned_vault(db, vault_id, user_id)
     if vault is None:
         return ServiceResponse.fail("not_found", "Vault not found.")
+
+    # A connection is bound to one vault, so deleting the vault ends it — and
+    # the grant has to be handed back before the cascade takes the token with
+    # it and makes that impossible.
+    from app.services import provider_connection_service
+
+    await provider_connection_service.revoke_grants(db, vault_id=vault_id)
+
     await db.delete(vault)  # folders/notes cascade at the DB level
     await db.commit()
     await cache_delete(vault_tree_key(vault_id), vault_graph_key(vault_id))
