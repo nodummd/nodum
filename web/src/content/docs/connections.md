@@ -83,7 +83,9 @@ will not invent a link into it.
 ## Keeping up
 
 Each stream is checked every five minutes; a new event usually appears within
-that. **Sync now** in Settings → Connections queues an immediate run.
+that. **Sync now** in Settings → Connections queues an immediate run, once a
+minute per connection — pressing it repeatedly cannot make Google answer any
+sooner, and the run already in flight is the one that finishes.
 
 The first sync is a backfill — a year of calendar by default, 90 days of mail —
 and can take several minutes across a few runs. It shows a running count while
@@ -111,6 +113,12 @@ another seven days and then breaks again.
 **Disconnect** withdraws the permission at Google and removes the connection.
 Notes already in your vault are **kept** — they are yours, you may have written
 under them, and deleting them is not something a disconnect should decide.
+
+If the same Google account is connected to another vault, the permission is
+**left in place** and only this connection goes. Google withdraws permission
+per account rather than per connection, so handing it back here would silently
+break the other vault too — and it would report that Google had revoked it,
+which would not be true.
 
 Closing your account or deleting the vault also hands the permission back
 before removing anything.

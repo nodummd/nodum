@@ -773,3 +773,215 @@ async def test_a_poisoned_settings_blob_still_syncs(connection: ProviderConnecti
         assert note is not None
         # The traversal prefix collapsed instead of escaping the folder tree.
         assert note.path.startswith("etc/Calendar/2026/09"), note.path
+
+
+# ── one grant, several vaults ───────────────────────────────────────────────
+
+
+async def _second_vault_connection(workspace: dict, first: ProviderConnection) -> ProviderConnection:
+    """The same Google account connected to a second vault of the same user."""
+    from app.models.vaults import Vault
+
+    async with async_session_factory() as session:
+        vault = Vault(user_id=workspace["user_id"], name=f"Second vault {uuid.uuid4().hex[:6]}")
+        session.add(vault)
+        await session.commit()
+        await session.refresh(vault)
+
+        row = ProviderConnection(
+            user_id=workspace["user_id"],
+            vault_id=vault.id,
+            provider="google_calendar",
+            # Same Google account: this is what makes it the same grant.
+            external_account_id=first.external_account_id,
+            external_email=first.external_email,
+            connected_at=datetime.now(UTC),
+            settings={},
+            people_counts={},
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+
+def _capture_revokes():
+    """Swap google_auth.revoke for a recorder; returns (list, restore)."""
+    from app.services.providers import google_auth
+
+    seen: list[str] = []
+
+    async def _capture(token: str) -> None:
+        seen.append(token)
+
+    original = google_auth.revoke
+    google_auth.revoke = _capture  # type: ignore[assignment]
+
+    def restore() -> None:
+        google_auth.revoke = original  # type: ignore[assignment]
+
+    return seen, restore
+
+
+async def _store_refresh(connection_id: uuid.UUID, value: str) -> None:
+    from app.utils.crypto_utils import encrypt_secret
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection_id)
+        assert row is not None
+        row.refresh_ciphertext = encrypt_secret(value, purpose="oauth")
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_disconnecting_one_vault_leaves_another_vaults_connection_alive(
+    workspace: dict, connection: ProviderConnection
+) -> None:
+    """Google revokes by *grant*, not by token: withdrawing one refresh token
+    withdraws every token issued under the same authorisation, which for one
+    OAuth client and one Google account is all of them.
+
+    So disconnecting a calendar from one vault used to kill the same account's
+    connection to another vault — which then reported "Google revoked this
+    connection… access was removed from your Google account". That message is
+    not merely unhelpful, it is wrong: we did it. And the docs promise a
+    second vault gets an independent connection.
+    """
+    from app.services import provider_connection_service
+
+    other = await _second_vault_connection(workspace, connection)
+    await _store_refresh(connection.id, "shared-refresh-token")
+
+    seen, restore = _capture_revokes()
+    try:
+        async with async_session_factory() as session:
+            response = await provider_connection_service.disconnect(session, connection.id, workspace["user_id"])
+    finally:
+        restore()
+
+    assert response.success
+    assert seen == [], "the still-connected vault's grant was withdrawn"
+
+    async with async_session_factory() as session:
+        assert await session.get(ProviderConnection, connection.id) is None
+        survivor = await session.get(ProviderConnection, other.id)
+        assert survivor is not None, "the other vault's connection was deleted too"
+
+
+@pytest.mark.asyncio
+async def test_disconnecting_the_last_one_does_hand_the_grant_back(
+    workspace: dict, connection: ProviderConnection
+) -> None:
+    """The check must not become an excuse never to revoke. With nothing else
+    on the grant, leaving it standing is the failure it was written to fix."""
+    from app.services import provider_connection_service
+
+    await _store_refresh(connection.id, "only-refresh-token")
+
+    seen, restore = _capture_revokes()
+    try:
+        async with async_session_factory() as session:
+            assert (await provider_connection_service.disconnect(session, connection.id, workspace["user_id"])).success
+    finally:
+        restore()
+
+    assert seen == ["only-refresh-token"]
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_vault_spares_a_grant_another_vault_still_uses(
+    workspace: dict, connection: ProviderConnection
+) -> None:
+    from app.services import provider_connection_service
+
+    await _second_vault_connection(workspace, connection)
+    await _store_refresh(connection.id, "shared-refresh-token")
+
+    seen, restore = _capture_revokes()
+    try:
+        async with async_session_factory() as session:
+            count = await provider_connection_service.revoke_grants(session, vault_id=connection.vault_id)
+    finally:
+        restore()
+
+    assert count == 0
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_closing_the_account_revokes_each_grant_exactly_once(
+    workspace: dict, connection: ProviderConnection
+) -> None:
+    """Everything goes, so there is nothing to spare — but one grant shared by
+    two connections is still one revoke, not two round trips to Google during
+    a deletion the user is waiting on."""
+    from app.services import provider_connection_service
+
+    other = await _second_vault_connection(workspace, connection)
+    await _store_refresh(connection.id, "shared-refresh-token")
+    await _store_refresh(other.id, "shared-refresh-token")
+
+    seen, restore = _capture_revokes()
+    try:
+        async with async_session_factory() as session:
+            count = await provider_connection_service.revoke_grants(session, user_id=workspace["user_id"])
+    finally:
+        restore()
+
+    assert count == 1
+    assert seen == ["shared-refresh-token"]
+
+
+# ── manual sync is not a free button ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_held_down_sync_button_does_not_flood_the_broker(
+    connection: ProviderConnection,
+) -> None:
+    """The general limiter allows 300 requests a minute. Without a throttle
+    here that is 300 tasks on the broker from one account, sitting ahead of
+    the sweep, of email, of every import — the leases mean they mostly do no
+    work, which makes it cheap to do and invisible while it happens."""
+    from app.core import celery as celery_module
+    from app.services import provider_connection_service
+
+    sent: list[str] = []
+    original = celery_module.celery_app.send_task
+    celery_module.celery_app.send_task = lambda name, args=None, **kw: sent.append(name)  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            first = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+            second = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+            third = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+    finally:
+        celery_module.celery_app.send_task = original  # type: ignore[assignment]
+
+    assert first.success
+    assert not second.success and second.error_code == "rate_limited"
+    assert not third.success
+    # And it says when, rather than just refusing.
+    assert "seconds" in second.message
+    assert len(sent) == 1, f"{len(sent)} tasks queued for one connection"
+
+
+@pytest.mark.asyncio
+async def test_the_throttle_is_per_connection_not_per_account(workspace: dict, connection: ProviderConnection) -> None:
+    """Two connections are two things to sync; one being busy is no reason to
+    refuse the other."""
+    from app.core import celery as celery_module
+    from app.services import provider_connection_service
+
+    other = await _second_vault_connection(workspace, connection)
+
+    sent: list[str] = []
+    original = celery_module.celery_app.send_task
+    celery_module.celery_app.send_task = lambda name, args=None, **kw: sent.append(name)  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            assert (await provider_connection_service.sync_now(session, connection.id, connection.user_id)).success
+            assert (await provider_connection_service.sync_now(session, other.id, other.user_id)).success
+    finally:
+        celery_module.celery_app.send_task = original  # type: ignore[assignment]
+
+    assert len(sent) == 2

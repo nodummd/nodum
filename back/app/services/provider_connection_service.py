@@ -200,12 +200,40 @@ def _provider_for_scopes(granted: str) -> str | None:
     return None
 
 
+#: How long a manual sync holds the button for one connection. Matches the
+#: window the UI polls for after pressing it, so the two agree about when
+#: pressing again is worth anything.
+SYNC_NOW_COOLDOWN = 60
+_SYNC_NOW_KEY = "gsync_manual:{id}"
+
+
 async def sync_now(db: AsyncSession, connection_id: UUID, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
     connection = await _owned(db, connection_id, user_id)
     if connection is None:
         return ServiceResponse.fail("not_found", "Connection not found.")
     if connection.status == "needs_reauth":
         return ServiceResponse.fail("validation_failed", connection.last_error or "Reconnect required.")
+
+    # One queued run per connection at a time. The general limiter allows 300
+    # requests a minute, so without this a held-down button — or a loop in a
+    # console — puts hundreds of tasks on the broker. The stream leases mean
+    # they mostly do no work, but they still sit ahead of the sweep, of email,
+    # of imports: one account degrading the whole instance's worker pool.
+    #
+    # Fails open. A rate limit that takes the feature down when Redis blinks
+    # is worse than the abuse it prevents.
+    from app.core.redis import redis_control
+
+    try:
+        fresh = await redis_control.set(_SYNC_NOW_KEY.format(id=connection_id), "1", ex=SYNC_NOW_COOLDOWN, nx=True)
+        if not fresh:
+            ttl = await redis_control.ttl(_SYNC_NOW_KEY.format(id=connection_id))
+            return ServiceResponse.fail(
+                "rate_limited",
+                f"A sync is already queued for this connection. Try again in {max(ttl, 1)} seconds.",
+            )
+    except Exception:
+        logger.warning("sync_now_throttle_unavailable", connection=str(connection_id))
 
     # Clear any backoff — the user asking directly overrides the schedule.
     connection.disabled_until = None
@@ -257,6 +285,32 @@ async def update_settings(
     return ServiceResponse.ok(_public(connection, streams))
 
 
+async def _grant_still_in_use(
+    db: AsyncSession, connection: ProviderConnection, *, excluding_vault: UUID | None = None
+) -> bool:
+    """Is another connection still relying on this Google grant?
+
+    Google revokes by *grant*, not by token: withdrawing one refresh token
+    withdraws every token issued under the same authorisation, which for one
+    OAuth client and one Google account is all of them. So disconnecting a
+    calendar from one vault used to silently kill the same account's
+    connection to another vault — which then reported "Google revoked this
+    connection… access was removed from your Google account", a message that
+    is not merely unhelpful but wrong, because we did it.
+
+    The docs promise a second vault gets "a second, independent connection",
+    and this is what makes that true.
+    """
+    query = select(ProviderConnection.id).where(
+        ProviderConnection.user_id == connection.user_id,
+        ProviderConnection.external_account_id == connection.external_account_id,
+        ProviderConnection.id != connection.id,
+    )
+    if excluding_vault is not None:
+        query = query.where(ProviderConnection.vault_id != excluding_vault)
+    return await db.scalar(query.limit(1)) is not None
+
+
 async def revoke_grants(db: AsyncSession, *, user_id: UUID | None = None, vault_id: UUID | None = None) -> int:
     """Revoke every Google grant matching the filter, before its rows vanish.
 
@@ -278,11 +332,23 @@ async def revoke_grants(db: AsyncSession, *, user_id: UUID | None = None, vault_
         query = query.where(ProviderConnection.vault_id == vault_id)
 
     revoked = 0
+    seen: set[str] = set()
     for connection in (await db.execute(query)).scalars():
+        # Deleting one vault must not withdraw a grant another vault is still
+        # using. Deleting the account takes every connection with it, so there
+        # is nothing left to keep and the check finds nothing to spare.
+        if vault_id is not None and await _grant_still_in_use(db, connection, excluding_vault=vault_id):
+            continue
+        # One grant, one revoke: several connections on one Google account
+        # share it, and the second call is a redundant round trip to Google
+        # during a deletion the user is waiting on.
+        if connection.external_account_id in seen:
+            continue
         token = decrypt_secret(connection.refresh_ciphertext, purpose="oauth")
         if not token:
             continue
         await google_auth.revoke(token)
+        seen.add(connection.external_account_id)
         revoked += 1
     if revoked:
         logger.info("provider_grants_revoked", count=revoked, user=str(user_id or ""), vault=str(vault_id or ""))
@@ -300,13 +366,16 @@ async def disconnect(db: AsyncSession, connection_id: UUID, user_id: UUID) -> Se
     if connection is None:
         return ServiceResponse.fail("not_found", "Connection not found.")
 
+    # Withdraw the permission at Google — unless another vault is still using
+    # the same grant, in which case revoking here would break that one too.
+    shared = await _grant_still_in_use(db, connection)
     refresh = decrypt_secret(connection.refresh_ciphertext, purpose="oauth")
-    if refresh:
+    if refresh and not shared:
         await google_auth.revoke(refresh)
 
     await db.execute(delete(ExternalObject).where(ExternalObject.connection_id == connection.id))
     await db.execute(delete(SyncStream).where(SyncStream.connection_id == connection.id))
     await db.delete(connection)
     await db.commit()
-    logger.info("provider_disconnected", provider=connection.provider, user=str(user_id))
+    logger.info("provider_disconnected", provider=connection.provider, user=str(user_id), grant_kept=shared)
     return ServiceResponse.ok({"disconnected": str(connection_id)})
