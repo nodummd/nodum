@@ -12,7 +12,7 @@ update, tombstone, user-deletion, and an out-of-order page.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -1049,3 +1049,84 @@ async def test_removing_a_calendar_stops_reporting_it_but_keeps_its_place(
     }
     resumed = next(s for s in back.json()["data"]["streams"] if s["stream"].endswith("work"))
     assert resumed["records_seen"] == 42, "re-ticking threw away what it had already synced"
+
+
+# ── what a failure is allowed to say ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_failure_never_reports_third_party_or_internal_text(
+    client: AsyncClient, workspace: dict, connection: ProviderConnection
+) -> None:
+    """`last_error` is rendered in the UI and returned by the API, so it is
+    copy — not a place for whatever string happened to be raised.
+
+    Two paths put raw text there. Google's error bodies, on the
+    unclassified-4xx branch, which are JSON that can name the account and the
+    resource. And `except Exception`, whose `str(exc)` for a database error is
+    the full SQL statement and sometimes its parameters — handed to a user over
+    the API, from a failure that had nothing to do with them.
+    """
+    from app.services import provider_sync_service
+    from app.services.providers import base as provider_base
+
+    leaks = [
+        provider_base.ProviderError(
+            'Calendar returned 403: {"error":{"message":"user@private.example is not authorised",'
+            '"details":[{"resource":"projects/internal-42"}]}}'
+        ),
+        provider_base.ProviderError(
+            "(sqlalchemy) INSERT INTO provider_connections (refresh_ciphertext) VALUES ('gAAAAA-secret')",
+            error_class="bug",
+        ),
+        provider_base.ProviderError("Gmail returned 400: quotaUser=user@private.example", error_class="rate_limit"),
+        provider_base.ProviderError("Could not reach Google: ConnectError at 10.1.2.3:443", error_class="provider_5xx"),
+    ]
+
+    for exc in leaks:
+        async with async_session_factory() as session:
+            row = await session.get(ProviderConnection, connection.id)
+            assert row is not None
+            await provider_sync_service._record_failure(session, row, exc)
+
+        listed = await client.get("/api/v1/connections/connections", headers=workspace["headers"])
+        assert listed.status_code == 200, listed.text
+        body = listed.text
+        for secret in ("private.example", "internal-42", "gAAAAA-secret", "INSERT INTO", "10.1.2.3"):
+            assert secret not in body, f"{secret!r} reached the API in last_error"
+
+        shown = next(c["last_error"] for c in listed.json()["data"] if c["id"] == str(connection.id))
+        assert shown, "a failure with nothing to say is worse than one with the wrong thing to say"
+
+
+@pytest.mark.asyncio
+async def test_the_messages_a_user_can_act_on_are_kept(connection: ProviderConnection) -> None:
+    """The rule must not flatten the two failures that have a real fix.
+
+    A seven-day Testing-mode grant and a changed encryption key are the only
+    ones where the message *is* the remedy, and replacing either with generic
+    copy would undo the whole point of classifying them.
+    """
+    from app.services import provider_sync_service
+    from app.services.providers import base as provider_base
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.connected_at = datetime.now(UTC) - timedelta(days=7)
+        await provider_sync_service._record_failure(
+            session, row, provider_base.ProviderError('{"error":"invalid_grant"}', error_class="auth")
+        )
+        assert "Publish app" in row.last_error, row.last_error
+        assert row.status == "needs_reauth"
+
+        await provider_sync_service._record_failure(
+            session,
+            row,
+            provider_base.ProviderError(
+                "Stored credentials could not be decrypted — the server's encryption key has changed.",
+                error_class="config",
+            ),
+        )
+        assert "encryption key" in row.last_error
+        assert row.status == "key_unavailable"

@@ -470,7 +470,10 @@ async def sync_connection(db: AsyncSession, connection: ProviderConnection) -> S
             .where(SyncStream.connection_id == connection.id)
             .values(needs_full_resync=True, cursor_token="", page_token="")
         )
-        connection.last_error = str(exc)
+        # Same rule as _record_failure: what the user reads is our copy. The
+        # adapter's own text says which cursor and why, which is a log line.
+        logger.info("sync_cursor_invalidated", connection=str(connection.id), detail=str(exc)[:500])
+        connection.last_error = _CLASS_MESSAGES["cursor_invalid"]
         connection.error_class = "cursor_invalid"
         await db.commit()
         return ServiceResponse.ok({"resync_scheduled": True})
@@ -505,21 +508,59 @@ async def sync_connection(db: AsyncSession, connection: ProviderConnection) -> S
     return ServiceResponse.ok(totals)
 
 
+#: What a person is told for each failure class. `last_error` is shown in the
+#: UI and returned by the API, so it is *copy*, not a place to put whatever
+#: string happened to be raised.
+#:
+#: Two paths used to put raw text there. Google's error bodies, on the
+#: unclassified-4xx branch, which are JSON that can name the account and the
+#: resource. And `except Exception`, whose `str(exc)` for a database error is
+#: the full SQL statement and sometimes its parameters — returned to the user
+#: over the API, from a failure that had nothing to do with them.
+#:
+#: The detail is not lost; it goes to the log, where an operator can read it
+#: and a user cannot.
+_CLASS_MESSAGES = {
+    "rate_limit": "Google is limiting how often this can sync. It will catch up on its own.",
+    "provider_5xx": "Google could not be reached. Retrying automatically.",
+    "not_found": "Something this sync expected was no longer there. Retrying automatically.",
+    "cursor_invalid": "Google expired this connection's place in the sync. A full re-check is scheduled.",
+    "bug": "This sync hit an unexpected error. It will retry, and the details are in the server log.",
+}
+
+
 async def _record_failure(db: AsyncSession, connection: ProviderConnection, exc: provider_base.ProviderError) -> None:
     """Advance the connection's health state and schedule the next attempt."""
-    error_class = exc.error_class
-    message = str(exc)
+    raw = str(exc)
+    # The class the *adapter* raised decides what happens next. It is captured
+    # before classification because `classify_refresh_failure` replaces "auth"
+    # with a narrower code, and branching on the replacement sent a dead grant
+    # into the retry-with-backoff path instead of putting a reconnect button in
+    # front of the user.
+    raised_as = exc.error_class
+    error_class = raised_as
 
-    if error_class == "auth":
-        error_class, message = google_auth.classify_refresh_failure(message, connected_at=connection.connected_at)
-        # A revoked or expired grant will not fix itself. Stop retrying and put
-        # a reconnect button in front of the user instead.
+    if raised_as == "auth":
+        error_class, message = google_auth.classify_refresh_failure(raw, connected_at=connection.connected_at)
+        # A revoked or expired grant will not fix itself. Stop retrying.
         connection.status = "needs_reauth"
         connection.disabled_until = None
-    elif error_class == "config":
+    elif raised_as == "config":
+        # Ours, written for the operator, and the one thing that actually
+        # explains a key change.
+        message = raw
         connection.status = "key_unavailable"
         connection.disabled_until = None
     else:
+        message = _CLASS_MESSAGES.get(raised_as, _CLASS_MESSAGES["bug"])
+        # Logged rather than shown: an operator needs it, the user cannot act
+        # on it, and it is third-party or internal text either way.
+        logger.warning(
+            "provider_sync_failure_detail",
+            connection=str(connection.id),
+            error_class=raised_as,
+            detail=raw[:500],
+        )
         connection.status = "transient_broken"
         index = min(connection.consecutive_failures, len(_BACKOFF) - 1)
         delay = exc.retry_after or _BACKOFF[index]
