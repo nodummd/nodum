@@ -220,13 +220,23 @@ class GoogleCalendarAdapter:
 
 
 async def list_calendars(access_token: str) -> list[dict[str, str]]:
-    """Every calendar the grant can see, for the connection settings UI."""
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(
-            f"{API}/users/me/calendarList",
-            params={"maxResults": "250", "minAccessRole": "reader"},
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
+    """Every calendar the grant can see, for the connection settings UI.
+
+    Its own client, and therefore its own transport handling — the fix in the
+    adapter's `_get` did not reach here. This runs on the OAuth callback
+    *after* the tokens have been committed, so an unwrapped httpx error is a
+    500 page shown to someone whose connection actually succeeded: they read it
+    as failure and connect again.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{API}/users/me/calendarList",
+                params={"maxResults": "250", "minAccessRole": "reader"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.HTTPError as exc:
+        raise ProviderError(f"Could not reach Google: {exc.__class__.__name__}", error_class="provider_5xx") from exc
     if resp.status_code >= 400:
         raise ProviderError(f"Could not list calendars: {resp.text[:200]}", error_class="auth")
     return [

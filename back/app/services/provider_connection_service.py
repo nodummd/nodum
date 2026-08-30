@@ -181,7 +181,10 @@ async def complete_google_connect(
                 "calendar": {"calendar_ids": [primary or "primary"]},
             }
             await db.commit()
-        except provider_base.ProviderError as exc:
+        except Exception as exc:
+            # The connection is already saved and working; the calendar list is
+            # a convenience the settings UI can fetch later. Nothing here is
+            # worth turning a successful connect into a 500.
             logger.warning("calendar_list_failed", error=str(exc))
 
     logger.info("provider_connected", provider=provider_id, user=str(user_id))
