@@ -1310,3 +1310,112 @@ async def test_the_first_walk_bootstraps_the_cursor_from_the_profile() -> None:
     last = await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX"]}}))
     assert last.done is True
     assert last.next_cursor == "9001"
+
+
+# ── HTTP status → what the connection does next ─────────────────────────────
+#
+# `error_class` is not a label: it decides whether the connection stops and
+# asks for a reconnect, backs off and retries, or throws its cursor away and
+# walks from the beginning. Getting one wrong is not a worse error message, it
+# is the wrong behaviour for days — a 410 read as "auth" puts a Reconnect
+# button in front of a user whose grant is fine, and a 401 read as transient
+# retries a revoked token every five minutes forever.
+
+
+class _Status:
+    """An httpx-shaped response with a chosen status."""
+
+    def __init__(self, status: int, text: str = "{}") -> None:
+        self.status_code = status
+        self.text = text
+
+    def json(self) -> dict[str, Any]:
+        return {}
+
+
+def _adapter_with_status(module: Any, status: int, text: str = "{}") -> Any:
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        async def get(self, *_args, **_kwargs):
+            return _Status(status, text)
+
+    module.httpx.AsyncClient = lambda **_kw: _Client()  # type: ignore[assignment]
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_class", "expected_type"),
+    [
+        (410, "cursor_invalid", base.CursorInvalid),
+        (401, "auth", base.ProviderError),
+        (403, "auth", base.ProviderError),
+        (429, "rate_limit", base.ProviderError),
+        (500, "provider_5xx", base.ProviderError),
+        (503, "provider_5xx", base.ProviderError),
+        (400, "bug", base.ProviderError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_calendar_maps_each_status_to_the_behaviour_it_should_cause(
+    status: int, expected_class: str, expected_type: type
+) -> None:
+    original = google_calendar.httpx.AsyncClient
+    _adapter_with_status(google_calendar, status, '{"error":"detail"}')
+    try:
+        with pytest.raises(expected_type) as caught:
+            await google_calendar.GoogleCalendarAdapter()._get("token", "/calendars/primary/events", {})
+    finally:
+        google_calendar.httpx.AsyncClient = original  # type: ignore[assignment]
+
+    assert caught.value.error_class == expected_class
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_class"),
+    [(404, "not_found"), (401, "auth"), (429, "rate_limit"), (500, "provider_5xx"), (400, "bug")],
+)
+@pytest.mark.asyncio
+async def test_gmail_maps_each_status_to_the_behaviour_it_should_cause(status: int, expected_class: str) -> None:
+    original = google_gmail.httpx.AsyncClient
+    _adapter_with_status(google_gmail, status, '{"error":"detail"}')
+    try:
+        with pytest.raises(base.ProviderError) as caught:
+            await google_gmail.GoogleGmailAdapter()._get("/threads/t1", "token", {})
+    finally:
+        google_gmail.httpx.AsyncClient = original  # type: ignore[assignment]
+
+    assert caught.value.error_class == expected_class
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limit_says_how_long_to_wait() -> None:
+    """`retry_after` overrides the backoff ladder. Without it a 429 escalates
+    through the ladder as though the connection were broken, which is minutes
+    of not syncing over something Google said would clear in a minute."""
+    original = google_calendar.httpx.AsyncClient
+    _adapter_with_status(google_calendar, 429)
+    try:
+        with pytest.raises(base.ProviderError) as caught:
+            await google_calendar.GoogleCalendarAdapter()._get("token", "/calendars/primary/events", {})
+    finally:
+        google_calendar.httpx.AsyncClient = original  # type: ignore[assignment]
+
+    assert caught.value.retry_after == 60
+
+
+@pytest.mark.asyncio
+async def test_a_missing_thread_does_not_kill_the_page() -> None:
+    """A thread deleted between listing and fetching is normal on a live
+    mailbox, and it must cost that one record rather than the whole run."""
+    original = google_gmail.httpx.AsyncClient
+    _adapter_with_status(google_gmail, 404)
+    try:
+        record = await google_gmail.GoogleGmailAdapter()._thread("gone", _ctx(stream="gmail:messages"))
+    finally:
+        google_gmail.httpx.AsyncClient = original  # type: ignore[assignment]
+
+    assert record is not None and record.kind == "tombstone"
