@@ -337,3 +337,80 @@ async def test_deleting_a_vault_hands_the_google_grant_back(connection: Provider
 
     assert count == 1
     assert revoked == ["refresh-token-value"], "the grant was not handed back to Google"
+
+
+@pytest.mark.asyncio
+async def test_manual_sync_is_queued_rather_than_run_in_the_request(
+    connection: ProviderConnection,
+) -> None:
+    """A first backfill walks up to eight pages of 250 events, each computing
+    an embedding. Run inline it holds a web worker for minutes and ends in a
+    client timeout the user reads as failure — and then presses again."""
+    from app.core import celery as celery_module
+    from app.services import provider_connection_service
+
+    sent: list[tuple[str, list[str]]] = []
+    original = celery_module.celery_app.send_task
+    celery_module.celery_app.send_task = lambda name, args=None, **kw: sent.append((name, args or []))  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            response = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+    finally:
+        celery_module.celery_app.send_task = original  # type: ignore[assignment]
+
+    assert response.success
+    assert response.data == {"queued": True}
+    assert sent == [("tasks.sync_connection", [str(connection.id)])]
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_broker_is_reported_not_swallowed(
+    connection: ProviderConnection,
+) -> None:
+    """A button that reports success and does nothing is worse than an error."""
+    from app.core import celery as celery_module
+    from app.services import provider_connection_service
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("broker unreachable")
+
+    original = celery_module.celery_app.send_task
+    celery_module.celery_app.send_task = _boom  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            response = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+    finally:
+        celery_module.celery_app.send_task = original  # type: ignore[assignment]
+
+    assert not response.success
+    assert "worker" in response.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_sync_now_refuses_a_connection_that_needs_reauth(
+    connection: ProviderConnection,
+) -> None:
+    """Queuing work for a dead grant just burns a worker slot to fail."""
+    from app.services import provider_connection_service
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.status = "needs_reauth"
+        row.last_error = "Reconnect to resume syncing."
+        await session.commit()
+
+    async with async_session_factory() as session:
+        response = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+    assert not response.success
+
+
+@pytest.mark.asyncio
+async def test_sync_now_is_scoped_to_its_owner(connection: ProviderConnection) -> None:
+    """Another user's connection id must not be actionable."""
+    from app.services import provider_connection_service
+
+    async with async_session_factory() as session:
+        response = await provider_connection_service.sync_now(session, connection.id, uuid.uuid4())
+    assert not response.success
+    assert response.error_code == "not_found"

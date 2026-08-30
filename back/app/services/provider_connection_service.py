@@ -203,12 +203,28 @@ async def sync_now(db: AsyncSession, connection_id: UUID, user_id: UUID) -> Serv
     if connection.status == "needs_reauth":
         return ServiceResponse.fail("validation_failed", connection.last_error or "Reconnect required.")
 
-    from app.services import provider_sync_service
-
     # Clear any backoff — the user asking directly overrides the schedule.
     connection.disabled_until = None
     await db.commit()
-    return await provider_sync_service.sync_connection(db, connection)
+
+    # Handed to a worker rather than run here. See tasks.sync_connection for
+    # why: a backfill inside a request holds a web worker for minutes and ends
+    # in a timeout the user reads as failure.
+    from app.core.celery import celery_app
+
+    try:
+        celery_app.send_task("tasks.sync_connection", args=[str(connection.id)])
+    except Exception:
+        # The broker being unreachable is an operator problem, and saying so is
+        # better than a button that reports success and does nothing. Sync
+        # needs a worker at all times anyway — this is not a new dependency.
+        logger.exception("sync_enqueue_failed", connection=str(connection.id))
+        return ServiceResponse.fail(
+            "validation_failed",
+            "Could not start the sync — the background worker is not reachable. "
+            "Check that the Celery worker is running.",
+        )
+    return ServiceResponse.ok({"queued": True})
 
 
 async def update_settings(

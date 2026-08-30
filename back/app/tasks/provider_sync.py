@@ -24,6 +24,36 @@ logger = get_logger("provider_sync_task")
 BATCH = 25
 
 
+@celery_app.task(name="tasks.sync_connection")
+def sync_connection(connection_id: str) -> dict[str, int]:
+    """Run one connection now, because a person pressed the button.
+
+    Separate from the scheduled sweep so an on-demand run is not queued behind
+    everyone else's, and — more importantly — so it does not happen inside the
+    HTTP request. A first Calendar backfill walks up to eight pages of 250
+    events, each of which computes an embedding; done inline that is minutes of
+    work holding a web worker, ending in a client timeout and a user who
+    presses the button again.
+    """
+
+    async def _run() -> dict[str, int]:
+        from uuid import UUID
+
+        from app.core.db import async_session_factory
+        from app.models.providers import ProviderConnection
+
+        async with async_session_factory() as session:
+            connection = await session.get(ProviderConnection, UUID(connection_id))
+            if connection is None:
+                return {"missing": 1}
+            response = await provider_sync_service.sync_connection(session, connection)
+            return {"ok": 1} if response.success else {"failed": 1}
+
+    result = asyncio.run(_run())
+    logger.info("provider_sync_manual", connection=connection_id, **result)
+    return result
+
+
 @celery_app.task(name="tasks.sync_providers")
 def sync_providers() -> dict[str, int]:
     """Run every connection that is due a poll."""

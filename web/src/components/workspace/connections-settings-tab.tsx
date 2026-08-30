@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, Link2, Loader2, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { confirmDelete } from "./confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -31,13 +31,20 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
     queryKey: ["sync-providers"],
     queryFn: () => connectionsApi.providers(),
   });
+  // A manual sync is queued for a worker, so for a few seconds afterwards
+  // nothing is marked as syncing yet. Without this window the button would
+  // appear to do nothing at all until the next page load.
+  const [pollUntil, setPollUntil] = useState(0);
+
   const { data: connections } = useQuery({
     queryKey: ["sync-connections"],
     queryFn: () => connectionsApi.list(),
     // A backfill runs in the background; poll so progress is visible without
     // making the user reload the page to find out whether it worked.
-    refetchInterval: (query) =>
-      (query.state.data ?? []).some((c) => c.streams.some((s) => s.syncing)) ? 4000 : false,
+    refetchInterval: (query) => {
+      const running = (query.state.data ?? []).some((c) => c.streams.some((s) => s.syncing));
+      return running || Date.now() < pollUntil ? 3000 : false;
+    },
   });
 
   // Google bounces the browser back to /vault?connected=… after consent.
@@ -72,10 +79,13 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
   const syncNow = useMutation({
     mutationFn: (id: string) => connectionsApi.syncNow(id),
     onSuccess: () => {
+      // 60 seconds is enough for a worker to pick the job up and claim its
+      // lease, which is when the row starts reporting itself as syncing.
+      setPollUntil(Date.now() + 60_000);
       void queryClient.invalidateQueries({ queryKey: ["sync-connections"] });
-      toast("Sync started.", "info");
+      toast("Sync queued. The first run can take a few minutes.", "info");
     },
-    onError: (e) => toastError(e, "Sync failed."),
+    onError: (e) => toastError(e, "Could not start the sync."),
   });
 
   const disconnect = useMutation({
