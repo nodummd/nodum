@@ -115,6 +115,12 @@ class ProviderConnection(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "provider", "external_account_id", "vault_id", name="uq_provider_conn_account"),
+        # The dispatcher's hot query, run every tick: "which active connections
+        # are due a poll?" Declared here rather than only in the migration —
+        # `--autogenerate` proposes dropping any index the models do not know
+        # about, and losing this one degrades the sweep silently, getting worse
+        # as connections are added.
+        Index("ix_provider_connections_due", "status", "disabled_until"),
     )
 
 

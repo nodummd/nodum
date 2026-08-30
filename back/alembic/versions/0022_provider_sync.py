@@ -53,8 +53,8 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("user_id", "provider", "external_account_id", "vault_id", name="uq_provider_conn_account"),
     )
-    op.create_index("ix_provider_connections_user", "provider_connections", ["user_id"])
-    op.create_index("ix_provider_connections_vault", "provider_connections", ["vault_id"])
+    op.create_index("ix_provider_connections_user_id", "provider_connections", ["user_id"])
+    op.create_index("ix_provider_connections_vault_id", "provider_connections", ["vault_id"])
     # The dispatcher's hot query: "which active connections are due a poll?"
     op.create_index(
         "ix_provider_connections_due",
@@ -87,7 +87,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.UniqueConstraint("connection_id", "stream", name="uq_sync_stream"),
     )
-    op.create_index("ix_sync_streams_connection", "sync_streams", ["connection_id"])
+    op.create_index("ix_sync_streams_connection_id", "sync_streams", ["connection_id"])
 
     op.create_table(
         "external_objects",
