@@ -1218,3 +1218,95 @@ def test_the_client_knows_exactly_the_statuses_the_server_can_send() -> None:
     known = set(re.findall(r'"([a-z_]+)"', declared))
 
     assert known == set(CONNECTION_STATUSES), f"client says {sorted(known)}, server sends {sorted(CONNECTION_STATUSES)}"
+
+
+# ── Gmail: which threads are in scope ───────────────────────────────────────
+
+
+class _FakeMailbox(google_gmail.GoogleGmailAdapter):
+    """Serves a thread listing and the threads in it."""
+
+    def __init__(self, threads: dict[str, list[str]], *, page: str = "") -> None:
+        self._threads = threads
+        self._page = page
+        self.list_params: dict[str, str] = {}
+        self.fetched: list[str] = []
+
+    async def _get(self, path: str, token: str, params: dict[str, str]) -> dict[str, Any]:
+        if path == "/threads":
+            self.list_params = dict(params)
+            return {
+                "threads": [{"id": tid} for tid in self._threads],
+                **({"nextPageToken": self._page} if self._page else {}),
+            }
+        if path == "/profile":
+            return {"historyId": "9001"}
+        thread_id = path.rsplit("/", 1)[-1]
+        self.fetched.append(thread_id)
+        return {
+            "id": thread_id,
+            "messages": [_message(sender="a@b.com", subject=f"Thread {thread_id}", labels=self._threads[thread_id])],
+        }
+
+
+@pytest.mark.asyncio
+async def test_the_label_filter_applies_after_the_first_walk_too() -> None:
+    """It used to apply to the backfill alone.
+
+    `history.list` returns every change in the mailbox, so once the first walk
+    finished, a connection set to INBOX started writing a note for every thread
+    anywhere in the account — archive, spam, all of it. For a mailbox that is
+    the difference between syncing an inbox and syncing an archive, and nothing
+    anywhere said it had happened.
+    """
+    adapter = _FakeMailbox({"t1": ["INBOX"], "t2": ["TRASH"], "t3": ["INBOX", "IMPORTANT"]})
+    page = await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX"]}}))
+
+    assert {r.external_id for r in page.records} == {"t1", "t3"}, "an out-of-scope thread became a note"
+
+
+@pytest.mark.asyncio
+async def test_choosing_several_labels_syncs_all_of_them() -> None:
+    """`labelIds` is an AND across its values, so the first walk took
+    `labels[0]` and silently ignored every other label the user picked."""
+    adapter = _FakeMailbox({"t1": ["INBOX"], "t2": ["STARRED"], "t3": ["SPAM"]})
+    page = await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX", "STARRED"]}}))
+
+    assert {r.external_id for r in page.records} == {"t1", "t2"}
+    # With more than one label the server cannot narrow it, so the walk must
+    # not claim to: an AND of INBOX and STARRED would return almost nothing.
+    assert "labelIds" not in adapter.list_params
+
+
+@pytest.mark.asyncio
+async def test_a_single_label_is_still_narrowed_by_google() -> None:
+    """The common case, and the default. Filtering client-side would work but
+    would walk the whole mailbox to do it."""
+    adapter = _FakeMailbox({"t1": ["INBOX"]})
+    await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX"]}}))
+    assert adapter.list_params.get("labelIds") == "INBOX"
+    assert "newer_than" in adapter.list_params.get("q", "")
+
+
+@pytest.mark.asyncio
+async def test_a_thread_that_reports_no_labels_is_kept() -> None:
+    """A thread with no labels at all is a data anomaly, not an out-of-scope
+    thread — and dropping every thread is much the worse way to be wrong."""
+    adapter = _FakeMailbox({"t1": []})
+    page = await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX"]}}))
+    assert [r.external_id for r in page.records] == ["t1"]
+
+
+@pytest.mark.asyncio
+async def test_the_first_walk_bootstraps_the_cursor_from_the_profile() -> None:
+    """Only on the last page: setting it earlier would skip everything between
+    the cursor and the end of the walk."""
+    adapter = _FakeMailbox({"t1": ["INBOX"]}, page="page-2")
+    first = await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX"]}}))
+    assert first.done is False
+    assert first.next_cursor == "", "the cursor moved before the walk had finished"
+
+    adapter = _FakeMailbox({"t1": ["INBOX"]})
+    last = await adapter.fetch(_ctx(stream="gmail:messages", settings={"gmail": {"labels": ["INBOX"]}}))
+    assert last.done is True
+    assert last.next_cursor == "9001"

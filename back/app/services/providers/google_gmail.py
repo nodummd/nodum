@@ -108,11 +108,15 @@ class GoogleGmailAdapter:
         days = settings_schema.backfill_days(ctx.settings, "gmail", DEFAULT_BACKFILL_DAYS)
         labels = _labels(ctx.settings)
 
-        params = {
-            "maxResults": str(THREADS_PER_PAGE),
-            "q": f"newer_than:{days}d",
-            "labelIds": labels[0] if labels else "INBOX",
-        }
+        params = {"maxResults": str(THREADS_PER_PAGE), "q": f"newer_than:{days}d"}
+        if len(labels) == 1:
+            # `labelIds` is an AND across the values it is given, so it can
+            # only narrow the walk when there is one label — which is the
+            # default and the common case. With several, the walk is wider and
+            # `_thread` does the filtering; that costs API calls, not
+            # correctness, and taking `labels[0]` instead silently synced one
+            # label and ignored every other one the user picked.
+            params["labelIds"] = labels[0]
         if ctx.page_token:
             params["pageToken"] = ctx.page_token
 
@@ -142,6 +146,12 @@ class GoogleGmailAdapter:
         offset = int(raw_offset) if raw_offset.isdigit() else 0
 
         params = {"startHistoryId": ctx.cursor_token, "maxResults": "200"}
+        # history.list takes a single labelId, so this narrows the common case
+        # and does nothing for the rest. It is an optimisation, not the filter:
+        # `_thread` is what actually decides scope, on every path.
+        scope = _labels(ctx.settings)
+        if len(scope) == 1:
+            params["labelId"] = scope[0]
         if history_token:
             params["pageToken"] = history_token
 
@@ -232,6 +242,26 @@ class GoogleGmailAdapter:
                 blocks.append(f"{heading}\n\n{quoted}" if body else heading)
             else:
                 blocks.append(heading)
+
+        # Scope is decided here, and only here.
+        #
+        # The label filter used to apply to the first walk alone: `history.list`
+        # returns every change in the mailbox, so once the backfill finished, a
+        # connection set to "INBOX" started writing a note for every thread
+        # anywhere in the account — archive, spam, all of it. For a mailbox that
+        # is the difference between syncing an inbox and syncing an archive, and
+        # nothing said it had happened.
+        #
+        # A thread reporting no labels at all is a data anomaly rather than an
+        # out-of-scope thread, and dropping everything is much the worse way to
+        # be wrong, so that case is kept.
+        scope = set(_labels(ctx.settings))
+        if labels and not (labels & scope):
+            # Skipped, not tombstoned. A thread that leaves the scope — archived
+            # out of the inbox — still exists, and the note may have the user's
+            # own writing under it. One-way sync does not delete on a remote
+            # state change; only on an actual deletion.
+            return None
 
         subject = subject or "(no subject)"
         first_at = first_at or datetime.now(UTC)

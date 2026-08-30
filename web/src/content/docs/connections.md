@@ -105,6 +105,13 @@ to stop.
 when, and the subject, but not the text. Turn it on and the message bodies are
 stored in your vault.
 
+**Labels** (Gmail only). Which labels are in scope, `INBOX` by default. A
+thread is synced if it carries any one of them, and that holds for every sync
+rather than only the first import — archiving a thread out of your inbox stops
+it updating, and leaves the note and anything you wrote under it alone.
+Choosing several labels makes the first import slower, because Google can only
+narrow the search to one.
+
 Changes apply from the next sync. Notes already written are not rearranged —
 changing the folder affects new notes, not old ones.
 
