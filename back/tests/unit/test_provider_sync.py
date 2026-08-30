@@ -1454,3 +1454,110 @@ async def test_a_missing_thread_does_not_kill_the_page() -> None:
         google_gmail.httpx.AsyncClient = original  # type: ignore[assignment]
 
     assert record is not None and record.kind == "tombstone"
+
+
+# ── which day an event lands on ─────────────────────────────────────────────
+#
+# The date wikilink is the single most valuable connection this feature makes,
+# and a wrong one is invisible: the note exists, the link resolves, it is
+# simply attached to the wrong day. Nobody notices until they wonder why their
+# Tuesday standup is on Monday's daily note.
+
+
+def _calendar_item(**item: Any) -> dict[str, Any]:
+    base = {
+        "id": "evt-1",
+        "summary": "Design review",
+        "start": {"dateTime": "2026-09-02T14:00:00Z"},
+        "end": {"dateTime": "2026-09-02T15:00:00Z"},
+        "updated": "2026-09-01T09:00:00Z",
+    }
+    base.update(item)
+    return base
+
+
+async def _render_event(item: dict[str, Any], **ctx_kwargs: Any) -> Any:
+    adapter = _FakeCalendar({"items": [item]})
+    page = await adapter.fetch(_ctx(**ctx_kwargs))
+    return page.records[0] if page.records else None
+
+
+@pytest.mark.asyncio
+async def test_a_late_evening_event_lands_on_its_own_local_day() -> None:
+    """23:30 in Los Angeles is 06:30 the next day in UTC.
+
+    Filed by the UTC date, half of someone's evening appears on tomorrow —
+    every meeting after about 4pm on the US west coast, and every one before
+    about 9am in Asia.
+    """
+    record = await _render_event(
+        _calendar_item(
+            start={"dateTime": "2026-09-02T23:30:00-07:00"},
+            end={"dateTime": "2026-09-03T00:30:00-07:00"},
+        )
+    )
+    assert record is not None
+    assert "[[2026-09-02]]" in record.body, record.body.split("\n")[2]
+    assert record.folder == "Calendar/2026/09"
+    assert "23:30" in record.body, "the clock range was rendered in UTC"
+
+
+@pytest.mark.asyncio
+async def test_an_early_morning_event_east_of_utc_lands_on_its_own_local_day() -> None:
+    """00:30 in Tokyo is 15:30 the *previous* day in UTC — the same bug, in
+    the other direction, where it moves the event backwards."""
+    record = await _render_event(
+        _calendar_item(
+            start={"dateTime": "2026-09-03T00:30:00+09:00"},
+            end={"dateTime": "2026-09-03T01:30:00+09:00"},
+        )
+    )
+    assert record is not None
+    assert "[[2026-09-03]]" in record.body
+    assert record.folder == "Calendar/2026/09"
+
+
+@pytest.mark.asyncio
+async def test_an_all_day_event_says_so_rather_than_claiming_midnight() -> None:
+    """Birthdays, holidays and out-of-office are most of a real calendar.
+    Rendering "00:00-00:00" for them is worse than saying nothing."""
+    record = await _render_event(_calendar_item(start={"date": "2026-09-02"}, end={"date": "2026-09-03"}))
+    assert record is not None
+    assert "[[2026-09-02]] · all day" in record.body
+    assert "00:00" not in record.body
+
+
+@pytest.mark.asyncio
+async def test_an_event_with_no_end_still_renders() -> None:
+    record = await _render_event(_calendar_item(end={}))
+    assert record is not None
+    assert "14:00" in record.body
+
+
+@pytest.mark.asyncio
+async def test_an_event_with_no_start_is_dropped_rather_than_guessed() -> None:
+    """There is no honest day to file it under, and guessing puts it on a day
+    the user did not have it."""
+    assert await _render_event(_calendar_item(start={}, end={})) is None
+
+
+@pytest.mark.asyncio
+async def test_an_untitled_event_gets_a_name_it_can_be_saved_under() -> None:
+    """`create_note` rejects an empty title, so an untitled event would fail
+    to create on every poll, forever, with nothing surfaced."""
+    record = await _render_event(_calendar_item(summary=""))
+    assert record is not None
+    assert record.title
+    assert "(no title)" in record.body
+
+
+@pytest.mark.asyncio
+async def test_the_daily_link_follows_the_vaults_format_across_timezones() -> None:
+    """The link is rendered with the vault's own daily-note format; the wrong
+    format makes every date a ghost node instead of a link."""
+    record = await _render_event(
+        _calendar_item(start={"dateTime": "2026-09-02T23:30:00-07:00"}, end={"dateTime": "2026-09-03T00:30:00-07:00"}),
+        daily_format="DD-MM-YYYY",
+    )
+    assert record is not None
+    assert "[[02-09-2026]]" in record.body
