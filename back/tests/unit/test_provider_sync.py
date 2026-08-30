@@ -703,3 +703,193 @@ def test_error_classes_raised_by_adapters_are_declared() -> None:
 
     undeclared = raised - set(ERROR_CLASSES)
     assert not undeclared, f"error classes raised but not declared: {sorted(undeclared)}"
+
+
+# ── the Gmail thread renderer ───────────────────────────────────────────────
+#
+# Untested until now, and it handles the most hostile input in the feature:
+# every field below is chosen by whoever sent the message.
+
+
+def _b64(text: str) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
+
+
+def _message(
+    *,
+    sender: str,
+    subject: str = "",
+    body: str = "",
+    html: str = "",
+    labels: list[str] | None = None,
+    when: int = 1_700_000_000_000,
+) -> dict[str, Any]:
+    headers = [{"name": "From", "value": sender}]
+    if subject:
+        headers.append({"name": "Subject", "value": subject})
+    payload: dict[str, Any] = {"headers": headers}
+    if html:
+        payload["mimeType"] = "text/html"
+        payload["body"] = {"data": _b64(html)}
+    else:
+        payload["mimeType"] = "text/plain"
+        payload["body"] = {"data": _b64(body)} if body else {}
+    return {
+        "id": f"m{when}",
+        "labelIds": labels if labels is not None else ["INBOX"],
+        "internalDate": str(when),
+        "payload": payload,
+    }
+
+
+class _FakeGmail(google_gmail.GoogleGmailAdapter):
+    # `_payload`, not `_thread` — the latter is the method under test, and
+    # assigning it in __init__ shadows it with a dict.
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    async def _get(self, path: str, token: str, params: dict[str, str]) -> dict[str, Any]:
+        return self._payload
+
+
+async def _render(thread: dict[str, Any], **settings: Any):
+    adapter = _FakeGmail(thread)
+    ctx = _ctx(stream="gmail:messages", settings={"gmail": settings} if settings else {})
+    return await adapter._thread("t1", ctx)
+
+
+@pytest.mark.asyncio
+async def test_a_thread_becomes_one_note_with_its_participants() -> None:
+    record = await _render(
+        {
+            "id": "t1",
+            "historyId": "9001",
+            "messages": [
+                _message(sender='"Amara Osei" <amara@example.com>', subject="Q3 roadmap", when=1_700_000_000_000),
+                _message(sender="Dan Reeves <dan@example.com>", when=1_700_000_600_000),
+                _message(sender='"Amara Osei" <amara@example.com>', when=1_700_001_200_000),
+            ],
+        }
+    )
+    assert record is not None
+    assert record.folder.startswith("Mail/")
+    # One note for the whole conversation, not one per message.
+    assert record.body.count("# ") >= 1
+    # Each person once, in first-seen order.
+    assert record.wants_notes == ("Amara Osei", "Dan Reeves")
+    assert record.external_version == 9001
+
+
+@pytest.mark.asyncio
+async def test_a_reply_subject_still_produces_a_creatable_title() -> None:
+    """ "Re: …" is most of any inbox, and a colon is a rejected path segment."""
+    from app.utils.path_utils import validate_segment
+
+    record = await _render({"id": "t1", "messages": [_message(sender="a@b.com", subject="Re: Q3 roadmap")]})
+    assert record is not None
+    assert validate_segment(record.title) is None
+    # The heading keeps what the thread is actually called.
+    assert "Re: Q3 roadmap" in record.body
+
+
+@pytest.mark.asyncio
+async def test_bodies_are_not_stored_unless_asked_for() -> None:
+    """Storing message bodies is opt-in per connection. Off, a note carries
+    who and when and nothing the sender wrote."""
+    thread = {
+        "id": "t1",
+        "messages": [_message(sender="a@b.com", subject="Hello", body="SECRET BODY TEXT")],
+    }
+
+    off = await _render(thread)
+    assert off is not None
+    assert "SECRET BODY TEXT" not in off.body
+    assert "not stored" in off.body
+
+    on = await _render(thread, store_bodies=True)
+    assert on is not None
+    assert "SECRET BODY TEXT" in on.body
+
+
+@pytest.mark.asyncio
+async def test_an_html_only_message_is_converted_rather_than_dropped() -> None:
+    record = await _render(
+        {
+            "id": "t1",
+            "messages": [_message(sender="a@b.com", subject="Newsletter", html="<p>Hello <b>there</b></p>")],
+        },
+        store_bodies=True,
+    )
+    assert record is not None
+    assert "**there**" in record.body
+
+
+@pytest.mark.asyncio
+async def test_gmail_labels_become_namespaced_tags_and_noise_is_dropped() -> None:
+    record = await _render(
+        {
+            "id": "t1",
+            "messages": [
+                _message(
+                    sender="a@b.com",
+                    subject="Hi",
+                    labels=["INBOX", "UNREAD", "IMPORTANT", "CATEGORY_UPDATES"],
+                )
+            ],
+        }
+    )
+    assert record is not None
+    assert "gmail/inbox" in record.body
+    assert "gmail/updates" in record.body
+    # State, not topic — these would land on nearly every note.
+    assert "gmail/unread" not in record.body
+    assert "gmail/important" not in record.body
+
+
+@pytest.mark.asyncio
+async def test_a_hostile_subject_cannot_reach_the_tag_pane_or_the_graph() -> None:
+    """Every field here is chosen by whoever sent the email."""
+    record = await _render(
+        {
+            "id": "t1",
+            "messages": [
+                _message(
+                    sender='"[[Evil]] #hax" <a@b.com>',
+                    subject="Re: #urgent see [[Roadmap]]",
+                    body="body with #tag and [[Link]]",
+                )
+            ],
+        },
+        store_bodies=True,
+    )
+    assert record is not None
+    assert extract_tags(record.body) <= {"gmail/inbox"}, "sender-controlled text produced a tag"
+    targets = {link.target for link in extract_wikilinks(record.body)}
+    # The only link a thread may emit is its date.
+    assert "Roadmap" not in targets
+    assert "Evil" not in targets
+    assert "Link" not in targets
+
+
+@pytest.mark.asyncio
+async def test_a_thread_that_lost_its_messages_is_a_tombstone() -> None:
+    record = await _render({"id": "t1", "messages": []})
+    assert record is not None
+    assert record.kind == "tombstone"
+
+
+@pytest.mark.asyncio
+async def test_automated_senders_are_kept_out_of_the_people_list() -> None:
+    record = await _render(
+        {
+            "id": "t1",
+            "messages": [
+                _message(sender="noreply@github.com", subject="Build failed"),
+                _message(sender='"Amara Osei" <amara@example.com>', when=1_700_000_600_000),
+            ],
+        }
+    )
+    assert record is not None
+    assert record.wants_notes == ("Amara Osei",)
