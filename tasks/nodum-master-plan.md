@@ -1151,8 +1151,10 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     suite at 250 passed / 2 failed, both `auth.spec.ts` email-verification
     specs that need `EMAIL_VERIFICATION_REQUIRED` on.
   - *Still open.* The connection settings panel has no end-to-end coverage —
-    it needs a real Google grant to render, and faking one would assert the
-    fake. `web/` has no unit-test runner, so nothing below the e2e layer
+    it needs a real Google grant to render. The connected-state UI around it
+    is covered by stubbing the connections endpoint, which is sound because
+    the shape being stubbed is pinned independently by the backend suite
+    against a real database; the panel itself is next. `web/` has no unit-test runner, so nothing below the e2e layer
     tests React; adding one is a repo-wide choice, not a feature-branch
     decision. The same index-naming drift found in `0022` exists across five
     pre-existing tables and belongs in its own PR.
