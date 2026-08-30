@@ -263,11 +263,14 @@ async def apply_record(
     root = _folder_root(connection, connection.provider)
     folder_path = f"{root}/{record.folder}" if root else record.folder
     folder = await folder_service.ensure_folder_path(db, connection.vault_id, connection.user_id, folder_path)
+    title = await _free_title(
+        db, connection.vault_id, folder_path if folder.success else "", record.title or record.external_id
+    )
     created = await note_service.create_note(
         db,
         connection.vault_id,
         connection.user_id,
-        title=record.title or record.external_id,
+        title=title,
         folder_id=folder.data if folder.success else None,
         content=providers.compose(body, ""),
     )
@@ -286,6 +289,28 @@ async def apply_record(
         return "error"
     await _record_mapping(db, connection, stream, record, created.data.id, content_hash)
     return "created"
+
+
+async def _free_title(db: AsyncSession, vault_id: UUID, folder_path: str, title: str) -> str:
+    """A title that is not already taken in this folder.
+
+    Two different events genuinely can share a name — "Standup", "1:1",
+    "Weekly sync" — and two mail threads routinely share a subject. Without
+    this, the second one fails to create with `already_exists`, and because the
+    mapping row is only written on success it is retried on every poll,
+    forever, and never appears.
+
+    Suffixed the same way an import does, so the convention is one the user has
+    already seen rather than a second invention.
+    """
+    candidate = title
+    for attempt in range(1, 50):
+        path = f"{folder_path}/{candidate}" if folder_path else candidate
+        taken = await db.scalar(select(Note.id).where(Note.vault_id == vault_id, Note.path == path))
+        if taken is None:
+            return candidate
+        candidate = f"{title} {attempt + 1}"
+    return f"{title} {uuid4().hex[:6]}"
 
 
 async def _record_mapping(
