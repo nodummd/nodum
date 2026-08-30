@@ -1108,6 +1108,41 @@ def _declared_reasons() -> set[str]:
     return found
 
 
+def test_every_failure_of_the_connect_flow_carries_a_reason() -> None:
+    """The other direction, and the one that actually regressed.
+
+    `_declared_reasons` only checks that the literals which *exist* are valid,
+    so four call sites silently losing theirs left it green — and every
+    callback failure landed with no reason at all, showing generic copy in
+    place of the message that fixes a seven-day grant. What matters is that
+    each failure path emits one, so that is what this asserts.
+    """
+    import ast as ast_module
+
+    source = Path("app/services/provider_connection_service.py").read_text()
+    tree = ast_module.parse(source)
+    target = next(
+        node
+        for node in ast_module.walk(tree)
+        if isinstance(node, ast_module.AsyncFunctionDef) and node.name == "complete_google_connect"
+    )
+
+    bare: list[int] = []
+    for node in ast_module.walk(target):
+        if not isinstance(node, ast_module.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast_module.Attribute) and func.attr == "fail"):
+            continue
+        if not any(keyword.arg == "reason" for keyword in node.keywords):
+            bare.append(node.lineno)
+
+    assert not bare, (
+        f"failure paths at lines {bare} of complete_google_connect send no reason, so the callback "
+        "URL carries none and the user is shown generic copy"
+    )
+
+
 def test_every_reason_the_server_can_send_is_in_the_closed_set() -> None:
     from app.api.v1.integrations import CALLBACK_REASONS
 

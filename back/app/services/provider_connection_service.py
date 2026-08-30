@@ -115,21 +115,22 @@ async def complete_google_connect(
             "validation_failed",
             "This server has no encryption key configured, so OAuth tokens cannot be stored "
             "safely. Set OAUTH_ENCRYPTION_KEY (or AI_ENCRYPTION_KEY) and try again.",
+            reason="no_encryption_key",
         )
     if await get_owned_vault(db, vault_id, user_id) is None:
-        return ServiceResponse.fail("not_found", "Vault not found.")
+        return ServiceResponse.fail("not_found", "Vault not found.", reason="vault_gone")
 
     try:
         tokens = await google_auth.exchange_code(code)
         profile = await google_auth.fetch_userinfo(str(tokens.get("access_token") or ""))
     except provider_base.ProviderError as exc:
-        return ServiceResponse.fail("validation_failed", str(exc))
+        return ServiceResponse.fail("validation_failed", str(exc), reason=exc.reason or "google_error")
     except Exception:  # pragma: no cover - belt and braces on a redirect target
         # This runs inside a top-level browser redirect. Anything escaping here
         # is a raw 500 page rather than a handled error, so nothing is allowed
         # to escape, including whatever a future refactor introduces.
         logger.exception("google_connect_crashed")
-        return ServiceResponse.fail("validation_failed", "Could not complete the connection.")
+        return ServiceResponse.fail("validation_failed", "Could not complete the connection.", reason="crashed")
 
     granted = str(tokens.get("scope") or "")
     # Which adapter this grant is for is decided by what Google actually
@@ -141,6 +142,7 @@ async def complete_google_connect(
         return ServiceResponse.fail(
             "validation_failed",
             "No usable permissions were granted. Connect again and leave the requested permissions ticked.",
+            reason="no_scopes",
         )
 
     account_id = str(profile.get("sub") or "")

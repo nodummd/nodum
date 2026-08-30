@@ -21,6 +21,13 @@ from app.core.redis import redis_control
 from app.services.providers import google_auth
 
 
+@pytest.fixture
+async def workspace(client: AsyncClient) -> dict:
+    from tests.integration.test_provider_connect import _signup
+
+    return await _signup(client, "oauth-state")
+
+
 @pytest.mark.asyncio
 async def test_a_state_carries_the_user_and_vault_that_started_the_flow() -> None:
     user_id, vault_id = str(uuid.uuid4()), str(uuid.uuid4())
@@ -132,3 +139,129 @@ async def test_two_flows_started_at_once_do_not_share_a_state() -> None:
 
     resolved = [await google_auth.consume_state(state) for state in states]
     assert resolved == pairs
+
+
+# ── the redirect contract, through the real route ───────────────────────────
+#
+# The callback can only speak to the app through the URL it redirects to. The
+# state tests above cover the refusals; these cover the two outcomes a user
+# actually reaches, because the contract is what the client parses and a
+# change to it fails silently in exactly the way the old code did.
+
+
+async def _started_state(client: AsyncClient, workspace: dict) -> str:
+    from app.settings import get_settings
+
+    settings = get_settings()
+    saved = (settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET)
+    settings.GOOGLE_SYNC_CLIENT_ID = "test-client.apps.googleusercontent.com"
+    settings.GOOGLE_SYNC_CLIENT_SECRET = "test-secret"
+    try:
+        resp = await client.post(
+            f"/api/v1/connections/google/start?vault_id={workspace['vault_id']}&provider=google_calendar",
+            headers=workspace["headers"],
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["data"]["url"].split("state=")[1].split("&")[0]
+    finally:
+        settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET = saved
+
+
+@pytest.mark.asyncio
+async def test_a_completed_connect_lands_the_user_back_with_connected_ok(client: AsyncClient, workspace: dict) -> None:
+    from tests.integration.test_provider_connect import _Google
+
+    state = await _started_state(client, workspace)
+    with _Google():
+        resp = await client.get(
+            "/api/v1/connections/google/callback",
+            params={"code": "auth-code", "state": state},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"].endswith("/vault?connected=ok")
+
+
+@pytest.mark.asyncio
+async def test_a_failed_connect_carries_a_reason_the_client_knows(client: AsyncClient, workspace: dict) -> None:
+    """A grant with no usable scopes. The reason has to be a code from the
+    closed set, because the client owns the words — and a code it does not
+    recognise degrades to generic copy rather than being echoed."""
+    from app.api.v1.integrations import CALLBACK_REASONS
+    from tests.integration.test_provider_connect import _Google
+
+    state = await _started_state(client, workspace)
+    with _Google(scope="openid email"):
+        resp = await client.get(
+            "/api/v1/connections/google/callback",
+            params={"code": "auth-code", "state": state},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 303
+    location = resp.headers["location"]
+    assert "connected=failed" in location, location
+    assert "reason=" in location, f"no reason in {location!r}"
+    reason = location.split("reason=")[1]
+    assert reason == "no_scopes"
+    assert reason in CALLBACK_REASONS
+
+
+@pytest.mark.asyncio
+async def test_the_callback_never_returns_an_error_page(client: AsyncClient, workspace: dict) -> None:
+    """It is a top-level browser redirect. Anything but a 303 is a raw error
+    page shown to someone mid-flow, with the authorisation code already spent
+    and no way back except starting over."""
+    from tests.integration.test_provider_connect import _Google
+
+    class _Exploding(_Google):
+        async def _exchange(self, code: str) -> dict:
+            raise RuntimeError("something nobody anticipated")
+
+    state = await _started_state(client, workspace)
+    with _Exploding():
+        resp = await client.get(
+            "/api/v1/connections/google/callback",
+            params={"code": "auth-code", "state": state},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 303, resp.text
+    assert "connected=failed" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_starting_a_flow_for_a_provider_this_server_will_not_run(client: AsyncClient, workspace: dict) -> None:
+    """Gmail is off unless an operator turned it on, and an unknown provider is
+    a different answer from a disabled one — the first is a mistake, the second
+    is a policy the user should be told about."""
+    from app.settings import get_settings
+
+    settings = get_settings()
+    saved = (settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET)
+    settings.GOOGLE_SYNC_CLIENT_ID = "test-client.apps.googleusercontent.com"
+    settings.GOOGLE_SYNC_CLIENT_SECRET = "test-secret"
+    try:
+        disabled = await client.post(
+            f"/api/v1/connections/google/start?vault_id={workspace['vault_id']}&provider=google_gmail",
+            headers=workspace["headers"],
+        )
+        assert disabled.status_code == 422, disabled.text
+        assert "self-hosted" in disabled.json()["error"]["message"]
+
+        unknown = await client.post(
+            f"/api/v1/connections/google/start?vault_id={workspace['vault_id']}&provider=notion",
+            headers=workspace["headers"],
+        )
+        assert unknown.status_code == 404, unknown.text
+    finally:
+        settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET = saved
+
+    # And with no client configured at all, the message names what to set.
+    unconfigured = await client.post(
+        f"/api/v1/connections/google/start?vault_id={workspace['vault_id']}&provider=google_calendar",
+        headers=workspace["headers"],
+    )
+    assert unconfigured.status_code == 422
+    assert "GOOGLE_SYNC_CLIENT_ID" in unconfigured.json()["error"]["message"]
