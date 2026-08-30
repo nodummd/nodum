@@ -397,7 +397,6 @@ async def run_stream(db: AsyncSession, connection: ProviderConnection, stream: S
             stream=stream.stream,
             cursor_token=stream.cursor_token,
             page_token=stream.page_token,
-            cursor_params=stream.cursor_params or {},
             settings=connection.settings or {},
             backfill=not stream.backfill_done,
             daily_format=daily_format,

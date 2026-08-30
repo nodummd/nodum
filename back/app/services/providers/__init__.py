@@ -88,10 +88,6 @@ _REGISTRY: dict[str, _Entry] = {
 }
 
 
-def all_adapters() -> list[Any]:
-    return [entry.adapter for entry in _REGISTRY.values()]
-
-
 def available_adapters() -> list[Any]:
     return [entry.adapter for entry in _REGISTRY.values() if entry.available]
 
@@ -131,7 +127,6 @@ __all__ = [
     "ProviderError",
     "SyncPage",
     "SyncRecord",
-    "all_adapters",
     "available_adapters",
     "catalog",
     "compose",

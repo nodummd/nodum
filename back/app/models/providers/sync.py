@@ -39,7 +39,10 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 
 #: Connection lifecycle. `needs_reauth` is terminal until the user acts;
 #: `transient_broken` is retried with backoff.
-CONNECTION_STATUSES = ("active", "transient_broken", "needs_reauth", "key_unavailable", "paused")
+#: Every status the engine actually assigns. Enforced by
+#: `test_status_values_are_declared` — a tuple that merely documents intent
+#: drifts from the code within two changes and then misleads.
+CONNECTION_STATUSES = ("active", "transient_broken", "needs_reauth", "key_unavailable")
 
 #: Why a connection stopped. Kept separate from the message so the UI can react
 #: to the *class* — `oauth_testing_mode` gets its own explanation, because the
@@ -52,6 +55,7 @@ ERROR_CLASSES = (
     "provider_5xx",
     "oauth_testing_mode",
     "config",
+    "not_found",
     "bug",
 )
 
@@ -142,7 +146,6 @@ class SyncStream(UUIDMixin, TimestampMixin, Base):
     #: where a syncToken belongs skips every record after it, silently.
     page_token: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
-    backfill_cursor: Mapped[str] = mapped_column(Text, nullable=False, default="")
     backfill_done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     needs_full_resync: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

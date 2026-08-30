@@ -75,7 +75,6 @@ def upgrade() -> None:
         sa.Column("cursor_token", sa.Text(), nullable=False, server_default=""),
         sa.Column("cursor_params", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column("page_token", sa.Text(), nullable=False, server_default=""),
-        sa.Column("backfill_cursor", sa.Text(), nullable=False, server_default=""),
         sa.Column("backfill_done", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("needs_full_resync", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("lease_owner", sa.String(length=64), nullable=False, server_default=""),

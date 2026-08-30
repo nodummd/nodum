@@ -114,10 +114,6 @@ class FetchContext:
     stream: str
     cursor_token: str
     page_token: str
-    #: The parameters the stored cursor was minted under. An adapter compares
-    #: these with what it would send now and raises CursorInvalid on a
-    #: mismatch rather than issuing a call whose result would be undefined.
-    cursor_params: dict[str, Any]
     settings: dict[str, Any]
     #: True while walking history rather than the incremental tail.
     backfill: bool = False
@@ -141,7 +137,13 @@ class ProviderAdapter(Protocol):
         ...
 
     def cursor_params(self, stream: str, settings: dict[str, Any]) -> dict[str, Any]:
-        """The frozen query parameters a cursor for `stream` is minted under."""
+        """The frozen query parameters a cursor for `stream` is minted under.
+
+        Declared by the adapter, compared by the engine. An adapter never has
+        to check this itself — one implementation of "has the query changed?"
+        is the point, since getting it wrong means a silently truncated result
+        rather than an error.
+        """
         ...
 
     async def fetch(self, ctx: FetchContext) -> SyncPage:

@@ -259,7 +259,11 @@ function ConnectionRow({
   );
 }
 
-/** "Last run: 3 new, 1 updated, 12 unchanged." Nothing when it was a no-op. */
+/** "Last successful run: 3 new, 1 updated, 12 unchanged."
+ *
+ *  "Last run" would be a lie: the stats are only written when a run finishes,
+ *  so a connection that is currently failing would show counts from whenever
+ *  it last worked, presented as though they were current. */
 function describeRun(stats: Record<string, number>): string {
   const parts = [
     stats.created ? `${stats.created} new` : null,
@@ -269,7 +273,7 @@ function describeRun(stats: Record<string, number>): string {
     stats.user_deleted ? `${stats.user_deleted} skipped (you deleted them)` : null,
     stats.error ? `${stats.error} failed` : null,
   ].filter(Boolean);
-  return parts.length ? `Last run: ${parts.join(", ")}.` : "";
+  return parts.length ? `Last successful run: ${parts.join(", ")}.` : "";
 }
 
 function StatusPill({

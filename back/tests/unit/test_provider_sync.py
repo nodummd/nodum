@@ -133,7 +133,6 @@ def _ctx(**overrides: Any) -> base.FetchContext:
         "stream": "calendar:events:primary",
         "cursor_token": "",
         "page_token": "",
-        "cursor_params": {},
         "settings": {},
         "daily_format": "YYYY-MM-DD",
     }
@@ -633,3 +632,74 @@ def test_machinery_never_earns_a_person_note(address: str) -> None:
 @pytest.mark.parametrize("address", ["amara@example.com", "dan.reeves@acme.io", "j.chen@uni.ac.uk"])
 def test_actual_people_are_not_excluded(address: str) -> None:
     assert not google_gmail.is_automated(address)
+
+
+# ── the declared vocabulary must match the code ─────────────────────────────
+
+
+def _assigned_literals(source: str, attribute: str) -> set[str]:
+    """Every string literal assigned to `connection.<attribute>` in a module."""
+    import ast
+
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == attribute
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                found.add(node.value.value)
+    return found
+
+
+def test_status_values_are_declared() -> None:
+    """CONNECTION_STATUSES is only worth having if it is true.
+
+    A tuple that documents intent drifts from the code within a couple of
+    changes and then actively misleads — and a typo'd status ("activee") would
+    silently take a connection out of the scheduler's WHERE clause forever,
+    which is this feature's signature failure.
+    """
+    import pathlib
+
+    from app.models.providers import CONNECTION_STATUSES
+
+    assigned: set[str] = set()
+    for module in ("provider_sync_service.py", "provider_connection_service.py"):
+        path = pathlib.Path(__file__).resolve().parents[2] / "app" / "services" / module
+        assigned |= _assigned_literals(path.read_text(), "status")
+
+    undeclared = assigned - set(CONNECTION_STATUSES)
+    assert not undeclared, f"status values assigned but not declared: {sorted(undeclared)}"
+    # And nothing declared that the code never sets — a status nobody assigns
+    # is a state the UI may be written to handle and can never reach.
+    unused = set(CONNECTION_STATUSES) - assigned
+    assert not unused, f"declared statuses nothing ever assigns: {sorted(unused)}"
+
+
+def test_error_classes_raised_by_adapters_are_declared() -> None:
+    """Same for error_class, which the UI switches on."""
+    import pathlib
+
+    from app.models.providers import ERROR_CLASSES
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "app" / "services"
+    raised: set[str] = set()
+    for path in [*(root / "providers").glob("*.py"), root / "provider_sync_service.py"]:
+        import ast
+
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.keyword)
+                and node.arg == "error_class"
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                raised.add(node.value.value)
+
+    undeclared = raised - set(ERROR_CLASSES)
+    assert not undeclared, f"error classes raised but not declared: {sorted(undeclared)}"
