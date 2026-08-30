@@ -414,3 +414,69 @@ async def test_sync_now_is_scoped_to_its_owner(connection: ProviderConnection) -
         response = await provider_connection_service.sync_now(session, connection.id, uuid.uuid4())
     assert not response.success
     assert response.error_code == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_a_freshly_synced_connection_is_not_due_again_immediately(
+    connection: ProviderConnection,
+) -> None:
+    """poll_interval_s was written on every stream and read by nobody, so the
+    60-second beat tick re-synced everything every 60 seconds — five times the
+    intended Google traffic, from a column that looked like a working control.
+    """
+    from datetime import timedelta
+
+    from app.models.providers import SyncStream
+
+    async with async_session_factory() as session:
+        fresh = await session.get(ProviderConnection, connection.id)
+        assert fresh is not None
+        # No streams yet: never run, so due.
+        assert any(c.id == connection.id for c in await provider_sync_service.due_connections(session))
+
+        session.add(
+            SyncStream(
+                connection_id=connection.id,
+                stream=STREAM,
+                poll_interval_s=300,
+                last_success_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    async with async_session_factory() as session:
+        due = await provider_sync_service.due_connections(session)
+        assert not any(c.id == connection.id for c in due), "synced seconds ago and already due again"
+
+    # Wind the clock back past the interval and it becomes due.
+    async with async_session_factory() as session:
+        stream = (
+            (await session.execute(select(SyncStream).where(SyncStream.connection_id == connection.id)))
+            .scalars()
+            .first()
+        )
+        assert stream is not None
+        stream.last_success_at = datetime.now(UTC) - timedelta(seconds=400)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        due = await provider_sync_service.due_connections(session)
+        assert any(c.id == connection.id for c in due), "past its interval and still not due"
+
+
+@pytest.mark.asyncio
+async def test_a_connection_in_backoff_is_left_alone(connection: ProviderConnection) -> None:
+    """Backoff has to actually hold, or a broken connection is retried every
+    tick and burns quota failing."""
+    from datetime import timedelta
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.status = "transient_broken"
+        row.disabled_until = datetime.now(UTC) + timedelta(minutes=10)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        due = await provider_sync_service.due_connections(session)
+    assert not any(c.id == connection.id for c in due)

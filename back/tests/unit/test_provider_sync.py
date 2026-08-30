@@ -607,3 +607,29 @@ def test_the_sync_sweep_is_actually_scheduled() -> None:
     # Frequent enough that a new calendar event lands within a couple of
     # minutes, which is the whole promise of "live".
     assert 0 < float(schedule) <= 300
+
+
+# ── People/ must contain people ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "noreply@github.com",
+        "no-reply@example.com",
+        "notifications@slack.com",
+        "MAILER-DAEMON@example.com",
+        "billing@stripe.com",
+        "u=3f2b91c07a8d4e6f0192@list.example.com",
+    ],
+)
+def test_machinery_never_earns_a_person_note(address: str) -> None:
+    """A newsletter clears any interaction threshold within a week. Without
+    this, People/ fills with "no-reply" and "notifications" and the real names
+    become harder to find than if the folder did not exist."""
+    assert google_gmail.is_automated(address)
+
+
+@pytest.mark.parametrize("address", ["amara@example.com", "dan.reeves@acme.io", "j.chen@uni.ac.uk"])
+def test_actual_people_are_not_excluded(address: str) -> None:
+    assert not google_gmail.is_automated(address)

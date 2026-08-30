@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import exists, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.logging import get_logger
@@ -421,6 +421,8 @@ async def run_stream(db: AsyncSession, connection: ProviderConnection, stream: S
         connection.people_counts = counts
 
         stream.records_seen = (stream.records_seen or 0) + len(page.records)
+        if page.poll_interval_s:
+            stream.poll_interval_s = max(60, int(page.poll_interval_s))
 
         # Records are committed. Only now may the cursor move.
         stream.page_token = page.next_page_token
@@ -530,14 +532,35 @@ async def _record_failure(db: AsyncSession, connection: ProviderConnection, exc:
 
 
 async def due_connections(db: AsyncSession, limit: int = 50) -> list[ProviderConnection]:
-    """Connections the scheduler should run now."""
+    """Connections with at least one stream whose poll interval has elapsed.
+
+    `poll_interval_s` used to be written on every stream and then read by
+    nobody: this query returned every active connection, so the 60-second beat
+    tick synced everything every 60 seconds regardless. That is five times the
+    intended Google API traffic, and it made the column look like a working
+    control when it did nothing at all.
+    """
     now = datetime.now(UTC)
+
+    # A connection with no streams yet has never run — it is due by definition.
+    never_run = ~exists().where(SyncStream.connection_id == ProviderConnection.id)
+    stream_due = exists().where(
+        SyncStream.connection_id == ProviderConnection.id,
+        or_(
+            SyncStream.last_success_at.is_(None),
+            func.extract("epoch", literal(now) - SyncStream.last_success_at) >= SyncStream.poll_interval_s,
+        ),
+    )
+
     rows = await db.execute(
         select(ProviderConnection)
         .where(
             ProviderConnection.status.in_(("active", "transient_broken")),
             (ProviderConnection.disabled_until.is_(None)) | (ProviderConnection.disabled_until <= now),
+            or_(never_run, stream_due),
         )
+        # Staleness order, so a large instance spreading across ticks starves
+        # nobody.
         .order_by(ProviderConnection.updated_at)
         .limit(limit)
     )

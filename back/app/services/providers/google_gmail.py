@@ -44,6 +44,29 @@ THREADS_PER_PAGE = 25
 #: Labels that describe Gmail's own plumbing rather than anything the user
 #: chose. Tagging notes with these would add noise to every single note.
 _BORING_LABELS = {"UNREAD", "IMPORTANT", "CATEGORY_PERSONAL", "SENT", "DRAFT", "CHAT"}
+
+#: Addresses that are machinery, not people. Without this, a newsletter clears
+#: any interaction threshold within a week and earns a note in People/ — and a
+#: People/ folder full of "notifications" and "no-reply" is worse than none,
+#: because it makes the real names harder to find.
+_AUTOMATED = (
+    "noreply",
+    "no-reply",
+    "no_reply",
+    "donotreply",
+    "do-not-reply",
+    "mailer-daemon",
+    "postmaster",
+    "bounce",
+    "notifications",
+    "notification",
+    "updates",
+    "newsletter",
+    "support@",
+    "billing@",
+    "receipts",
+    "automated",
+)
 # Parsed by hand rather than by regex. The obvious pattern — an optional
 # quoted name followed by an optional bracketed address — backtracks on a bare
 # "dan@example.com" and hands back name="da", email="n@example.com", because
@@ -159,8 +182,8 @@ class GoogleGmailAdapter:
             }
             if not subject:
                 subject = escape_remote_text(headers.get("subject", "").strip())
-            name, _address = _split_address(headers.get("from", ""))
-            if name and name not in participants:
+            name, address = _split_address(headers.get("from", ""))
+            if name and name not in participants and not is_automated(address):
                 participants.append(escape_remote_text(name))
             labels.update(str(label) for label in (message.get("labelIds") or []))
 
@@ -255,6 +278,17 @@ class GoogleGmailAdapter:
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
+
+def is_automated(address: str) -> bool:
+    """True when an address belongs to a system rather than a person."""
+    local = (address or "").split("@")[0].lower()
+    lowered = (address or "").lower()
+    if any(marker in lowered for marker in _AUTOMATED):
+        return True
+    # A local part that is a long opaque token — "u=3f2b91c07a..." from a
+    # mailing-list provider — is never someone worth a note.
+    return len(local) > 32 or (len(local) > 16 and sum(c.isdigit() for c in local) > 6)
 
 
 def _split_address(raw: str) -> tuple[str, str]:
