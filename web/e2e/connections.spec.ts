@@ -128,3 +128,61 @@ test.describe("connections", () => {
     expect(anon).toBeGreaterThanOrEqual(401);
   });
 });
+
+/**
+ * Coming back from Google.
+ *
+ * The consent screen itself cannot be exercised here, but the landing is the
+ * half that was actually broken: the callback redirects to
+ * `/vault?connected=…`, and the app used to drop it on the floor — the vault
+ * dispatcher stripped the query string, and nothing read it if it survived.
+ * These drive that URL directly, which is exactly what a browser does after
+ * Google redirects.
+ */
+test.describe("returning from Google's consent screen", () => {
+  test("a successful connection says so and opens where the result is", async ({ page }) => {
+    await signupFreshUser(page, "connections-cb-ok");
+    await page.goto("/vault?connected=ok");
+
+    await expect(page.getByText(/Google account connected/i)).toBeVisible({ timeout: 15_000 });
+    // Landing back on an unchanged-looking vault is the whole complaint, so
+    // the outcome has to be on screen.
+    const dialog = page.getByRole("dialog").filter({ hasText: "Settings" }).first();
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(dialog.getByText(/only ever reads/i)).toBeVisible();
+
+    // And the outcome does not survive into the URL, or a refresh replays it.
+    await expect.poll(() => new URL(page.url()).searchParams.get("connected")).toBeNull();
+  });
+
+  test("a failure explains the specific cause, not just that it failed", async ({ page }) => {
+    await signupFreshUser(page, "connections-cb-fail");
+    await page.goto("/vault?connected=failed&reason=no_refresh_token");
+
+    // The generic "could not connect" is the message that costs support time;
+    // this is the one that tells the user what to actually do.
+    await expect(page.getByText(/Remove Nodum from your Google account permissions/i)).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("cancelling at Google is reported as a choice, not an error", async ({ page }) => {
+    await signupFreshUser(page, "connections-cb-denied");
+    await page.goto("/vault?connected=denied");
+    await expect(page.getByText(/cancelled — nothing was changed/i)).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("a reason from the URL is never rendered as its own message", async ({ page }) => {
+    await signupFreshUser(page, "connections-cb-injection");
+    // Anyone can send someone this link. If the server's reason string were
+    // rendered, an attacker would have prose inside the app's own chrome
+    // without needing an XSS at all.
+    const evil = "Your account is locked. Call +1-555-0100 to restore access.";
+    await page.goto(`/vault?connected=failed&reason=${encodeURIComponent(evil)}`);
+
+    await expect(page.getByText(/Could not finish connecting your Google account/i)).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/555-0100/)).toHaveCount(0);
+  });
+});

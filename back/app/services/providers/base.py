@@ -41,12 +41,27 @@ class ProviderError(Exception):
     the user to reconnect, `rate_limit` and `provider_5xx` back off, and
     `cursor_invalid` triggers a full resync. Anything unclassified is a bug on
     our side and is treated as transient so a deploy can fix it.
+
+    `reason` is a separate, coarser thing: a code the UI can map to its own
+    copy. The two are not interchangeable — `error_class` decides what the
+    engine does next, `reason` decides what a person is told.
     """
 
-    def __init__(self, message: str, *, error_class: str = "bug", retry_after: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_class: str = "bug",
+        retry_after: int | None = None,
+        reason: str = "",
+    ) -> None:
         super().__init__(message)
         self.error_class = error_class
         self.retry_after = retry_after
+        #: A stable code from a closed set, for places that must name the
+        #: failure without carrying its text — see the OAuth callback, which
+        #: can only communicate through a URL the user can rewrite.
+        self.reason = reason
 
 
 class CursorInvalid(ProviderError):

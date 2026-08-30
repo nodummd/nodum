@@ -9,7 +9,9 @@ the point of the split.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -1068,3 +1070,74 @@ async def test_an_empty_history_still_advances_the_cursor() -> None:
     assert page.records == []
     assert page.done is True
     assert page.next_cursor == "1234"
+
+
+# ── the OAuth callback's vocabulary ─────────────────────────────────────────
+#
+# The callback can only reach the UI through a URL, and the URL carries a code
+# rather than a message — anyone can send a person to
+# `/vault?connected=failed&reason=…`, and rendering whatever it says would put
+# attacker-chosen prose inside the app's own chrome with no XSS involved.
+#
+# That design has one failure mode, and it is silent: somebody adds a `reason`
+# on the server and the client, which owns the words, shows generic copy for it
+# forever. These two tests are the only thing that would ever notice.
+
+
+def _declared_reasons() -> set[str]:
+    """Every `reason=` literal in the code the callback can reach."""
+    import ast
+
+    found: set[str] = set()
+    for path in (
+        Path("app/services/provider_connection_service.py"),
+        Path("app/services/providers/google_auth.py"),
+    ):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if (
+                    keyword.arg == "reason"
+                    and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                    and keyword.value.value
+                ):
+                    found.add(keyword.value.value)
+    return found
+
+
+def test_every_reason_the_server_can_send_is_in_the_closed_set() -> None:
+    from app.api.v1.integrations import CALLBACK_REASONS
+
+    declared = _declared_reasons()
+    assert declared, "no reason codes found — this test stopped testing anything"
+    missing = declared - CALLBACK_REASONS
+    assert not missing, (
+        f"{sorted(missing)} would be dropped from the callback URL, so the user is told nothing. "
+        "Add them to CALLBACK_REASONS."
+    )
+
+
+def test_the_client_has_words_for_every_reason_the_server_can_send() -> None:
+    """Read across the language boundary, because nothing else does.
+
+    The server owns the codes and the client owns the copy, which is the right
+    split. It is also a contract with no compiler behind it: a code the client
+    has never heard of silently degrades to "please try again", which is the
+    generic message this whole mechanism exists to replace.
+    """
+    from app.api.v1.integrations import CALLBACK_REASONS
+
+    source = Path("../web/src/components/workspace/connection-callback-notice.tsx")
+    if not source.exists():  # pragma: no cover - backend-only checkouts
+        pytest.skip("web/ not present")
+
+    text = source.read_text()
+    body = text[text.index("const REASONS") : text.index("const FALLBACK")]
+    known = set(re.findall(r"^\s{2}(\w+):", body, re.MULTILINE))
+
+    unknown = CALLBACK_REASONS - known
+    assert not unknown, f"the UI has no wording for {sorted(unknown)} and will show generic copy instead"
+    stale = known - CALLBACK_REASONS
+    assert not stale, f"the UI carries wording for {sorted(stale)}, which the server can no longer send"

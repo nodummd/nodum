@@ -76,6 +76,7 @@ async def _post(url: str, data: dict[str, str]) -> httpx.Response:
         raise ProviderError(
             "Could not reach Google. This is usually temporary — try again in a moment.",
             error_class="provider_5xx",
+            reason="google_unreachable",
         ) from exc
 
 
@@ -149,13 +150,18 @@ async def exchange_code(code: str) -> dict[str, Any]:
         # with no value to the person reading it, and it ends up rendered in
         # the connections list.
         logger.warning("google_code_exchange_failed", status=resp.status_code, body=resp.text[:300])
-        raise ProviderError("Google rejected the authorisation. Please try connecting again.", error_class="auth")
+        raise ProviderError(
+            "Google rejected the authorisation. Please try connecting again.",
+            error_class="auth",
+            reason="code_rejected",
+        )
     payload = dict(resp.json())
     if not payload.get("refresh_token"):
         raise ProviderError(
             "Google did not return a refresh token, so this connection could not sync in the "
             "background. Remove Nodum from your Google account permissions and connect again.",
             error_class="auth",
+            reason="no_refresh_token",
         )
     return payload
 
@@ -231,7 +237,7 @@ async def fetch_userinfo(access_token: str) -> dict[str, Any]:
         ) from exc
     if resp.status_code >= 400:
         logger.warning("google_userinfo_failed", status=resp.status_code)
-        raise ProviderError("Google would not confirm which account this is.", error_class="auth")
+        raise ProviderError("Google would not confirm which account this is.", error_class="auth", reason="no_identity")
     return dict(resp.json())
 
 

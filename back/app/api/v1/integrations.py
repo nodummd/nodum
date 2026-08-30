@@ -61,6 +61,29 @@ async def start_google(
     return {"data": {"url": url, "provider": provider}}
 
 
+#: Every reason the callback may put in the URL. The set is closed on purpose.
+#:
+#: This redirect is the only channel the callback has to the UI, and anyone can
+#: send a person to `/vault?connected=failed&reason=…` with whatever they like
+#: in it. Carrying a *message* would mean attacker-chosen prose rendered inside
+#: the app's own chrome — a phishing surface that needs no XSS to work. So the
+#: URL carries a code, the client owns the words, and a code the client does
+#: not recognise gets generic copy rather than being echoed.
+CALLBACK_REASONS = frozenset(
+    {
+        "no_refresh_token",
+        "no_scopes",
+        "no_encryption_key",
+        "no_identity",
+        "code_rejected",
+        "google_unreachable",
+        "vault_gone",
+        "google_error",
+        "crashed",
+    }
+)
+
+
 @router.get("/google/callback")
 async def google_callback(
     db: SessionDep,
@@ -76,12 +99,14 @@ async def google_callback(
     """
     base = get_settings().OAUTH_REDIRECT_BASE_URL.rstrip("/")
 
-    def back(status: str, detail: str = "") -> RedirectResponse:
-        suffix = f"&detail={quote(detail, safe='')}" if detail else ""
+    def back(status: str, reason: str = "") -> RedirectResponse:
+        suffix = f"&reason={quote(reason, safe='')}" if reason in CALLBACK_REASONS else ""
         return RedirectResponse(f"{base}/vault?connected={status}{suffix}", status_code=303)
 
     if error or not code or not state:
-        return back("denied")
+        # `access_denied` is someone pressing Cancel on Google's screen, which
+        # is a decision rather than a failure and must not be shouted about.
+        return back("denied" if error == "access_denied" or not error else "failed")
 
     resolved = await google_auth.consume_state(state)
     if resolved is None:
@@ -91,7 +116,9 @@ async def google_callback(
     response = await provider_connection_service.complete_google_connect(
         db, user_id=UUID(user_id), vault_id=UUID(vault_id), code=code
     )
-    return back("ok") if response.success else back("failed", response.error_code)
+    if response.success:
+        return back("ok")
+    return back("failed", str(response.details.get("reason") or ""))
 
 
 @router.post("/connections/{connection_id}/sync")

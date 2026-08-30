@@ -4,7 +4,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { EditorPane } from "./editor-pane";
 
@@ -22,6 +22,7 @@ function GraphLoading() {
   );
 }
 import { CommandPalette } from "./command-palette";
+import { ConnectionCallbackNotice } from "./connection-callback-notice";
 import { ImportDialog } from "@/components/import/import-dialog";
 import { QuickSwitcher } from "./quick-switcher";
 import { Ribbon } from "./ribbon";
@@ -404,6 +405,10 @@ export function Workspace({ vault }: { vault: Vault }) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-ob-sidebar text-ob-text md:flex-row">
+      {/* Reads the OAuth callback's outcome out of the URL. Renders nothing. */}
+      <Suspense fallback={null}>
+        <ConnectionCallbackNotice />
+      </Suspense>
       {/* Mobile top bar — hamburger, vault name, panels */}
       {isMobile && (
         <header className="flex h-12 shrink-0 items-center gap-1 border-b border-ob-border bg-ob-sidebar px-2 md:hidden">
