@@ -402,3 +402,123 @@ async def test_the_calendar_list_is_scoped_to_its_owner(client: AsyncClient, wor
     stranger = await _signup(client, "stranger-cal")
     resp = await client.get(f"/api/v1/connections/connections/{connection.id}/calendars", headers=stranger["headers"])
     assert resp.status_code == 404, resp.text
+
+
+# ── the refresh that every run past the first hour depends on ───────────────
+
+
+@pytest.mark.asyncio
+async def test_an_expired_access_token_is_refreshed_and_stored(workspace: dict) -> None:
+    """Access tokens last an hour; a connection lives for months. Everything
+    after the first hour goes through this path, and it had no test."""
+    from app.services import provider_sync_service
+    from app.utils.crypto_utils import decrypt_secret
+
+    connection = await _calendar_connection(workspace)
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.access_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        await session.commit()
+
+    async def _refresh(token):
+        assert token == "refresh-token", "the refresh call did not use the stored grant"
+        return {"access_token": "fresh-access-token", "expires_in": 3600}
+
+    original = google_auth.refresh_access_token
+    google_auth.refresh_access_token = _refresh  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            row = await session.get(ProviderConnection, connection.id)
+            assert row is not None
+            assert await provider_sync_service.access_token_for(session, row) == "fresh-access-token"
+    finally:
+        google_auth.refresh_access_token = original  # type: ignore[assignment]
+
+    # Persisted, or every run refreshes again — five times the token traffic
+    # and a quota that runs out for a reason nothing explains.
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        assert decrypt_secret(row.access_ciphertext, purpose="oauth") == "fresh-access-token"
+        assert row.access_expires_at is not None and row.access_expires_at > datetime.now(UTC)
+
+
+@pytest.mark.asyncio
+async def test_a_live_access_token_is_not_refreshed(workspace: dict) -> None:
+    from app.services import provider_sync_service
+
+    connection = await _calendar_connection(workspace)
+    calls: list[str] = []
+
+    async def _count(token):
+        calls.append(token)
+        return {"access_token": "unnecessary", "expires_in": 3600}
+
+    original = google_auth.refresh_access_token
+    google_auth.refresh_access_token = _count  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            row = await session.get(ProviderConnection, connection.id)
+            assert row is not None
+            assert await provider_sync_service.access_token_for(session, row) == "access-token"
+    finally:
+        google_auth.refresh_access_token = original  # type: ignore[assignment]
+
+    assert calls == [], "a token with an hour left on it was refreshed anyway"
+
+
+@pytest.mark.asyncio
+async def test_a_rotated_refresh_token_is_persisted(workspace: dict) -> None:
+    """Google returns a new refresh token only sometimes. Dropping it works
+    until the old one stops being accepted, and then the connection dies with
+    `invalid_grant` — which reads as a revoked grant and is not one."""
+    from app.services import provider_sync_service
+    from app.utils.crypto_utils import decrypt_secret
+
+    connection = await _calendar_connection(workspace)
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.access_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        await session.commit()
+
+    async def _rotate(_token):
+        return {"access_token": "a", "expires_in": 3600, "refresh_token": "rotated-refresh-token"}
+
+    original = google_auth.refresh_access_token
+    google_auth.refresh_access_token = _rotate  # type: ignore[assignment]
+    try:
+        async with async_session_factory() as session:
+            row = await session.get(ProviderConnection, connection.id)
+            assert row is not None
+            await provider_sync_service.access_token_for(session, row)
+    finally:
+        google_auth.refresh_access_token = original  # type: ignore[assignment]
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        assert decrypt_secret(row.refresh_ciphertext, purpose="oauth") == "rotated-refresh-token"
+
+
+@pytest.mark.asyncio
+async def test_credentials_that_cannot_be_decrypted_say_so_precisely(workspace: dict) -> None:
+    """The cause is operational — the server's key changed — and "reconnect"
+    alone leaves the operator thinking their users broke something."""
+    from app.services import provider_sync_service
+    from app.services.providers import base as provider_base
+
+    connection = await _calendar_connection(workspace)
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        row.access_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        row.refresh_ciphertext = "not-decryptable-with-any-key"
+        await session.commit()
+
+        with pytest.raises(provider_base.ProviderError) as caught:
+            await provider_sync_service.access_token_for(session, row)
+
+    assert caught.value.error_class == "config", "a key change must not look like a revoked grant"
+    assert "encryption key" in str(caught.value)

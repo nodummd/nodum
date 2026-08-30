@@ -1078,8 +1078,81 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     People notes only above an interaction threshold; no organisation, URL or
     keyword links. Remote text is escaped against the real parsers so a subject
     line reading `#urgent` cannot tag someone's vault.
-  - Migration `0022`, 25 new unit tests (140 total), `make verify` green. The
-    Gmail address parser had a genuine backtracking bug — `dan@example.com`
-    became name "da" — which the tests caught before it shipped.
+  - Migration `0022`. The Gmail address parser had a genuine backtracking bug
+    — `dan@example.com` became name "da" — which the tests caught before it
+    shipped.
   - Left for the operator: register a Google Cloud OAuth client, **publish the
     consent screen**, and set `GOOGLE_SYNC_*`. docs/OWNER-SETUP.md §1b.
+
+  **Hardened over a review loop on the same branch** (31 commits). Nearly
+  every bug found was of one kind — something that fails without saying so —
+  which is what a background sync is structurally good at hiding. Recorded
+  because the pattern is the useful part, not the individual fixes.
+
+  - *Silent data loss.* One Gmail history response routinely names more
+    changed threads than a batch holds; the walk took the first 25, advanced
+    the cursor past the rest, and lost them permanently. The batch size is a
+    pagination bound, not a truncation, and the offset now rides in the page
+    token.
+  - *A filter that was not one.* The Gmail label setting applied to the first
+    walk alone — `history.list` returns every change in the mailbox, so after
+    backfill a connection set to INBOX wrote a note for every thread in the
+    account, archive included. Scope is now decided from the labels Google
+    reports on the thread, on every path. The first walk also used
+    `labels[0]`, silently syncing one label of several.
+  - *The whole feature was unreachable in production.* Every setting it added
+    was missing from the deploy stack, so an operator could set
+    `GOOGLE_SYNC_CLIENT_ID` and the UI would still say "not configured", with
+    no log line and nothing to debug. They live in the shared env anchor now,
+    because the API encrypts and the worker decrypts — wired to the API alone,
+    connecting appears to work and every background run fails.
+  - *One broken connection ended the sweep.* All connections shared one
+    session, so a database error left it refusing every further statement —
+    and `rollback()` on a connection broken at the asyncpg level raises too,
+    escaping the handler written to prevent exactly that. Since
+    `due_connections` orders by staleness, the broken one stayed first and
+    ended every tick after it. Each connection now runs in its own session:
+    the shared state is gone rather than guarded.
+  - *Cross-account damage.* Google revokes by grant, not by token, so
+    disconnecting one vault killed the same account's connection to another —
+    which then reported that Google had revoked it. The grant is handed back
+    only when the last connection using it goes.
+  - *The last inch of the OAuth flow.* The callback's outcome was computed,
+    put in the URL, and dropped: the dispatcher stripped the query string and
+    nothing read it. Users approved consent and landed on an unchanged vault;
+    failures threw away the one message that fixes a 7-day grant. The URL now
+    carries a reason code from a closed set — never a message, since anyone
+    can link someone to `?connected=failed&reason=…` and rendering that text
+    is a phishing surface with no XSS involved.
+  - *Input validation.* The settings PATCH allowlisted keys and stored values
+    verbatim: `people_threshold: "soon"` made `int()` raise on every poll
+    forever, and 5000 `calendar_ids` became 5000 polled streams. Values are
+    validated at the boundary and the engine's readers are total, because a
+    row written before the validator existed must not kill a background run.
+  - *What a failure is allowed to say.* `last_error` is rendered and returned
+    by the API, and carried raw Google error bodies and `str(exc)` from
+    database errors — SQL statements and parameters included. Each class now
+    has copy written for the reader; the detail goes to the log.
+  - *Abuse.* Manual sync had no server-side throttle, so the 300/min limiter
+    allowed 300 broker tasks from one account, ahead of everyone else's work.
+  - *Deployment truth.* `ix_provider_connections_due` existed only in the
+    migration, so `--autogenerate` would offer to drop the index the sweep's
+    hot query depends on — with no visible failure mode at all.
+
+  - *Testing discipline.* Mutation testing became routine after a page-loop
+    test passed against a deliberately broken engine: every fix here is
+    checked by reintroducing the bug and confirming the test fails for the
+    right reason. Three structural rules fix bug *classes* rather than
+    instances — an AST rule requiring transport handling on every HTTP client,
+    a closed vocabulary for connection statuses checked across the
+    Python/TypeScript boundary, and a guard that every sync setting reaches
+    the containers that read it. 236 backend unit tests and 267 integration
+    tests; feature coverage 88%. Playwright: 8 connections specs, and the full
+    suite at 250 passed / 2 failed, both `auth.spec.ts` email-verification
+    specs that need `EMAIL_VERIFICATION_REQUIRED` on.
+  - *Still open.* The connection settings panel has no end-to-end coverage —
+    it needs a real Google grant to render, and faking one would assert the
+    fake. `web/` has no unit-test runner, so nothing below the e2e layer
+    tests React; adding one is a repo-wide choice, not a feature-branch
+    decision. The same index-naming drift found in `0022` exists across five
+    pre-existing tables and belongs in its own PR.
