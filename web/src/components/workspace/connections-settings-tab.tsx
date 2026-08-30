@@ -49,7 +49,12 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
   });
 
   const connect = useMutation({
-    mutationFn: (provider: string) => connectionsApi.start(vaultId, provider),
+    // The vault is a parameter rather than always `vaultId`: reconnecting a
+    // broken connection has to target the vault that connection belongs to.
+    // Aimed at the open vault instead, it silently makes a *second*
+    // connection here and leaves the broken one exactly as it was.
+    mutationFn: ({ provider, vault }: { provider: string; vault: string }) =>
+      connectionsApi.start(vault, provider),
     onSuccess: (data) => {
       // A full navigation, not a popup: Google blocks its consent screen in
       // many popup contexts and the failure is silent when it does.
@@ -79,7 +84,12 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
     onError: (e) => toastError(e, "Could not disconnect."),
   });
 
-  const connected = connections ?? [];
+  // This tab lives inside one vault's settings, every Connect button targets
+  // that vault, and the copy above says "this vault" — but the endpoint
+  // returns every connection the *account* has. Left unfiltered, opening
+  // Settings in one vault listed connections that sync into another, with
+  // nothing saying so.
+  const connected = (connections ?? []).filter((c) => c.vault_id === vaultId);
   const providers = catalog?.providers ?? [];
   const connectedIds = new Set(connected.map((c) => c.provider));
 
@@ -122,7 +132,9 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
               connection={connection}
               busy={syncNow.isPending || disconnect.isPending}
               onSync={() => syncNow.mutate(connection.id)}
-              onReconnect={() => connect.mutate(connection.provider)}
+              onReconnect={() =>
+                connect.mutate({ provider: connection.provider, vault: connection.vault_id })
+              }
               onDisconnect={() =>
                 void confirmDelete(
                   `Disconnect ${connection.provider_name}? Notes already synced into this vault are kept — only the connection is removed.`,
@@ -147,7 +159,7 @@ export function ConnectionsSettingsTab({ vaultId }: { vaultId: string }) {
                 provider={provider}
                 alreadyConnected={connectedIds.has(provider.id)}
                 busy={connect.isPending}
-                onConnect={() => connect.mutate(provider.id)}
+                onConnect={() => connect.mutate({ provider: provider.id, vault: vaultId })}
               />
             ))}
           </ul>

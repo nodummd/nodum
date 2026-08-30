@@ -27,12 +27,11 @@ CALENDAR_SCOPES = (
 )
 
 
-@pytest.fixture
-async def workspace(client: AsyncClient) -> dict:
+async def _signup(client: AsyncClient, label: str = "connect") -> dict:
     resp = await client.post(
         "/api/v1/auth/signup",
         json={
-            "email": f"connect-{uuid.uuid4().hex[:12]}@nodumtest.dev",
+            "email": f"{label}-{uuid.uuid4().hex[:12]}@nodumtest.dev",
             "password": "s3cure-Password!",
             "name": "Connect Tester",
         },
@@ -42,9 +41,15 @@ async def workspace(client: AsyncClient) -> dict:
     headers = {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
     vaults = (await client.get("/api/v1/vaults", headers=headers)).json()["data"]
     return {
+        "headers": headers,
         "vault_id": uuid.UUID(vaults[0]["id"]),
         "user_id": uuid.UUID(resp.json()["data"]["user"]["id"]),
     }
+
+
+@pytest.fixture
+async def workspace(client: AsyncClient) -> dict:
+    return await _signup(client)
 
 
 class _Google:
@@ -224,3 +229,49 @@ async def test_the_api_shape_never_carries_a_token(workspace: dict) -> None:
     blob = repr(listed.data)
     for secret in ("REFRESH-TOKEN-VALUE", "ACCESS-TOKEN-VALUE", "ciphertext", "v1:"):
         assert secret not in blob, f"{secret!r} reached the API response"
+
+
+@pytest.mark.asyncio
+async def test_starting_a_flow_for_someone_elses_vault_is_refused_before_google(
+    client: AsyncClient,
+) -> None:
+    """The callback checks ownership too, but by then the user has read a
+    permissions screen, approved it and been redirected — and is told the vault
+    does not exist at the end of a round trip that could never have worked.
+
+    It is also the cheaper place to say no: a rejected start costs one query,
+    a rejected callback costs a consent grant that then has to be revoked.
+    """
+    from app.settings import get_settings
+
+    settings = get_settings()
+    original = (settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET)
+    settings.GOOGLE_SYNC_CLIENT_ID = "test-client-id.apps.googleusercontent.com"
+    settings.GOOGLE_SYNC_CLIENT_SECRET = "test-client-secret"
+    try:
+        owner = await _signup(client, "owner")
+        stranger = await _signup(client, "stranger")
+
+        # The owner can start a flow for their own vault...
+        mine = await client.post(
+            f"/api/v1/connections/google/start?vault_id={owner['vault_id']}&provider=google_calendar",
+            headers=owner["headers"],
+        )
+        assert mine.status_code == 200, mine.text
+        assert "accounts.google.com" in mine.json()["data"]["url"]
+
+        # ...and nobody else can, nor for a vault that does not exist.
+        for headers, vault_id in (
+            (stranger["headers"], owner["vault_id"]),
+            (owner["headers"], uuid.uuid4()),
+        ):
+            refused = await client.post(
+                f"/api/v1/connections/google/start?vault_id={vault_id}&provider=google_calendar",
+                headers=headers,
+            )
+            assert refused.status_code == 404, refused.text
+            # And no consent URL leaks in the refusal — a client that ignored
+            # the status code must still have nothing to redirect to.
+            assert "accounts.google.com" not in refused.text
+    finally:
+        settings.GOOGLE_SYNC_CLIENT_ID, settings.GOOGLE_SYNC_CLIENT_SECRET = original

@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from app.models.providers.sync import CONNECTION_STATUSES
 from app.services import providers
 from app.services.provider_sync_service import _MAX_TRACKED_PEOPLE, DEFAULT_PEOPLE_THRESHOLD
 from app.services.providers import base, google_auth, google_calendar, google_gmail
@@ -1200,3 +1201,20 @@ def test_an_operator_can_discover_the_sync_settings_exist() -> None:
         # in this feature combined, and the fix is a button in Google Cloud
         # that nothing in the product can press.
         assert "ublish" in text, f"{name} does not warn about Testing mode"
+
+
+def test_the_client_knows_exactly_the_statuses_the_server_can_send() -> None:
+    """A status in the type that the server never sends is a branch the UI can
+    carry forever without anyone noticing it is dead — and one the server
+    *does* send but the type omits falls through whatever `else` exists,
+    usually the reassuring one."""
+    source = Path("../web/src/lib/api/endpoints.ts")
+    if not source.exists():  # pragma: no cover - backend-only checkouts
+        pytest.skip("web/ not present")
+
+    text = source.read_text()
+    declared = text[text.index("  status:", text.index("export interface ProviderConnection")) :]
+    declared = declared[: declared.index(";")]
+    known = set(re.findall(r'"([a-z_]+)"', declared))
+
+    assert known == set(CONNECTION_STATUSES), f"client says {sorted(known)}, server sends {sorted(CONNECTION_STATUSES)}"

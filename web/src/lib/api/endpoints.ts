@@ -493,7 +493,8 @@ export interface ProviderConnection {
   provider_name: string;
   vault_id: string;
   email: string;
-  status: "active" | "transient_broken" | "needs_reauth" | "key_unavailable" | "paused";
+  /** Mirrors CONNECTION_STATUSES on the server; there is no "paused". */
+  status: "active" | "transient_broken" | "needs_reauth" | "key_unavailable";
   error_class: string;
   last_error: string;
   connected_at: string | null;

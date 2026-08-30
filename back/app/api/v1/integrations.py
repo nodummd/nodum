@@ -12,6 +12,7 @@ from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
 from app.services import provider_connection_service, providers
 from app.services.providers import google_auth
+from app.services.vault_service import get_owned_vault
 from app.settings import get_settings
 
 router = APIRouter()
@@ -38,9 +39,16 @@ async def list_connections(user_id: CurrentUserId, db: SessionDep) -> dict[str, 
 async def start_google(
     user_id: CurrentUserId,
     vault_id: UUID,
+    db: SessionDep,
     provider: str = Query(description="google_calendar or google_gmail"),
 ) -> dict[str, Any]:
     """Begin the consent flow. Returns the URL for the browser to visit."""
+    # Checked here, not only on the way back. The callback checks too, but by
+    # then the user has read a permissions screen, approved it, and been
+    # redirected — and is told "that vault no longer exists" at the end of a
+    # round trip that could not have worked from the start.
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        raise NotFoundError("Vault not found.")
     if not google_auth.sync_enabled():
         raise ValidationFailedError(
             "Google sync is not configured on this server. An administrator needs to set "
