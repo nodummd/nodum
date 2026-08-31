@@ -157,10 +157,113 @@ test.describe("how a connection reports itself", () => {
     await signupFreshUser(page, "conn-state-tokens");
     const dialog = await openConnectionsWith(page, [connection()]);
     await expect(dialog.getByText("Up to date")).toBeVisible();
+    await expect(dialog.getByText("tester@example.com")).toBeVisible();
 
     const rendered = (await dialog.textContent()) ?? "";
     for (const secret of ["refresh", "ya29.", "ciphertext", "access_token"]) {
       expect(rendered.toLowerCase()).not.toContain(secret.toLowerCase());
     }
+  });
+});
+
+/**
+ * The settings panel — what a connection actually syncs.
+ *
+ * Same reasoning as above: the panel only renders behind a real Google grant,
+ * so it had never been opened in a browser. The request it *sends* is the part
+ * worth pinning, because the server validates every value and refuses the
+ * whole PATCH over one wrong type — a threshold sent as the string "3" is
+ * rejected for a field the user never typed.
+ */
+
+const CALENDARS = [
+  { id: "primary", summary: "Me", primary: true },
+  { id: "team@example.com", summary: "Team", primary: false },
+];
+
+async function openPanel(page: Page, overrides: StubConnection = {}, calendars = CALENDARS, stale = false) {
+  await page.route("**/api/v1/connections/connections/*/calendars", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { calendars, stale } }),
+    });
+  });
+
+  const dialog = await openConnectionsWith(page, [
+    connection({ settings: { available_calendars: calendars, calendar: { calendar_ids: ["primary"] } }, ...overrides }),
+  ]);
+  await dialog.getByRole("button", { name: "Sync settings" }).click();
+  return dialog;
+}
+
+test.describe("choosing what a connection syncs", () => {
+  test("the picker lists the calendars Google reports, not just the stored ones", async ({ page }) => {
+    await signupFreshUser(page, "panel-list");
+    const dialog = await openPanel(page);
+
+    await expect(dialog.getByText("Calendars to sync")).toBeVisible();
+    await expect(dialog.getByRole("checkbox", { name: /Me/ })).toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: /Team/ })).not.toBeChecked();
+  });
+
+  test("saving sends a threshold the server will accept", async ({ page }) => {
+    await signupFreshUser(page, "panel-save");
+    const dialog = await openPanel(page);
+
+    let sent: Record<string, unknown> = {};
+    await page.route("**/api/v1/connections/connections/11111111-*", async (route) => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      sent = route.request().postDataJSON();
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: {} }) });
+    });
+
+    await dialog.getByRole("checkbox", { name: /Team/ }).check();
+    await dialog.getByRole("spinbutton").fill("5");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(/Saved\./)).toBeVisible();
+
+    // A number input hands back a string, and the server refuses the whole
+    // PATCH over the type of a field the user never typed.
+    expect(typeof sent.people_threshold).toBe("number");
+    expect(sent.people_threshold).toBe(5);
+    expect((sent.calendar as { calendar_ids: string[] }).calendar_ids).toEqual(["primary", "team@example.com"]);
+  });
+
+  test("a refusal from the server is shown, not swallowed", async ({ page }) => {
+    await signupFreshUser(page, "panel-refused");
+    const dialog = await openPanel(page);
+
+    await page.route("**/api/v1/connections/connections/11111111-*", async (route) => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      await route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "validation_failed", message: "people_threshold must be between 1 and 1000." },
+        }),
+      });
+    });
+
+    await dialog.getByRole("button", { name: "Save" }).click();
+    // The server names the field it refused; inventing our own wording here
+    // is how the two drift until the form allows what the API rejects.
+    await expect(page.getByText(/people_threshold must be between 1 and 1000\./)).toBeVisible();
+  });
+
+  test("a list that could not be refreshed says so rather than looking current", async ({ page }) => {
+    await signupFreshUser(page, "panel-stale");
+    const dialog = await openPanel(page, {}, CALENDARS, true);
+    await expect(dialog.getByText(/may be out of date/)).toBeVisible();
+  });
+
+  test("Gmail-only controls do not appear on a calendar connection", async ({ page }) => {
+    await signupFreshUser(page, "panel-scope");
+    const dialog = await openPanel(page);
+
+    await expect(dialog.getByText("Store message bodies")).toHaveCount(0);
+    // And the ones that apply to both are there.
+    await expect(dialog.getByText("Folder")).toBeVisible();
+    await expect(dialog.getByText("Link a person after")).toBeVisible();
   });
 });

@@ -1150,11 +1150,14 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     tests; feature coverage 88%. Playwright: 8 connections specs, and the full
     suite at 250 passed / 2 failed, both `auth.spec.ts` email-verification
     specs that need `EMAIL_VERIFICATION_REQUIRED` on.
-  - *Still open.* The connection settings panel has no end-to-end coverage —
-    it needs a real Google grant to render. The connected-state UI around it
-    is covered by stubbing the connections endpoint, which is sound because
-    the shape being stubbed is pinned independently by the backend suite
-    against a real database; the panel itself is next. `web/` has no unit-test runner, so nothing below the e2e layer
+  - *Playwright.* 20 connection specs. Eight drive the server for real; the
+    other twelve stub the connections endpoint so the connected-state UI can
+    be rendered at all — a connection row needs a real Google grant, so every
+    status, error box and the settings panel had otherwise never been on
+    screen in a test. Stubbing there is sound because the shape being stubbed
+    is pinned independently by the backend suite against a real database.
+  - *Still open.* No test drives a real Google API; that needs a registered
+    OAuth client and is operator setup. `web/` has no unit-test runner, so nothing below the e2e layer
     tests React; adding one is a repo-wide choice, not a feature-branch
     decision. The same index-naming drift found in `0022` exists across five
     pre-existing tables and belongs in its own PR.
