@@ -32,7 +32,15 @@ from app.services.daily_note_service import format_date
 from app.services.importers.base import safe_segment
 
 from . import connection_settings as settings_schema
-from .base import CursorInvalid, FetchContext, ProviderError, SyncPage, SyncRecord, escape_remote_text
+from .base import (
+    CursorInvalid,
+    FetchContext,
+    ProviderError,
+    SyncPage,
+    SyncRecord,
+    escape_remote_text,
+    yaml_scalar,
+)
 
 API = "https://www.googleapis.com/calendar/v3"
 
@@ -159,19 +167,19 @@ class GoogleCalendarAdapter:
             "---",
             "source: google-calendar",
             "type: event",
-            f"event_id: {event_id}",
-            f"calendar: {escape_remote_text(calendar_id)}",
-            f"start: {start_raw}",
-            f"end: {end_raw}",
+            f"event_id: {yaml_scalar(event_id, 128)}",
+            f"calendar: {yaml_scalar(calendar_id)}",
+            f"start: {yaml_scalar(start_raw, 64)}",
+            f"end: {yaml_scalar(end_raw, 64)}",
         ]
         if recurrence:
-            front.append(f'recurrence: "{recurrence}"')
+            front.append(f"recurrence: {yaml_scalar(recurrence)}")
         if attendees:
             front.append(f"attendee_count: {len(attendees)}")
         if item.get("location"):
-            front.append(f'location: "{escape_remote_text(str(item["location"]))[:200]}"')
+            front.append(f"location: {yaml_scalar(str(item['location']))}")
         if item.get("htmlLink"):
-            front.append(f"url: {item['htmlLink']}")
+            front.append(f"url: {yaml_scalar(str(item['htmlLink']), 500)}")
         front.append("---")
 
         lines = ["\n".join(front), "", f"# {summary}", ""]

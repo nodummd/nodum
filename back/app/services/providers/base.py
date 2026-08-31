@@ -197,6 +197,27 @@ def escape_remote_text(text: str) -> str:
     return _HASH_TAG.sub("&#35;", text)
 
 
+def yaml_scalar(text: str, limit: int = 200) -> str:
+    """A remote string as a YAML scalar, quotes included.
+
+    `escape_remote_text` neutralises *vault* syntax — wikilinks and tags — and
+    knows nothing about YAML. Frontmatter is a different parser with different
+    dangerous characters, and it was being handed remote text raw: a newline in
+    a display name or a location ends the value and starts a new key, so an
+    invitation from a stranger could put arbitrary properties on a note in
+    someone's vault. A bare `"` was enough to make the whole block unparseable,
+    which loses every property on that note and says nothing.
+
+    Newlines and control characters collapse to spaces rather than being
+    dropped, so words cannot be silently welded together, and the result is
+    always quoted so `:`, `#`, `-` and the rest are data rather than syntax.
+    """
+    cleaned = "".join(" " if character < " " or character == "\x7f" else character for character in text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()[:limit]
+    escaped = cleaned.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def split_user_region(content: str) -> tuple[str, str]:
     """Split a synced note into (sync-owned, user-owned).
 

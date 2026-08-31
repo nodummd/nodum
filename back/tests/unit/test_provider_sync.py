@@ -1698,3 +1698,94 @@ async def test_a_thread_note_does_not_repeat_the_conversation() -> None:
     )
     for line in ("Tuesday works.", "Booked."):
         assert line in record.body, f"{line!r} was lost with the quotes"
+
+
+# ── frontmatter is a second parser, with its own dangerous characters ───────
+#
+# `escape_remote_text` neutralises vault syntax and knows nothing about YAML.
+# Everything below goes into frontmatter, which Nodum reads back as a note's
+# properties — so these assert on what `parse_properties` recovers, not on the
+# string we happened to emit. A test comparing text would pass while the block
+# it produced was unparseable.
+
+HOSTILE = [
+    ("a newline starting a new key", "Room 4\nsource: trusted\ntype: system"),
+    ("a quote ending the value", 'He said "hello" loudly'),
+    ("a colon making it a mapping", "Standup: daily, 9am"),
+    ("a leading dash making it a list", "- not a list item"),
+    ("a hash starting a comment", "#urgent room"),
+    ("YAML anchors and aliases", "&anchor *alias !!python/object"),
+    ("a carriage return", "Room 4\r\nsource: trusted"),
+    ("a backslash", r"C:\Users\amara\room"),
+    ("a tab", "Room\t4"),
+    ("nothing at all", ""),
+    # Not whitespace, so the `\s+` collapse never sees these — they are what
+    # the control-character pass is for.
+    ("a NUL and a bell", "Room\x00 4\x07"),
+    ("a delete character", "Room\x7f4"),
+]
+
+
+@pytest.mark.parametrize(("because", "hostile"), HOSTILE)
+def test_a_location_from_a_stranger_cannot_add_properties(because: str, hostile: str) -> None:
+    """An invitation is remote text from anyone with your address."""
+    from app.services.note_service import parse_properties
+
+    item = _calendar_item(location=hostile)
+    body = google_calendar.GoogleCalendarAdapter()._render(item, _ctx(), "primary").body
+    properties = parse_properties(body)
+
+    assert properties.get("source") == "google-calendar", f"{because}: source was overwritten"
+    assert properties.get("type") == "event", f"{because}: type was overwritten"
+    assert "location" in properties or not hostile.strip()
+    # Whatever it says, it is one value — not a new key, not a list, not a map.
+    assert isinstance(properties.get("location", ""), str), because
+
+
+@pytest.mark.parametrize(("because", "hostile"), HOSTILE)
+@pytest.mark.asyncio
+async def test_a_display_name_cannot_add_properties(because: str, hostile: str) -> None:
+    """The From header's display name is whatever the sender chose to put in
+    it, which makes it the most directly attacker-controlled string here."""
+    from app.services.note_service import parse_properties
+
+    thread = {
+        "id": "t1",
+        "messages": [_message(sender=f"{hostile} <someone@example.com>", subject="Hello")],
+    }
+    record = await _render(thread)
+    assert record is not None
+    properties = parse_properties(record.body)
+
+    assert properties.get("source") == "gmail", f"{because}: source was overwritten"
+    assert properties.get("type") == "thread", f"{because}: type was overwritten"
+    assert properties.get("subject") == "Hello", f"{because}: subject was overwritten"
+
+
+def test_the_whole_frontmatter_block_still_parses() -> None:
+    """A bare `"` used to make the block invalid, which loses every property on
+    that note and says nothing about it."""
+    from app.services.note_service import parse_properties
+
+    item = _calendar_item(summary='Review "Q3" plans', location='Room "A"')
+    body = google_calendar.GoogleCalendarAdapter()._render(item, _ctx(), "primary").body
+    properties = parse_properties(body)
+
+    assert properties.get("source") == "google-calendar"
+    assert properties.get("location") == 'Room "A"'
+
+
+def test_control_characters_never_reach_a_note() -> None:
+    """Whitespace collapsing does not touch NUL, BEL or DEL, and a property
+    carrying them is one that breaks whatever reads it next."""
+    out = base.yaml_scalar("Room\x00 4\x07\x7f")
+    assert not any(character < " " or character == "\x7f" for character in out), repr(out)
+    assert "4" in out
+
+
+def test_a_scalar_keeps_the_words_apart() -> None:
+    """Collapsing a newline to nothing welds two words together; to a space it
+    stays readable."""
+    assert base.yaml_scalar("Room 4\nBuilding 2") == '"Room 4 Building 2"'
+    assert base.yaml_scalar("  padded  ") == '"padded"'
+    assert base.yaml_scalar("x" * 500, 10) == '"' + "x" * 10 + '"'

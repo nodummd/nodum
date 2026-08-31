@@ -33,7 +33,15 @@ from app.services.importers.base import safe_segment, tag_name
 from app.services.importers.html_md import html_to_markdown
 
 from . import connection_settings as settings_schema
-from .base import CursorInvalid, FetchContext, ProviderError, SyncPage, SyncRecord, escape_remote_text
+from .base import (
+    CursorInvalid,
+    FetchContext,
+    ProviderError,
+    SyncPage,
+    SyncRecord,
+    escape_remote_text,
+    yaml_scalar,
+)
 
 API = "https://gmail.googleapis.com/gmail/v1/users/me"
 STREAM = "gmail:messages"
@@ -276,19 +284,19 @@ class GoogleGmailAdapter:
             "---",
             "source: gmail",
             "type: thread",
-            f"thread_id: {thread_id}",
-            f'subject: "{subject.replace(chr(34), chr(39))[:200]}"',
+            f"thread_id: {yaml_scalar(thread_id, 128)}",
+            f"subject: {yaml_scalar(subject)}",
             f"created: {first_at.isoformat()}",
         ]
         if last_at:
             front.append(f"updated: {last_at.isoformat()}")
         if participants:
             front.append("participants:")
-            front.extend(f"  - {p}" for p in participants[:20])
+            front.extend(f"  - {yaml_scalar(p)}" for p in participants[:20])
         if tags:
             front.append("tags:")
-            front.extend(f"  - {t}" for t in tags[:20])
-        front.append(f"url: https://mail.google.com/mail/u/0/#inbox/{thread_id}")
+            front.extend(f"  - {yaml_scalar(t)}" for t in tags[:20])
+        front.append(f"url: {yaml_scalar(f'https://mail.google.com/mail/u/0/#inbox/{thread_id}', 300)}")
         front.append("---")
 
         lines = ["\n".join(front), "", f"# {subject}", ""]

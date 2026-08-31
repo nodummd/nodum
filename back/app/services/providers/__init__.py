@@ -45,6 +45,7 @@ from .base import (
     has_user_region,
     merge_into,
     split_user_region,
+    yaml_scalar,
 )
 from .google_calendar import GoogleCalendarAdapter
 from .google_gmail import GoogleGmailAdapter
@@ -137,4 +138,5 @@ __all__ = [
     "merge_into",
     "registry_entry",
     "split_user_region",
+    "yaml_scalar",
 ]
