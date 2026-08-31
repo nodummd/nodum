@@ -70,7 +70,10 @@ rationed:
 - **The date.** One per note, pointing at the day's daily note.
 - **People**, but only once someone has appeared a few times — three by
   default. Below that their name is plain text. Automated senders
-  (`noreply@`, mailing lists) never get one.
+  (`noreply@`, mailing lists) never get one. If a note for them already
+  exists — you wrote one, or another connection made it — they are linked
+  straight away: the threshold is there to avoid links pointing at nothing,
+  and that cannot happen once the note is there.
 - **Nothing else.** No links for companies, URLs or subject keywords.
 
 Labels become tags under `gmail/`, so they group together and never collide

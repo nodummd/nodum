@@ -178,11 +178,19 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
     Returns True when a link to `name` may be emitted. The threshold exists
     because a link whose target does not exist becomes a ghost node, and one
     ghost per unique correspondent is exactly how a graph stops being readable.
-    """
-    threshold = connection_settings.people_threshold(connection.settings)
-    if counts.get(name, 0) < threshold:
-        return False
 
+    Which is why an existing note is checked *first*, and the threshold only
+    decides whether to create one. Once the target exists a link cannot be a
+    ghost, so refusing to make it buys nothing and costs consistency: a person
+    the user wrote their own note about stayed as plain text until sync had
+    seen them three times, and two connections in one vault — a calendar and a
+    mailbox — counted separately, so the same person was linked from one and
+    left plain in the other for no reason visible to anyone.
+
+    `People/` is deliberately not under the connection's folder root: a person
+    is one person, and two connections with different roots would otherwise
+    split them into two notes and two halves of the graph.
+    """
     safe_name = safe_segment(name, fallback="")
     if not safe_name:
         return False
@@ -190,6 +198,10 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
     existing = await db.scalar(select(Note.id).where(Note.vault_id == connection.vault_id, Note.path == path))
     if existing is not None:
         return True
+
+    threshold = connection_settings.people_threshold(connection.settings)
+    if counts.get(name, 0) < threshold:
+        return False
 
     folder = await folder_service.ensure_folder_path(db, connection.vault_id, connection.user_id, "People")
     response = await note_service.create_note(

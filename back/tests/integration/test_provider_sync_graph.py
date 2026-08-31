@@ -23,7 +23,7 @@ from app.core.db import async_session_factory
 from app.models.links import Link
 from app.models.providers import ProviderConnection
 from app.models.vaults import Note
-from app.services import daily_note_service, note_service, provider_sync_service, providers
+from app.services import daily_note_service, folder_service, note_service, provider_sync_service, providers
 
 STREAM = "calendar:events:primary"
 DAY = datetime(2026, 9, 2, 14, 0, tzinfo=UTC)
@@ -240,3 +240,109 @@ async def test_what_the_user_writes_underneath_is_in_the_graph_too(
         targets = {link.target_title for link in await _links_from(session, note.id)}
         assert "q3 planning" in targets, f"the user's own link was dropped by a sync: {targets}"
         assert "2026-09-02" in targets
+
+
+# ── linking a person whose note already exists ──────────────────────────────
+
+
+async def _person_note_exists(session, vault_id: uuid.UUID, name: str) -> bool:
+    return (
+        await session.scalar(select(Note.id).where(Note.vault_id == vault_id, Note.path == f"People/{name}"))
+    ) is not None
+
+
+@pytest.mark.asyncio
+async def test_a_person_the_user_already_wrote_about_is_linked_immediately(
+    connection: ProviderConnection,
+) -> None:
+    """The threshold exists so that a link cannot point at nothing. Once the
+    target exists that reasoning is spent, and withholding the link buys
+    nothing while costing the connection the user made by hand.
+    """
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+
+        folder = await folder_service.ensure_folder_path(session, row.vault_id, row.user_id, "People")
+        created = await note_service.create_note(
+            session,
+            row.vault_id,
+            row.user_id,
+            title="Amara Osei",
+            folder_id=folder.data if folder.success else None,
+            content="# Amara Osei\n\nRuns the platform team.\n",
+        )
+        assert created.success, created.message
+
+        # First appearance — far below any threshold.
+        await provider_sync_service.apply_record(
+            session, row, STREAM, _event(DAY, names=("Amara Osei",)), people_counts={"Amara Osei": 1}
+        )
+        note = await _synced_note(session, row)
+        targets = {link.target_title for link in await _links_from(session, note.id)}
+        assert "amara osei" in targets, f"a note the user wrote was left unlinked: {sorted(targets)}"
+
+
+@pytest.mark.asyncio
+async def test_two_connections_in_one_vault_agree_about_a_person(
+    workspace: dict, connection: ProviderConnection
+) -> None:
+    """A calendar and a mailbox count separately, because the tally is per
+    connection. Without the existence check the same person is linked from one
+    and left plain in the other, in the same vault, for no reason anyone can
+    see."""
+    async with async_session_factory() as session:
+        first = await session.get(ProviderConnection, connection.id)
+        assert first is not None
+        # The calendar has seen them enough to make the note.
+        await provider_sync_service.apply_record(
+            session, first, STREAM, _event(DAY, names=("Dan Reeves",)), people_counts={"Dan Reeves": 5}
+        )
+        assert await _person_note_exists(session, first.vault_id, "Dan Reeves")
+
+        second = ProviderConnection(
+            user_id=workspace["user_id"],
+            vault_id=workspace["vault_id"],
+            provider="google_gmail",
+            external_account_id=uuid.uuid4().hex,
+            external_email="tester@example.com",
+            connected_at=datetime.now(UTC),
+            settings={},
+            people_counts={},
+        )
+        session.add(second)
+        await session.commit()
+        await session.refresh(second)
+
+        # Titles reach the engine already sanitised by the adapter, which is why
+        # this one has no colon in it — see the title tests for that half.
+        record = replace(_event(DAY, names=("Dan Reeves",)), external_id="thread-1", title="Rollout thread")
+        await provider_sync_service.apply_record(
+            session, second, "gmail:messages", record, people_counts={"Dan Reeves": 1}
+        )
+
+        thread = await session.scalar(
+            select(Note).where(Note.vault_id == second.vault_id, Note.title == "Rollout thread")
+        )
+        assert thread is not None
+        targets = {link.target_title for link in await _links_from(session, thread.id)}
+        assert "dan reeves" in targets, "the mailbox left plain a person the calendar had linked"
+
+
+@pytest.mark.asyncio
+async def test_a_stranger_with_no_note_is_still_left_as_plain_text(
+    connection: ProviderConnection,
+) -> None:
+    """The existence check must not become a way around the threshold: with no
+    note there, a link would be the ghost node it exists to prevent."""
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        await provider_sync_service.apply_record(
+            session, row, STREAM, _event(DAY, names=("Someone Once",)), people_counts={"Someone Once": 1}
+        )
+
+        note = await _synced_note(session, row)
+        targets = {link.target_title for link in await _links_from(session, note.id)}
+        assert targets == {"2026-09-02"}, f"a one-off correspondent became a ghost node: {targets}"
+        assert not await _person_note_exists(session, row.vault_id, "Someone Once")
