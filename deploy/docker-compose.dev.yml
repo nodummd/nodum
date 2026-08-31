@@ -43,6 +43,18 @@ services:
       # leaves this off — there it is an SSRF hole, since any signed-up user
       # controls the value.
       - AI_ALLOW_PRIVATE_BASE_URLS=${AI_ALLOW_PRIVATE_BASE_URLS:-true}
+      # Where Google sends the browser back. The default is :3100 (the e2e
+      # server); the dev web container is on :3000.
+      - OAUTH_REDIRECT_BASE_URL=http://localhost:3000
+      # ── Live sync from Google (dev) ───────────────────────
+      # Register your own OAuth client and put these in deploy/.env; empty
+      # leaves the Connections tab saying so, which is the honest default.
+      # Both the API and the worker need them: the API exchanges the code and
+      # encrypts, the worker refreshes and decrypts on every run.
+      - GOOGLE_SYNC_CLIENT_ID=${GOOGLE_SYNC_CLIENT_ID:-}
+      - GOOGLE_SYNC_CLIENT_SECRET=${GOOGLE_SYNC_CLIENT_SECRET:-}
+      - GOOGLE_SYNC_GMAIL_ENABLED=${GOOGLE_SYNC_GMAIL_ENABLED:-false}
+      - OAUTH_ENCRYPTION_KEY=${OAUTH_ENCRYPTION_KEY:-dev-only-ai-encryption-key-change-me}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -77,6 +89,15 @@ services:
       - S3_ENDPOINT_URL=http://minio:9000
       - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # ── Live sync from Google (dev) ───────────────────────
+      # Register your own OAuth client and put these in deploy/.env; empty
+      # leaves the Connections tab saying so, which is the honest default.
+      # Both the API and the worker need them: the API exchanges the code and
+      # encrypts, the worker refreshes and decrypts on every run.
+      - GOOGLE_SYNC_CLIENT_ID=${GOOGLE_SYNC_CLIENT_ID:-}
+      - GOOGLE_SYNC_CLIENT_SECRET=${GOOGLE_SYNC_CLIENT_SECRET:-}
+      - GOOGLE_SYNC_GMAIL_ENABLED=${GOOGLE_SYNC_GMAIL_ENABLED:-false}
+      - OAUTH_ENCRYPTION_KEY=${OAUTH_ENCRYPTION_KEY:-dev-only-ai-encryption-key-change-me}
     volumes:
       - ../back:/app
       - celery_venv:/app/.venv
@@ -99,6 +120,9 @@ services:
     container_name: nodum-web-dev
     environment:
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      # The rewrite in next.config.ts runs inside this container, where
+      # localhost is the web server itself — the proxy must name the service.
+      - API_PROXY_URL=http://api:8000
       - NODE_ENV=development
     ports:
       - "127.0.0.1:3000:3000"

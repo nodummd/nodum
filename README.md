@@ -194,7 +194,8 @@ as production. Deployment and backup/restore runbooks live in
 
 ```bash
 cd back && uv run pytest tests -q      # backend (bring infra up first)
-cd web  && npx playwright test         # e2e (api + web running)
+make e2e-up                            # bring up the stack the e2e suite needs
+make e2e                               # Playwright (make e2e-up again after `make verify`)
 ```
 
 v3.2.0 ships green with **87 backend tests** (70 integration + 17 unit) and **77 Playwright

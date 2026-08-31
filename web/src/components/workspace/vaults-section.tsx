@@ -4,12 +4,13 @@
  *  Opening another vault is a link, not a button — see vault-switcher.tsx. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { confirmDelete } from "./confirm-dialog";
 import { useCreateDemoWorkspace } from "./demo-workspace-offer";
 import { NewVaultDialog } from "./vault-switcher";
+import { ImportDialog } from "@/components/import/import-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { vaultApi } from "@/lib/api/endpoints";
@@ -22,6 +23,7 @@ export function VaultsSection({ vaultId }: { vaultId: string }) {
   const toast = useToastStore((s) => s.push);
   const { data: vaults } = useQuery({ queryKey: ["vaults"], queryFn: vaultApi.list });
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const createDemo = useCreateDemoWorkspace();
 
@@ -126,7 +128,26 @@ export function VaultsSection({ vaultId }: { vaultId: string }) {
         The demo is a separate vault with 200+ linked notes, coloured folders and graph groups —
         a safe place to try things.
       </p>
+
+      {/* Import lives here rather than only in the command palette: someone
+          arriving from another app is looking for a button, not a shortcut
+          they have not learned yet. */}
+      <div className="border-t border-ob-border pt-3">
+        <h3 className="text-[11px] font-medium tracking-wide text-ob-faint uppercase">
+          Bring your notes in
+        </h3>
+        <p className="mt-1.5 text-[12px] text-ob-faint">
+          Obsidian, Notion, Evernote, Apple Notes, Google Keep, Roam, Slack and more — everything
+          arrives as plain markdown, with links resolved across the whole import.
+        </p>
+        <Button size="sm" variant="secondary" className="mt-2.5" onClick={() => setImporting(true)}>
+          <Download className="mr-1 size-3.5" strokeWidth={2} />
+          Import data
+        </Button>
+      </div>
+
       <NewVaultDialog open={creating} onOpenChange={setCreating} />
+      <ImportDialog vaultId={vaultId} open={importing} onOpenChange={setImporting} />
     </section>
   );
 }

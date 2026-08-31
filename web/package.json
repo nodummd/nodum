@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "docs:shots": "playwright test --config scripts/playwright.docs.config.ts"
+    "docs:shots": "playwright test --config scripts/playwright.docs.config.ts",
+    "icons:gen": "node scripts/gen-brand-icons.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -56,12 +57,15 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^26.2.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "adm-zip": "^0.6.0",
     "agentation": "^3.0.2",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.1",
+    "simple-icons": "^16.28.0",
     "tailwindcss": "^4",
     "typescript": "^6.0.3"
   }

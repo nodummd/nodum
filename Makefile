@@ -3,7 +3,7 @@
 # ============================================================
 
 .PHONY: help dev-up dev-down dev-logs test-up test-down back-test back-test-int back-lint back-format \
-        web-dev web-build web-lint web-typecheck e2e verify
+        web-dev web-build web-lint web-typecheck e2e e2e-up e2e-down e2e-status verify
 
 help:            ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -78,8 +78,17 @@ web-typecheck:   ## Typecheck web (tsc --noEmit)
 web-image-check: ## Nothing that ships in the web image imports a .dockerignored path
 	cd web && node scripts/check-docker-context.mjs
 
-e2e:             ## Run Playwright e2e suite (needs test stack up)
-	cd web && npx playwright test
+e2e-up:          ## Start the stack the e2e suite expects (mirrors CI)
+	./deploy/e2e-stack.sh up
+
+e2e-down:        ## Stop it
+	./deploy/e2e-stack.sh down
+
+e2e-status:      ## What is running
+	./deploy/e2e-stack.sh status
+
+e2e:             ## Run Playwright e2e suite (run `make e2e-up` first)
+	cd web && BASE_URL=$${BASE_URL:-http://127.0.0.1:3100} npx playwright test
 
 # ── Gates ───────────────────────────────────────────────────
 verify:          ## Everything CI runs, minus e2e — run before you push

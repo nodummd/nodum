@@ -18,6 +18,7 @@ from app.api.v1 import (
     community,
     daily,
     folders,
+    integrations,
     links,
     mcp_tokens,
     notes,
@@ -39,6 +40,8 @@ api_router.include_router(search.router, prefix="/vaults/{vault_id}", tags=["Sea
 api_router.include_router(attachments.router, prefix="/vaults/{vault_id}/attachments", tags=["Attachments"])
 api_router.include_router(daily.router, prefix="/vaults/{vault_id}", tags=["Daily & Templates"])
 api_router.include_router(vault_io.router, prefix="/vaults/{vault_id}", tags=["Import & Export"])
+api_router.include_router(vault_io.catalog_router, tags=["Import & Export"])
+api_router.include_router(integrations.router, prefix="/connections", tags=["Connections"])
 api_router.include_router(bookmarks.router, prefix="/vaults/{vault_id}/bookmarks", tags=["Bookmarks"])
 api_router.include_router(publish.router, prefix="/vaults/{vault_id}/notes", tags=["Publish"])
 api_router.include_router(versions.router, prefix="/vaults/{vault_id}/notes/{note_id}/versions", tags=["Versions"])

@@ -42,6 +42,14 @@ dependencies = [
     # Markdown / frontmatter parsing
     "python-frontmatter>=1.3.0",
     "pyyaml>=6.0.3",
+    # Import converters. Evernote's ENML, Google Keep's Takeout HTML, Apple
+    # Notes and generic web clippings are all HTML, and hand-rolling
+    # HTML→markdown is a well-known tarpit — markdownify does it properly.
+    "markdownify>=1.2.0",
+    # Every import parses a file a stranger uploaded. ElementTree resolves no
+    # external entities but is still open to entity-expansion (billion laughs);
+    # defusedxml closes that, and ENEX imports are pure XML.
+    "defusedxml>=0.7.1",
     # Logging & monitoring
     "structlog>=26.1.0",
     "sentry-sdk[fastapi]>=2.68.0",

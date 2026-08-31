@@ -12,9 +12,58 @@ from app.constants.limits import MAX_IMPORT_ZIP_SIZE_BYTES
 from app.core.custom_exceptions import ValidationFailedError
 from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
-from app.services import vault_io_service
+from app.services import import_service, importers, vault_io_service
 
 router = APIRouter()
+#: Mounted without the vault prefix — the catalogue is the same for everyone
+#: and the picker needs it before a vault is chosen.
+catalog_router = APIRouter()
+
+
+@catalog_router.get("/integrations")
+async def list_integrations(_user_id: CurrentUserId) -> dict[str, Any]:
+    """Every import source the picker can offer, with its export instructions.
+
+    Authenticated but not vault-scoped: this is a static catalogue, and the
+    modal opens before a target vault has necessarily been picked.
+    """
+    return {"data": {"sources": importers.catalog(), "categories": importers.CATEGORY_LABELS}}
+
+
+@router.post("/import/{source_id}")
+async def import_from_source(
+    vault_id: UUID,
+    source_id: str,
+    files: list[UploadFile],
+    user_id: CurrentUserId,
+    db: SessionDep,
+) -> dict[str, Any]:
+    """Import an export from a named source into this vault.
+
+    One endpoint for every source: the source id selects the converter, and
+    everything downstream — folders, collisions, cross-batch wikilink
+    resolution, attachments — is the same pipeline a plain zip goes through.
+    """
+    if not files:
+        raise ValidationFailedError("No files were selected.")
+
+    uploads: list[tuple[str, bytes]] = []
+    total = 0
+    for upload in files:
+        # Checked before the read, like the other import routes: measuring
+        # after reading has already committed the allocation the cap exists
+        # to prevent.
+        total += upload.size or 0
+        if total > MAX_IMPORT_ZIP_SIZE_BYTES:
+            raise ValidationFailedError("That export is too large to import in one go.")
+        content = await upload.read()
+        if len(content) == 0:
+            continue
+        name = (upload.filename or "upload").replace("\\", "/").lstrip("/")
+        uploads.append((name, content))
+
+    stats = (await import_service.run_import(db, vault_id, user_id, source_id=source_id, uploads=uploads)).unwrap()
+    return {"data": stats}
 
 
 @router.get("/export")

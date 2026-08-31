@@ -28,20 +28,37 @@ VERSION = "v1"
 
 
 class MissingEncryptionKey(RuntimeError):
-    """AI_ENCRYPTION_KEY is unset — refuse to store a secret in the clear."""
+    """No encryption key is configured — refuse to store a secret in the clear."""
 
 
-def _fernet() -> Fernet:
-    """Build the cipher from the configured key.
+#: Purposes a secret can be encrypted for, and the settings key each reads.
+#: Separate keys mean rotating or leaking one does not reach the other; the
+#: OAuth purpose falls back to the AI key so an existing deployment is not
+#: forced to generate a second secret before it can connect a data source.
+_PURPOSE_KEYS: dict[str, tuple[str, ...]] = {
+    "ai": ("AI_ENCRYPTION_KEY",),
+    "oauth": ("OAUTH_ENCRYPTION_KEY", "AI_ENCRYPTION_KEY"),
+}
+
+
+def _key_material(purpose: str) -> str:
+    settings = get_settings()
+    for name in _PURPOSE_KEYS.get(purpose, ("AI_ENCRYPTION_KEY",)):
+        value = (getattr(settings, name, "") or "").strip()
+        if value:
+            return value
+    raise MissingEncryptionKey(f"no encryption key configured for {purpose!r}")
+
+
+def _fernet(purpose: str = "ai") -> Fernet:
+    """Build the cipher for a purpose from its configured key.
 
     Accepts either a real 32-byte urlsafe-base64 Fernet key (what
     `Fernet.generate_key()` prints, and what operators should set) or any
     sufficiently long passphrase, which is stretched with SHA-256 so a
     hand-written value still produces a valid key rather than a crash.
     """
-    raw = (get_settings().AI_ENCRYPTION_KEY or "").strip()
-    if not raw:
-        raise MissingEncryptionKey("AI_ENCRYPTION_KEY is not configured")
+    raw = _key_material(purpose)
     try:
         return Fernet(raw.encode())
     except (ValueError, TypeError):
@@ -49,23 +66,23 @@ def _fernet() -> Fernet:
         return Fernet(derived)
 
 
-def encryption_available() -> bool:
+def encryption_available(purpose: str = "ai") -> bool:
     """True when secrets can be stored — the settings UI asks before offering to."""
     try:
-        _fernet()
+        _fernet(purpose)
     except (MissingEncryptionKey, ValueError, TypeError):
         return False
     return True
 
 
-def encrypt_secret(plaintext: str) -> str:
+def encrypt_secret(plaintext: str, *, purpose: str = "ai") -> str:
     """Encrypt a secret for storage. Returns `v1:<token>`."""
     if not plaintext:
         raise ValueError("refusing to encrypt an empty secret")
-    return f"{VERSION}:{_fernet().encrypt(plaintext.encode()).decode()}"
+    return f"{VERSION}:{_fernet(purpose).encrypt(plaintext.encode()).decode()}"
 
 
-def decrypt_secret(blob: str) -> str | None:
+def decrypt_secret(blob: str, *, purpose: str = "ai") -> str | None:
     """Recover a secret, or None if it is unreadable.
 
     None covers every failure the caller can do nothing about — an unknown
@@ -78,7 +95,7 @@ def decrypt_secret(blob: str) -> str | None:
     if version != VERSION:
         return None
     try:
-        return _fernet().decrypt(token.encode()).decode()
+        return _fernet(purpose).decrypt(token.encode()).decode()
     except (InvalidToken, MissingEncryptionKey, ValueError, TypeError):
         return None
 

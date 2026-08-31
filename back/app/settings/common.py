@@ -43,7 +43,7 @@ class CommonSettings(BaseSettings):
 
     # ── Application ───────────────────────────────────────────────────────────
     APP_NAME: str = "Nodum"
-    APP_VERSION: str = "3.7.0"
+    APP_VERSION: str = "3.8.0"
     ENVIRONMENT: Annotated[
         Literal["dev", "test", "staging", "production"],
         BeforeValidator(normalize_environment),
@@ -97,6 +97,38 @@ class CommonSettings(BaseSettings):
     # Public origin the OAuth callback redirects through (the web app origin)
     OAUTH_REDIRECT_BASE_URL: str = "http://localhost:3100"
 
+    # ── Google data sync (Calendar, Gmail) ───────────────────────────────
+    # A *separate* OAuth client from sign-in above, because the scopes and the
+    # verification tier are different and mixing them would drag the login
+    # client into Gmail's compliance regime.
+    #
+    # These are deliberately not defaulted to the sign-in client and are never
+    # shipped with values: the Google APIs Terms of Service forbid embedding
+    # developer credentials in an open-source project, so a self-hosted
+    # instance must register its own Cloud project. docs/OWNER-SETUP.md walks
+    # through it — including the step people miss, which is setting the consent
+    # screen to "In production". Left in "Testing", Google expires every
+    # refresh token after 7 days and background sync dies silently.
+    GOOGLE_SYNC_CLIENT_ID: str = ""
+    GOOGLE_SYNC_CLIENT_SECRET: str = ""
+
+    # Gmail is SELF-HOSTED ONLY and off by default.
+    #
+    # Every Gmail scope — including gmail.metadata — is on Google's
+    # *restricted* list, which obliges a hosted, multi-user deployment to pass
+    # a CASA security assessment by an authorised lab, renewed annually and
+    # priced from roughly $540 to several thousand dollars a year. An operator
+    # running Nodum for themselves is covered by Google's personal-use
+    # exemption and owes none of that. Calendar's scopes are merely
+    # *sensitive*, so they carry a one-time review and no fee — which is why
+    # Calendar ships on by default and Gmail does not.
+    GOOGLE_SYNC_GMAIL_ENABLED: bool = False
+
+    # How often the beat scheduler looks for connections that are due a poll.
+    PROVIDER_SYNC_TICK_SECONDS: int = 60
+    # Default per-stream poll interval; adapters may raise their own.
+    PROVIDER_SYNC_DEFAULT_INTERVAL: int = 300
+
     # Live collaboration (Yjs rooms over websockets)
     COLLAB_ENABLED: bool = True
 
@@ -122,6 +154,11 @@ class CommonSettings(BaseSettings):
     # it must not ride on a value operators treat as freely rotatable.
     # Generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     AI_ENCRYPTION_KEY: str = ""
+    # Encrypts stored OAuth refresh tokens for synced data sources. Its own key
+    # so the blast radius of a rotation or a leak does not span two features;
+    # falls back to AI_ENCRYPTION_KEY when unset, so an existing deployment
+    # keeps working without being forced to generate a second secret first.
+    OAUTH_ENCRYPTION_KEY: str = ""
     # Ceiling on a single AI request, in seconds — a provider hanging must not
     # hold a worker forever.
     AI_REQUEST_TIMEOUT: int = 120
