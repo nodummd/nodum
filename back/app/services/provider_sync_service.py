@@ -208,19 +208,38 @@ async def _linkable_people(
     if not paths:
         return set()
 
-    existing_paths = set(
-        (await db.execute(select(Note.path).where(Note.vault_id == connection.vault_id, Note.path.in_(paths.keys()))))
-        .scalars()
-        .all()
-    )
-    linkable = {paths[path] for path in existing_paths}
-    for name in linkable:
-        # Remember it, so deleting it later is remembered too.
-        note_id = await db.scalar(
-            select(Note.id).where(Note.vault_id == connection.vault_id, Note.path == f"People/{safe[name]}")
+    # The id comes back with the path, because looking it up afterwards was a
+    # second query per person on the path that runs *forever*: once the first
+    # sync is done, almost everyone already has a note.
+    found = (
+        await db.execute(
+            select(Note.id, Note.path).where(Note.vault_id == connection.vault_id, Note.path.in_(paths.keys()))
         )
-        if note_id is not None:
-            await _remember_person(db, connection, safe[name], note_id)
+    ).all()
+    linkable = {paths[path] for _, path in found}
+
+    # One insert for the record, not one per person with a commit each. These
+    # rows are what turns "the user removed this" into something the engine can
+    # see; writing them costs the same whether it is one person or twenty.
+    if found:
+        await db.execute(
+            pg_insert(ExternalObject)
+            .values(
+                [
+                    {
+                        "connection_id": connection.id,
+                        "stream": PEOPLE_STREAM,
+                        "external_id": safe[paths[path]],
+                        "note_id": note_id,
+                        "content_hash": "",
+                        "external_version": 0,
+                    }
+                    for note_id, path in found
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["connection_id", "stream", "external_id"])
+        )
+        await db.commit()
 
     candidates = {
         name

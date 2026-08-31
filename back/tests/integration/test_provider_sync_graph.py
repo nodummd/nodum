@@ -442,12 +442,19 @@ async def test_a_deletion_is_respected_by_every_connection_in_the_vault(
 # ── what a page of a backfill costs ─────────────────────────────────────────
 
 
-async def _queries_for(connection: ProviderConnection, *, events: int, attendees: int) -> int:
-    """Statements issued applying `events` records that each name `attendees`."""
+async def _queries_for(connection: ProviderConnection, *, events: int, attendees: int, known: bool = False) -> int:
+    """Statements issued applying `events` records that each name `attendees`.
+
+    `known` decides which path is measured, and both matter: with one-off
+    attendees nobody has a note, and with `known` everybody does — the steady
+    state, because once a first sync is finished almost everyone already has
+    one. Measuring only the first hid a worse cost in the second.
+    """
     from sqlalchemy import event as sa_event
 
-    names = tuple(f"Person {i}" for i in range(attendees))
-    counts: dict[str, int] = {}
+    prefix = "Known" if known else "Person"
+    names = tuple(f"{prefix} {i}" for i in range(attendees))
+    counts: dict[str, int] = dict.fromkeys(names, 50) if known else {}
     issued = 0
 
     async with async_session_factory() as session:
@@ -459,6 +466,16 @@ async def _queries_for(connection: ProviderConnection, *, events: int, attendees
 
         row = await session.get(ProviderConnection, connection.id)
         assert row is not None
+        if known:
+            # Make the notes first, so the measured records all take the
+            # "already exists" path rather than the one that creates them.
+            await provider_sync_service.apply_record(
+                session,
+                row,
+                STREAM,
+                replace(_event(DAY, names=names), external_id=f"warm-{attendees}"),
+                people_counts=counts,
+            )
         sa_event.listen(engine, "before_cursor_execute", _tick)
         try:
             for index in range(events):
@@ -493,3 +510,21 @@ async def test_people_cost_a_page_not_a_person(connection: ProviderConnection) -
 
     # Eight times the people, and the extra cost must not scale with them.
     assert many <= few + 15, f"{few} queries for 2 attendees, {many} for 16 — the per-person questions came back"
+
+
+@pytest.mark.asyncio
+async def test_people_who_already_have_notes_cost_a_page_too(connection: ProviderConnection) -> None:
+    """The steady state, and the one the first version of this test missed.
+
+    Once a first sync has finished almost every attendee already has a note,
+    so the branch that runs forever is the "already exists" one — and it was
+    the more expensive of the two: a second query for the id the first had
+    already seen, then an insert and a commit *per person*. Measured at 950
+    statements for 25 events with 8 known people, against 575 after.
+    """
+    few = await _queries_for(connection, events=5, attendees=2, known=True)
+    many = await _queries_for(connection, events=5, attendees=16, known=True)
+
+    assert many <= few + 15, (
+        f"{few} queries for 2 known people, {many} for 16 — remembering them went back to per-person"
+    )
