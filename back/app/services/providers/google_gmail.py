@@ -22,6 +22,7 @@ also means a reply arriving cannot disturb what the user wrote underneath.
 from __future__ import annotations
 
 import base64
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -237,7 +238,7 @@ class GoogleGmailAdapter:
                 f"## {sent.strftime('%Y-%m-%d') if sent else 'unknown date'} — {escape_remote_text(name or 'Unknown')}"
             )
             if store_bodies:
-                body = escape_remote_text(_body_text(message.get("payload") or {}))[:8000]
+                body = escape_remote_text(strip_quoted(_body_text(message.get("payload") or {})))[:8000]
                 quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in body.split("\n"))
                 blocks.append(f"{heading}\n\n{quoted}" if body else heading)
             else:
@@ -372,6 +373,33 @@ def _epoch(value: Any) -> datetime | None:
         return datetime.fromtimestamp(int(value) / 1000, tz=UTC)
     except (TypeError, ValueError, OSError, OverflowError):
         return None
+
+
+#: Lines that begin the quoted history of a reply. `From:` is deliberately not
+#: among them: it is the weakest signal and "From: the docs, we know…" is a
+#: sentence someone might actually write.
+_QUOTE_HEADER = re.compile(
+    r"^\s*(?:On\b.*\bwrote:\s*$|-{2,}\s*Original Message\s*-{2,}|_{10,}\s*$)",
+    re.IGNORECASE,
+)
+
+
+def strip_quoted(text: str) -> str:
+    """Just what this message added.
+
+    A reply carries the whole conversation below it, so storing each message
+    whole means a forty-message thread holds the first message about forty
+    times — every one of them nested a level deeper. The note becomes mostly
+    its own echo, and the part someone wants is a few lines at the top of it.
+
+    A message that turns out to be nothing but quoted text returns empty, and
+    the renderer keeps its heading: who wrote, and when, is still worth having.
+    """
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith(">") or _QUOTE_HEADER.match(line):
+            return "\n".join(lines[:index]).strip()
+    return text.strip()
 
 
 def _body_text(payload: dict[str, Any]) -> str:

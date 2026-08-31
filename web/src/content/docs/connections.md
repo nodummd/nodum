@@ -119,8 +119,10 @@ in the graph — including the one-offs, which is the flood the threshold exists
 to stop.
 
 **Store message bodies** (Gmail only). Off by default: notes carry who wrote,
-when, and the subject, but not the text. Turn it on and the message bodies are
-stored in your vault.
+when, and the subject, but not the text. Turn it on and each message's text is
+stored too — just the part that message added. The quoted history below a reply
+is dropped, because keeping it means a forty-message thread holds the first
+message forty times over and the note becomes mostly its own echo.
 
 **Labels** (Gmail only). Which labels are in scope, `INBOX` by default. A
 thread is synced if it carries any one of them, and that holds for every sync

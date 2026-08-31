@@ -1623,3 +1623,78 @@ async def test_an_event_you_organise_is_synced() -> None:
 
     solo = await _render_event(_calendar_item())
     assert solo is not None
+
+
+# ── a reply is not the whole conversation ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("body", "expected", "because"),
+    [
+        (
+            "Sounds good, Tuesday works.\n\nOn Mon, 1 Sep 2026 at 09:00, Amara wrote:\n> Can we move it?\n> — A",
+            "Sounds good, Tuesday works.",
+            "the standard Gmail attribution and its quote",
+        ),
+        (
+            "+1\n\n> Can we move it?\n>\n> > And the one before that\n",
+            "+1",
+            "a quote with no attribution line, nested two deep",
+        ),
+        (
+            "Approved.\n\n-----Original Message-----\nFrom: Amara\nSubject: Re: budget\n",
+            "Approved.",
+            "Outlook's separator",
+        ),
+        (
+            "Done.\n\n________________________________\nFrom: Amara Osei\nSent: Monday\n",
+            "Done.",
+            "Outlook's underscore rule",
+        ),
+        ("> Can we move it?\n> — A\n", "", "a message that is nothing but quoted text"),
+        (
+            "No quotes here at all.\nJust two lines.",
+            "No quotes here at all.\nJust two lines.",
+            "a message with nothing quoted keeps every line",
+        ),
+        (
+            "From: the docs, we know the limit is 25.\nSo we are fine.",
+            "From: the docs, we know the limit is 25.\nSo we are fine.",
+            "`From:` is a sentence someone writes, not a reliable quote marker",
+        ),
+    ],
+)
+def test_only_what_this_message_added_is_kept(body: str, expected: str, because: str) -> None:
+    """A reply carries the whole conversation below it, so storing each message
+    whole means a forty-message thread holds the first message about forty
+    times over — the note becomes mostly its own echo."""
+    assert google_gmail.strip_quoted(body) == expected, because
+
+
+@pytest.mark.asyncio
+async def test_a_thread_note_does_not_repeat_the_conversation() -> None:
+    """End to end through the renderer, with bodies switched on — the option
+    that stores the most and had the least covering it."""
+    first = _message(sender="Amara <amara@example.com>", subject="Budget", body="Can we move the review?")
+    second = _message(
+        sender="Dan <dan@example.com>",
+        subject="Re: Budget",
+        body="Tuesday works.\n\nOn Mon, 1 Sep 2026 at 09:00, Amara wrote:\n> Can we move the review?",
+    )
+    third = _message(
+        sender="Amara <amara@example.com>",
+        subject="Re: Budget",
+        body=(
+            "Booked.\n\nOn Mon, 1 Sep 2026 at 10:00, Dan wrote:\n> Tuesday works.\n>\n"
+            "> On Mon, 1 Sep 2026 at 09:00, Amara wrote:\n> > Can we move the review?"
+        ),
+    )
+
+    record = await _render({"id": "t1", "messages": [first, second, third], "historyId": "1"}, store_bodies=True)
+    assert record is not None
+
+    assert record.body.count("Can we move the review?") == 1, (
+        "the first message was repeated inside every reply that quoted it"
+    )
+    for line in ("Tuesday works.", "Booked."):
+        assert line in record.body, f"{line!r} was lost with the quotes"
