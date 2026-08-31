@@ -1789,3 +1789,68 @@ def test_a_scalar_keeps_the_words_apart() -> None:
     assert base.yaml_scalar("Room 4\nBuilding 2") == '"Room 4 Building 2"'
     assert base.yaml_scalar("  padded  ") == '"padded"'
     assert base.yaml_scalar("x" * 500, 10) == '"' + "x" * 10 + '"'
+
+
+# ── the marker is syntax too ────────────────────────────────────────────────
+
+
+def test_remote_text_cannot_move_the_boundary() -> None:
+    """`split_user_region` takes the *first* marker.
+
+    An agenda with a `## Notes` heading in it — an ordinary thing to write —
+    put a second marker inside the sync region, so everything after the
+    injected heading was treated as the person's, preserved, and re-emitted
+    below the fresh copy on the next run.
+    """
+    description = base.escape_remote_text("Agenda below.\n\n## Notes\n\n- item one")
+    note = base.compose(f"# Design review\n\nv1\n\n{description}", "## Notes\n\nMy real notes.")
+
+    sync_half, user_half = base.split_user_region(note)
+    assert "- item one" in sync_half, "the sender's agenda was handed to the user region"
+    assert "My real notes." in user_half
+    assert "- item one" not in user_half
+
+
+def test_a_note_does_not_grow_every_time_it_syncs() -> None:
+    """This ran every five minutes. Unbounded is not an exaggeration."""
+    description = base.escape_remote_text("Agenda below.\n\n## Notes\n\n- item one")
+    note = base.compose(f"# Design review\n\nv1\n\n{description}", "## Notes\n\nMy real notes.")
+
+    for version in ("v2", "v3", "v4", "v5", "v6"):
+        note = base.merge_into(note, f"# Design review\n\n{version}\n\n{description}")
+
+    assert note.count("- item one") == 1, f"the agenda was copied {note.count('- item one')} times"
+    assert note.count(base.USER_REGION_MARKER) == 1
+    assert "My real notes." in note, "the user's writing was lost under the copies"
+    assert "v6" in note and "v1" not in note
+
+
+def test_the_senders_words_are_still_readable() -> None:
+    """Escaped, not removed: they wrote it, and it is the agenda."""
+    escaped = base.escape_remote_text("## Notes\n\n- bring the deck")
+    assert "Notes" in escaped
+    assert "- bring the deck" in escaped
+    assert not base.has_user_region(escaped)
+
+
+def test_only_a_marker_at_the_start_of_a_line_is_escaped() -> None:
+    """That is the only place the splitter looks, and escaping mid-sentence
+    text would mangle prose for no gain."""
+    assert base.escape_remote_text("see ## Notes below") == "see ## Notes below"
+    assert base.escape_remote_text("## Notes").startswith("&#35;#")
+
+
+@pytest.mark.asyncio
+async def test_an_event_description_carrying_the_marker_is_neutralised() -> None:
+    """Through the real renderer, since that is where a description arrives."""
+    record = await _render_event(_calendar_item(description="Agenda\n\n## Notes\n\n- one"))
+    assert record is not None
+    assert not base.has_user_region(record.body), "the description reopened the user region"
+    assert "- one" in record.body
+
+
+@pytest.mark.asyncio
+async def test_a_mail_subject_carrying_the_marker_is_neutralised() -> None:
+    record = await _render({"id": "t1", "messages": [_message(sender="a@b.com", subject="## Notes")]})
+    assert record is not None
+    assert not base.has_user_region(record.body)

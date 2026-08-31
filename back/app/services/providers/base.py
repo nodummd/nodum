@@ -185,15 +185,31 @@ class ProviderAdapter(Protocol):
 #:     character, so the obvious `\#` still parses as a tag. `&#35;` does not:
 #:     it renders as "#" and leaves a digit where the parser needs a letter.
 _ESCAPES = ((("[["), "[\\["), (("]]"), "]\\]"))
+#: The marker, only where the splitter looks for it: at the start of a line.
+#: Escaped rather than removed — the words are the sender's and still readable,
+#: they simply stop being a heading this feature acts on.
+_MARKER_LINE = re.compile(rf"^{re.escape(USER_REGION_MARKER)}", re.MULTILINE)
+_MARKER_ESCAPED = "&#35;# " + USER_REGION_MARKER.split(" ", 1)[1]
+
 _HASH_TAG = re.compile(r"(?<![\w#])#(?=[\w/-]*[^\W\d])", re.UNICODE)
 
 
 def escape_remote_text(text: str) -> str:
-    """Neutralise vault syntax in text we did not write."""
+    """Neutralise vault syntax in text we did not write.
+
+    The `## Notes` marker counts, and is the most load-bearing piece of syntax
+    here. An agenda with that heading in it — an entirely ordinary thing to
+    write — put a second marker inside the sync region, and `split_user_region`
+    takes the *first* one: everything after the injected heading was then
+    treated as the person's, preserved, and re-emitted below the fresh copy on
+    the next run. The note grew by one copy of the agenda every five minutes,
+    with whatever they had actually written sinking further under it each time.
+    """
     if not text:
         return ""
     for needle, replacement in _ESCAPES:
         text = text.replace(needle, replacement)
+    text = _MARKER_LINE.sub(_MARKER_ESCAPED, text)
     return _HASH_TAG.sub("&#35;", text)
 
 
