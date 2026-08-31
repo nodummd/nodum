@@ -29,6 +29,12 @@ same account to a second vault and you get a second, independent connection.
 standup is a single note, not one per week: the alternative is a note a day
 forever, and no useful way to stop it.
 
+Meetings you **declined** are not synced — a meeting you did not go to would
+otherwise land on that day's note as though you had, and link you to people you
+never met. Invitations you have not answered yet, or accepted tentatively, do
+sync: those are exactly the ones worth having in front of you. If you accepted
+something and later declined it, the note you already took stays as it is.
+
 **Gmail** — one note per *thread*, in `Mail/YYYY/MM`. A forty-message
 conversation is one place in your graph rather than forty.
 

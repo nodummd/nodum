@@ -126,6 +126,17 @@ class GoogleCalendarAdapter:
                 return None
             return SyncRecord(external_id=event_id, kind="tombstone")
 
+        # A meeting you declined did not happen to you. Left in, it lands on
+        # the day's note as though it did, and links you to people you never
+        # met — which is worse than clutter in a graph whose whole value is
+        # that its edges mean something.
+        #
+        # Dropped rather than tombstoned, like a cancelled instance of a live
+        # series above: if you accepted and later declined, the note you took
+        # is history and stays exactly as it is.
+        if _declined_by_user(item):
+            return None
+
         summary = escape_remote_text(str(item.get("summary") or "").strip()) or "(no title)"
         start_raw = (item.get("start") or {}).get("dateTime") or (item.get("start") or {}).get("date") or ""
         end_raw = (item.get("end") or {}).get("dateTime") or (item.get("end") or {}).get("date") or ""
@@ -260,6 +271,19 @@ def _quote(value: str) -> str:
     from urllib.parse import quote
 
     return quote(value, safe="")
+
+
+def _declined_by_user(item: dict[str, Any]) -> bool:
+    """Did the account this connection belongs to decline?
+
+    Only its own entry counts. Someone else declining is information about the
+    meeting, not about whether it happened to you, and an event you organise
+    has no attendee entry of your own at all.
+    """
+    for attendee in item.get("attendees") or []:
+        if attendee.get("self") and str(attendee.get("responseStatus") or "") == "declined":
+            return True
+    return False
 
 
 def _parse(raw: str) -> datetime | None:

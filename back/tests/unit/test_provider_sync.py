@@ -1561,3 +1561,65 @@ async def test_the_daily_link_follows_the_vaults_format_across_timezones() -> No
     )
     assert record is not None
     assert "[[02-09-2026]]" in record.body
+
+
+# ── meetings you did not go to ──────────────────────────────────────────────
+
+
+def _attendee(email: str, *, response: str = "accepted", is_self: bool = False) -> dict[str, Any]:
+    entry: dict[str, Any] = {"email": email, "displayName": email.split("@")[0], "responseStatus": response}
+    if is_self:
+        entry["self"] = True
+    return entry
+
+
+@pytest.mark.asyncio
+async def test_an_event_you_declined_does_not_become_a_note() -> None:
+    """It did not happen to you. Left in, it lands on the day's note as though
+    it did, and links you to people you never met — worse than clutter in a
+    graph whose whole value is that its edges mean something."""
+    declined = _calendar_item(
+        attendees=[
+            _attendee("me@example.com", response="declined", is_self=True),
+            _attendee("amara@example.com"),
+        ]
+    )
+    assert await _render_event(declined) is None
+
+
+@pytest.mark.asyncio
+async def test_someone_else_declining_changes_nothing() -> None:
+    """Their answer is information about the meeting, not about whether you
+    were at it."""
+    record = await _render_event(
+        _calendar_item(
+            attendees=[
+                _attendee("me@example.com", is_self=True),
+                _attendee("amara@example.com", response="declined"),
+            ]
+        )
+    )
+    assert record is not None
+    assert "Design review" in record.body
+
+
+@pytest.mark.asyncio
+async def test_an_event_you_have_not_answered_yet_is_still_synced() -> None:
+    """`needsAction` and `tentative` are not "no", and an unanswered invitation
+    is exactly the kind of thing worth having in front of you."""
+    for response in ("needsAction", "tentative", "accepted"):
+        record = await _render_event(
+            _calendar_item(attendees=[_attendee("me@example.com", response=response, is_self=True)])
+        )
+        assert record is not None, f"{response} was dropped"
+
+
+@pytest.mark.asyncio
+async def test_an_event_you_organise_is_synced() -> None:
+    """An event you created often carries no attendee entry of your own, so a
+    check that assumed one would drop every meeting you called."""
+    record = await _render_event(_calendar_item(attendees=[_attendee("amara@example.com")]))
+    assert record is not None
+
+    solo = await _render_event(_calendar_item())
+    assert solo is not None
