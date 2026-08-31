@@ -19,7 +19,18 @@ const Agentation =
     ? dynamic(() => import("agentation").then((m) => m.Agentation), { ssr: false })
     : null;
 
+/**
+ * Without `endpoint` the toolbar keeps annotations in localStorage only, which
+ * means copy-pasting markdown into the agent by hand. Pointing it at the
+ * agentation MCP server (stdio for the agent, HTTP on 4747 for the browser)
+ * closes the loop: the agent reads pending annotations itself. The server is
+ * registered per-developer (`claude mcp add --scope local agentation --
+ * npx -y agentation-mcp server`), so when it is not running the toolbar just
+ * falls back to localStorage — nothing to guard here.
+ */
+const AGENTATION_ENDPOINT = "http://localhost:4747";
+
 export function AgentationDevTools() {
   if (!Agentation) return null;
-  return <Agentation />;
+  return <Agentation endpoint={AGENTATION_ENDPOINT} />;
 }
