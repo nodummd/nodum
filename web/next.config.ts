@@ -3,6 +3,12 @@ import type { NextConfig } from "next";
 // Same-origin proxy to the FastAPI backend: the browser only ever talks to
 // the Next.js origin, so the httpOnly refresh cookie is first-party and no
 // CORS is involved. Docker prod sets API_PROXY_URL=http://api:8000.
+//
+// IMPORTANT: this is read at BUILD time, not at start time. Next bakes the
+// rewrite destination into .next/routes-manifest.json, so setting
+// API_PROXY_URL only when running `next start` has no effect — every /api
+// request quietly goes to the default and 404s, which looks like a broken
+// backend rather than a misconfigured build. It must be set for `next build`.
 const API_PROXY_URL = process.env.API_PROXY_URL ?? "http://localhost:8000";
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://nodum.md").replace(/\/+$/, "");

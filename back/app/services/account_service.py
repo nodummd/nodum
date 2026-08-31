@@ -117,6 +117,14 @@ async def delete_account(db: AsyncSession, user_id: UUID, *, code: str) -> Servi
     for vault_id in vault_ids:
         await _purge_vault_objects(vault_id)
 
+    # Same reasoning as the bucket purge above, and the same window: once the
+    # cascade removes provider_connections the refresh tokens are unrecoverable
+    # and the Google grant would stand forever, unrevokable by anyone but the
+    # user — who has no reason to know it is still there.
+    from app.services import provider_connection_service
+
+    await provider_connection_service.revoke_grants(db, user_id=user.id)
+
     from app.utils.cache_utils import cache_delete, vault_graph_key, vault_tree_key
 
     for vault_id in vault_ids:

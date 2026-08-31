@@ -403,3 +403,130 @@ export const apiKeysApi = {
   create: (name: string, scopes: string[]) => apiJson<ApiKeyWithToken>("/api-keys", "POST", { name, scopes }),
   revoke: (id: string) => apiJson<ApiKey>(`/api-keys/${id}`, "DELETE"),
 };
+
+/** One importable source, as the picker renders it. */
+export interface ImportSource {
+  id: string;
+  name: string;
+  category: string;
+  category_label: string;
+  blurb: string;
+  steps: string[];
+  accepts: string[];
+  icon: string;
+  accent: string;
+  popular: boolean;
+  caveats: string[];
+  connect_note: string | null;
+}
+
+export interface ImportResult {
+  imported: number;
+  renamed: number;
+  imported_attachments?: number;
+  imported_pdf_notes?: number;
+  skipped_non_md?: number;
+  skipped_too_large?: number;
+  source: string;
+  source_name: string;
+  warnings: string[];
+}
+
+export const importApi = {
+  /** The catalogue is static per deployment, so it caches happily. */
+  sources: () => api<{ sources: ImportSource[]; categories: Record<string, string> }>("/integrations"),
+  run: (vaultId: string, sourceId: string, files: File[]) => {
+    const form = new FormData();
+    for (const file of files) {
+      // webkitRelativePath carries "Export/Notes/x.md" when a folder is picked;
+      // converters use it to rebuild the tree, so it must survive the upload.
+      form.append("files", file, file.webkitRelativePath || file.name);
+    }
+    return api<ImportResult>(`/vaults/${vaultId}/import/${sourceId}`, { method: "POST", body: form });
+  },
+};
+
+/** A syncable data source this instance can offer. */
+export interface SyncProvider {
+  id: string;
+  name: string;
+  blurb: string;
+  caveats: string[];
+  scopes: string[];
+  available: boolean;
+  self_hosted_only: boolean;
+}
+
+export interface SyncStreamStatus {
+  stream: string;
+  backfill_done: boolean;
+  /** Cumulative records seen. A count, not a percentage — neither Google API
+   *  reports a total, so a progress bar would be invented. */
+  records_seen: number;
+  last_success_at: string | null;
+  syncing: boolean;
+}
+
+/** A calendar the connected Google account can see, captured at connect time. */
+export interface AvailableCalendar {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+/** The parts of a connection's settings blob the UI reads or writes.
+ *
+ *  The server validates every value (see connection_settings.py) and refuses
+ *  the request with a message naming the field, so this type is a convenience
+ *  rather than the guard. */
+export interface ConnectionSettings {
+  folder_root?: string;
+  people_threshold?: number;
+  available_calendars?: AvailableCalendar[];
+  calendar?: { calendar_ids?: string[]; backfill_days?: number };
+  gmail?: { labels?: string[]; backfill_days?: number; store_bodies?: boolean };
+}
+
+export interface ProviderConnection {
+  id: string;
+  provider: string;
+  provider_name: string;
+  vault_id: string;
+  email: string;
+  /** Mirrors CONNECTION_STATUSES on the server; there is no "paused". */
+  status: "active" | "transient_broken" | "needs_reauth" | "key_unavailable";
+  error_class: string;
+  last_error: string;
+  connected_at: string | null;
+  last_success_at: string | null;
+  settings: ConnectionSettings;
+  /** Outcome counts from the most recent run: created, updated, error… */
+  last_run: Record<string, number>;
+  /** Records the last run could not save. Non-zero means "not up to date". */
+  failed_records: number;
+  streams: SyncStreamStatus[];
+}
+
+export const connectionsApi = {
+  providers: () =>
+    api<{ configured: boolean; providers: SyncProvider[] }>("/connections/providers"),
+  list: () => api<ProviderConnection[]>("/connections/connections"),
+  /** Returns the Google consent URL for the browser to visit. */
+  start: (vaultId: string, provider: string) =>
+    apiJson<{ url: string; provider: string }>(
+      `/connections/google/start?vault_id=${encodeURIComponent(vaultId)}&provider=${encodeURIComponent(provider)}`,
+      "POST",
+    ),
+  syncNow: (connectionId: string) =>
+    apiJson<Record<string, number>>(`/connections/connections/${connectionId}/sync`, "POST"),
+  /** Refetched from Google, so a calendar made after connecting is selectable.
+   *  `stale` means the fetch failed and this is the last known list. */
+  calendars: (connectionId: string) =>
+    api<{ calendars: AvailableCalendar[]; stale: boolean }>(
+      `/connections/connections/${connectionId}/calendars`,
+    ),
+  update: (connectionId: string, settings: ConnectionSettings) =>
+    apiJson<ProviderConnection>(`/connections/connections/${connectionId}`, "PATCH", settings),
+  disconnect: (connectionId: string) =>
+    apiJson<{ disconnected: string }>(`/connections/connections/${connectionId}`, "DELETE"),
+};

@@ -1,0 +1,161 @@
+"""Connected data sources — connect, inspect, sync, disconnect."""
+
+from typing import Any
+from urllib.parse import quote
+from uuid import UUID
+
+from fastapi import APIRouter, Query
+from fastapi.responses import RedirectResponse
+
+from app.core.custom_exceptions import NotFoundError, ValidationFailedError
+from app.dependencies.auth import CurrentUserId
+from app.dependencies.db import SessionDep
+from app.services import provider_connection_service, providers
+from app.services.providers import google_auth
+from app.services.vault_service import get_owned_vault
+from app.settings import get_settings
+
+router = APIRouter()
+
+
+@router.get("/providers")
+async def list_providers(_user_id: CurrentUserId) -> dict[str, Any]:
+    """The catalogue of syncable sources, and whether this instance offers each."""
+    return {
+        "data": {
+            "configured": google_auth.sync_enabled(),
+            "providers": providers.catalog(),
+        }
+    }
+
+
+@router.get("/connections")
+async def list_connections(user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    data = (await provider_connection_service.list_for_user(db, user_id)).unwrap()
+    return {"data": data}
+
+
+@router.post("/google/start")
+async def start_google(
+    user_id: CurrentUserId,
+    vault_id: UUID,
+    db: SessionDep,
+    provider: str = Query(description="google_calendar or google_gmail"),
+) -> dict[str, Any]:
+    """Begin the consent flow. Returns the URL for the browser to visit."""
+    # Checked here, not only on the way back. The callback checks too, but by
+    # then the user has read a permissions screen, approved it, and been
+    # redirected — and is told "that vault no longer exists" at the end of a
+    # round trip that could not have worked from the start.
+    if await get_owned_vault(db, vault_id, user_id) is None:
+        raise NotFoundError("Vault not found.")
+    if not google_auth.sync_enabled():
+        raise ValidationFailedError(
+            "Google sync is not configured on this server. An administrator needs to set "
+            "GOOGLE_SYNC_CLIENT_ID and GOOGLE_SYNC_CLIENT_SECRET — see docs/OWNER-SETUP.md."
+        )
+    adapter = providers.get_adapter(provider)
+    if adapter is None:
+        entry = providers.registry_entry(provider)
+        if entry is not None:
+            raise ValidationFailedError(
+                f"{entry.adapter.name} is not enabled on this server. It requires scopes that "
+                "oblige a hosted service to carry a paid annual security audit, so it is "
+                "available on self-hosted instances only."
+            )
+        raise NotFoundError("Unknown provider.")
+
+    url = await google_auth.build_start_url(user_id=str(user_id), vault_id=str(vault_id), scopes=list(adapter.scopes))
+    return {"data": {"url": url, "provider": provider}}
+
+
+#: Every reason the callback may put in the URL. The set is closed on purpose.
+#:
+#: This redirect is the only channel the callback has to the UI, and anyone can
+#: send a person to `/vault?connected=failed&reason=…` with whatever they like
+#: in it. Carrying a *message* would mean attacker-chosen prose rendered inside
+#: the app's own chrome — a phishing surface that needs no XSS to work. So the
+#: URL carries a code, the client owns the words, and a code the client does
+#: not recognise gets generic copy rather than being echoed.
+CALLBACK_REASONS = frozenset(
+    {
+        "no_refresh_token",
+        "no_scopes",
+        "no_encryption_key",
+        "no_identity",
+        "code_rejected",
+        "google_unreachable",
+        "vault_gone",
+        "google_error",
+        "crashed",
+    }
+)
+
+
+@router.get("/google/callback")
+async def google_callback(
+    db: SessionDep,
+    code: str = Query(default=""),
+    state: str = Query(default=""),
+    error: str = Query(default=""),
+) -> RedirectResponse:
+    """Google redirects here. Always lands the user back in the app.
+
+    Unauthenticated by necessity — Google drives this request, not the SPA — so
+    the `state` token is the only thing binding the callback to the user who
+    started it, and it is single-use.
+    """
+    base = get_settings().OAUTH_REDIRECT_BASE_URL.rstrip("/")
+
+    def back(status: str, reason: str = "") -> RedirectResponse:
+        suffix = f"&reason={quote(reason, safe='')}" if reason in CALLBACK_REASONS else ""
+        return RedirectResponse(f"{base}/vault?connected={status}{suffix}", status_code=303)
+
+    if error or not code or not state:
+        # `access_denied` is someone pressing Cancel on Google's screen, which
+        # is a decision rather than a failure and must not be shouted about.
+        return back("denied" if error == "access_denied" or not error else "failed")
+
+    resolved = await google_auth.consume_state(state)
+    if resolved is None:
+        return back("expired")
+    user_id, vault_id = resolved
+
+    response = await provider_connection_service.complete_google_connect(
+        db, user_id=UUID(user_id), vault_id=UUID(vault_id), code=code
+    )
+    if response.success:
+        return back("ok")
+    return back("failed", str(response.details.get("reason") or ""))
+
+
+@router.post("/connections/{connection_id}/sync")
+async def sync_now(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Run this connection immediately rather than waiting for the next tick."""
+    data = (await provider_connection_service.sync_now(db, connection_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@router.get("/connections/{connection_id}/calendars")
+async def list_connection_calendars(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """The calendars this connection could sync, refetched from Google.
+
+    Read-only and idempotent, but it does reach Google, so the service caches
+    the answer briefly — the settings panel asks every time it opens.
+    """
+    data = (await provider_connection_service.refresh_calendars(db, connection_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@router.patch("/connections/{connection_id}")
+async def update_connection(
+    connection_id: UUID, settings: dict[str, Any], user_id: CurrentUserId, db: SessionDep
+) -> dict[str, Any]:
+    data = (await provider_connection_service.update_settings(db, connection_id, user_id, settings)).unwrap()
+    return {"data": data}
+
+
+@router.delete("/connections/{connection_id}")
+async def disconnect(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    data = (await provider_connection_service.disconnect(db, connection_id, user_id)).unwrap()
+    return {"data": data}

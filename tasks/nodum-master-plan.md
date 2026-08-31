@@ -995,3 +995,169 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     untrusted commenters never start the secret-backed runner; the two
     `/review` prefixes are excluded from `claude.yml` as exact complements.
   - Needs the `CLAUDE_CODE_OAUTH_TOKEN` repo secret to run.
+
+- **2026-08-25: one-click migration from twenty apps**
+  (`feature/29.import-integrations_maqbool_250820260308`). Settings → Vault →
+  **Import data** (and the command palette) opens a picker of twenty sources
+  grouped into notes, chat and email; pick one and it explains how to produce
+  the export *before* asking for a file, because that is the step people are
+  actually missing.
+  - *Architecture* — a converter is a pure function: uploaded bytes →
+    normalised markdown on vault-relative paths. `import_zip` then does what it
+    already did (folder tree, Obsidian-style collision suffixes, attachments,
+    two-pass wikilink resolution across the whole batch), so no converter
+    touches the database and all twenty are unit-testable without infra.
+    Adding a source is a converter plus a catalogue entry.
+  - *Sources* — Obsidian, Notion, Evernote, Apple Notes, Google Keep, OneNote,
+    Roam, Logseq, Joplin, Bear, Standard Notes, Trilium, Anytype, generic
+    markdown; Slack, Discord, Telegram; Gmail, Outlook, any mbox/eml.
+  - *The research that shaped it* — of the ten apps originally asked for, only
+    three can be live-connected. Keep's API is Workspace-only (no consumer
+    access at any price), Gmail's restricted scopes need an annual CASA audit
+    at five figures, Slack caps new apps at one history request per minute,
+    Telegram's Bot API cannot read your own history, scripting Discord is
+    bannable, and Evernote's API was withdrawn. Every one of those reasons is
+    written down in `importers/__init__.py` so the next person does not redo
+    the search. Notion, OneNote and Outlook have real APIs and are the
+    candidates for a `connect` kind once an app is registered per instance.
+  - *Fidelity, deliberately* — Keep checklists keep their ticked state; ENEX
+    `<en-media>` hashes resolve back to filenames so images survive; Notion's
+    32-hex ids are stripped and its page links rewritten to `[[wikilinks]]`;
+    Joplin's notebook tree is rebuilt from `parent_id`; chat becomes one note
+    per channel per day with index notes so the graph has a shape; an
+    encrypted Standard Notes backup is reported as encrypted rather than as a
+    successful import of nothing. Converters emit `warnings` for whatever they
+    could not carry, shown to the user.
+  - *Safety* — uploads are untrusted: zip/tar readers bound expansion and
+    reject traversal, `defusedxml` parses ENEX, and HTML is stripped of
+    scripts and inline handlers before conversion.
+  - *Icons* — generated from simple-icons into a committed module
+    (`npm run icons:gen`), with monogram tiles for the brands that asked to be
+    removed from that set (Slack, Microsoft, Bear).
+  - Gates: `make verify` green, 30 new backend unit tests (115 total).
+    `web/e2e/import-integrations.spec.ts` is written and compiles but was not
+    executed locally — this machine's Postgres/Redis/API ports were held by
+    another project — so it needs a run against a live stack.
+
+- **2026-08-30: live one-way sync from Google (Calendar + Gmail)**
+  (`feature/30.live-sync_maqbool_300820260013`). Connect a Google account and
+  have events and mail threads arrive as notes that keep themselves current —
+  and, more importantly, that participate in the graph rather than sitting
+  beside it.
+  - *The verification verdict, which decided the shape of the whole feature.*
+    Calendar's read scopes are **sensitive** (one-time review, no fee) so
+    Calendar ships everywhere. Every Gmail scope — `gmail.metadata` included,
+    which reads like the cautious option and carries the identical burden — is
+    **restricted**, obliging a hosted multi-user service to pass a CASA
+    assessment by an authorised lab, renewed annually, priced from hundreds to
+    thousands of dollars a year. So Gmail is behind `GOOGLE_SYNC_GMAIL_ENABLED`,
+    off by default, self-hosted only, where Google's personal-use exemption
+    applies. `test_restricted_scopes_are_never_reachable_without_a_flag` fails
+    CI if a future adapter reopens that hole.
+  - *The 7-day trap.* A Google project left in "Testing" expires every refresh
+    token after seven days, so background sync dies silently a week after it is
+    set up and looks exactly like our bug. Three defences: a bolded docs step,
+    a connect-time refusal when the token response carries no refresh token,
+    and a heuristic that turns `invalid_grant` on a grant younger than eight
+    days into the one message that actually fixes it.
+  - *Engine.* Adapters are pure — token and cursor in, rendered records out —
+    and all the dangerous parts live once in `provider_sync_service`: write the
+    page, then advance the cursor, then commit, so a crash replays rather than
+    skipping; `external_objects` keyed on (connection, stream, external_id)
+    with a content hash makes replay free; `page_token` and `cursor_token` are
+    separate columns so the two cannot be confused; `cursor_params` is frozen
+    and compared, because Google invalidates a Calendar sync token when
+    `singleEvents` or `eventTypes` change and says nothing about it. Leases on
+    `sync_streams` rather than advisory locks, since the run commits per page.
+  - *Not overwriting people's writing.* Sync owns everything above `## Notes`
+    and nothing below it; updates go through `transform_content`, which holds
+    the row lock across the merge. A synced note the user deletes by hand is
+    never recreated.
+  - *Graph, not noise.* One date wikilink per note, rendered with the vault's
+    own daily-note format (the wrong format makes every date a ghost node);
+    People notes only above an interaction threshold; no organisation, URL or
+    keyword links. Remote text is escaped against the real parsers so a subject
+    line reading `#urgent` cannot tag someone's vault.
+  - Migration `0022`. The Gmail address parser had a genuine backtracking bug
+    — `dan@example.com` became name "da" — which the tests caught before it
+    shipped.
+  - Left for the operator: register a Google Cloud OAuth client, **publish the
+    consent screen**, and set `GOOGLE_SYNC_*`. docs/OWNER-SETUP.md §1b.
+
+  **Hardened over a review loop on the same branch** (31 commits). Nearly
+  every bug found was of one kind — something that fails without saying so —
+  which is what a background sync is structurally good at hiding. Recorded
+  because the pattern is the useful part, not the individual fixes.
+
+  - *Silent data loss.* One Gmail history response routinely names more
+    changed threads than a batch holds; the walk took the first 25, advanced
+    the cursor past the rest, and lost them permanently. The batch size is a
+    pagination bound, not a truncation, and the offset now rides in the page
+    token.
+  - *A filter that was not one.* The Gmail label setting applied to the first
+    walk alone — `history.list` returns every change in the mailbox, so after
+    backfill a connection set to INBOX wrote a note for every thread in the
+    account, archive included. Scope is now decided from the labels Google
+    reports on the thread, on every path. The first walk also used
+    `labels[0]`, silently syncing one label of several.
+  - *The whole feature was unreachable in production.* Every setting it added
+    was missing from the deploy stack, so an operator could set
+    `GOOGLE_SYNC_CLIENT_ID` and the UI would still say "not configured", with
+    no log line and nothing to debug. They live in the shared env anchor now,
+    because the API encrypts and the worker decrypts — wired to the API alone,
+    connecting appears to work and every background run fails.
+  - *One broken connection ended the sweep.* All connections shared one
+    session, so a database error left it refusing every further statement —
+    and `rollback()` on a connection broken at the asyncpg level raises too,
+    escaping the handler written to prevent exactly that. Since
+    `due_connections` orders by staleness, the broken one stayed first and
+    ended every tick after it. Each connection now runs in its own session:
+    the shared state is gone rather than guarded.
+  - *Cross-account damage.* Google revokes by grant, not by token, so
+    disconnecting one vault killed the same account's connection to another —
+    which then reported that Google had revoked it. The grant is handed back
+    only when the last connection using it goes.
+  - *The last inch of the OAuth flow.* The callback's outcome was computed,
+    put in the URL, and dropped: the dispatcher stripped the query string and
+    nothing read it. Users approved consent and landed on an unchanged vault;
+    failures threw away the one message that fixes a 7-day grant. The URL now
+    carries a reason code from a closed set — never a message, since anyone
+    can link someone to `?connected=failed&reason=…` and rendering that text
+    is a phishing surface with no XSS involved.
+  - *Input validation.* The settings PATCH allowlisted keys and stored values
+    verbatim: `people_threshold: "soon"` made `int()` raise on every poll
+    forever, and 5000 `calendar_ids` became 5000 polled streams. Values are
+    validated at the boundary and the engine's readers are total, because a
+    row written before the validator existed must not kill a background run.
+  - *What a failure is allowed to say.* `last_error` is rendered and returned
+    by the API, and carried raw Google error bodies and `str(exc)` from
+    database errors — SQL statements and parameters included. Each class now
+    has copy written for the reader; the detail goes to the log.
+  - *Abuse.* Manual sync had no server-side throttle, so the 300/min limiter
+    allowed 300 broker tasks from one account, ahead of everyone else's work.
+  - *Deployment truth.* `ix_provider_connections_due` existed only in the
+    migration, so `--autogenerate` would offer to drop the index the sweep's
+    hot query depends on — with no visible failure mode at all.
+
+  - *Testing discipline.* Mutation testing became routine after a page-loop
+    test passed against a deliberately broken engine: every fix here is
+    checked by reintroducing the bug and confirming the test fails for the
+    right reason. Three structural rules fix bug *classes* rather than
+    instances — an AST rule requiring transport handling on every HTTP client,
+    a closed vocabulary for connection statuses checked across the
+    Python/TypeScript boundary, and a guard that every sync setting reaches
+    the containers that read it. 236 backend unit tests and 267 integration
+    tests; feature coverage 88%. Playwright: 8 connections specs, and the full
+    suite at 250 passed / 2 failed, both `auth.spec.ts` email-verification
+    specs that need `EMAIL_VERIFICATION_REQUIRED` on.
+  - *Playwright.* 20 connection specs. Eight drive the server for real; the
+    other twelve stub the connections endpoint so the connected-state UI can
+    be rendered at all — a connection row needs a real Google grant, so every
+    status, error box and the settings panel had otherwise never been on
+    screen in a test. Stubbing there is sound because the shape being stubbed
+    is pinned independently by the backend suite against a real database.
+  - *Still open.* No test drives a real Google API; that needs a registered
+    OAuth client and is operator setup. `web/` has no unit-test runner, so nothing below the e2e layer
+    tests React; adding one is a repo-wide choice, not a feature-branch
+    decision. The same index-naming drift found in `0022` exists across five
+    pre-existing tables and belongs in its own PR.
