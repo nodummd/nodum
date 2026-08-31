@@ -177,42 +177,88 @@ def _folder_root(connection: ProviderConnection, adapter_id: str) -> str:
     return connection_settings.folder_root(connection.settings)
 
 
-async def _person_note(db: AsyncSession, connection: ProviderConnection, name: str, counts: dict[str, int]) -> bool:
-    """Create a People note once someone crosses the threshold.
+async def _linkable_people(
+    db: AsyncSession,
+    connection: ProviderConnection,
+    names: tuple[str, ...],
+    counts: dict[str, int],
+) -> set[str]:
+    """Which of this record's people may be linked, answered in two queries.
 
-    Returns True when a link to `name` may be emitted. The threshold exists
-    because a link whose target does not exist becomes a ghost node, and one
-    ghost per unique correspondent is exactly how a graph stops being readable.
+    Asked name by name this was two queries each — one for "does the note
+    exist", one for "did someone delete it" — and a calendar event carries up
+    to twenty attendees. Measured on a backfill page of 25 events with 8
+    attendees apiece: 939 queries where the same page had cost 539 before the
+    existence check moved ahead of the threshold. A first sync walks eight
+    pages of up to 250 events, so that difference is not academic.
 
-    Which is why an existing note is checked *first*, and the threshold only
-    decides whether to create one. Once the target exists a link cannot be a
-    ghost, so refusing to make it buys nothing and costs consistency: a person
-    the user wrote their own note about stayed as plain text until sync had
-    seen them three times, and two connections in one vault — a calendar and a
-    mailbox — counted separately, so the same person was linked from one and
-    left plain in the other for no reason visible to anyone.
+    Both questions are set-shaped, so they are asked once for the whole record
+    instead of once per person. The answers are the same; only the number of
+    round trips changes.
 
-    `People/` is deliberately not under the connection's folder root: a person
-    is one person, and two connections with different roots would otherwise
-    split them into two notes and two halves of the graph.
+    The threshold still decides only whether to *create* a note. An existing
+    one is linked whatever the count, and one the user deleted is never
+    recreated — see the notes on each of those below.
     """
-    safe_name = safe_segment(name, fallback="")
-    if not safe_name:
-        return False
-    path = f"People/{safe_name}"
-    existing = await db.scalar(select(Note.id).where(Note.vault_id == connection.vault_id, Note.path == path))
-    if existing is not None:
+    if not names:
+        return set()
+
+    safe = {name: safe_segment(name, fallback="") for name in names}
+    paths = {f"People/{s}": name for name, s in safe.items() if s}
+    if not paths:
+        return set()
+
+    existing_paths = set(
+        (await db.execute(select(Note.path).where(Note.vault_id == connection.vault_id, Note.path.in_(paths.keys()))))
+        .scalars()
+        .all()
+    )
+    linkable = {paths[path] for path in existing_paths}
+    for name in linkable:
         # Remember it, so deleting it later is remembered too.
-        await _remember_person(db, connection, safe_name, existing)
-        return True
+        note_id = await db.scalar(
+            select(Note.id).where(Note.vault_id == connection.vault_id, Note.path == f"People/{safe[name]}")
+        )
+        if note_id is not None:
+            await _remember_person(db, connection, safe[name], note_id)
 
-    if await _person_was_deleted(db, connection, safe_name):
-        return False
+    candidates = {
+        name
+        for name in paths.values()
+        if name not in linkable and counts.get(name, 0) >= connection_settings.people_threshold(connection.settings)
+    }
+    if not candidates:
+        return linkable
 
-    threshold = connection_settings.people_threshold(connection.settings)
-    if counts.get(name, 0) < threshold:
-        return False
+    # Vault-scoped, not per connection: `People/` sits outside every
+    # connection's folder root so one person is one note, and a per-connection
+    # answer would let the mailbox put back what the calendar was told to drop.
+    tombstoned = set(
+        (
+            await db.execute(
+                select(ExternalObject.external_id)
+                .join(ProviderConnection, ProviderConnection.id == ExternalObject.connection_id)
+                .where(
+                    ProviderConnection.vault_id == connection.vault_id,
+                    ExternalObject.stream == PEOPLE_STREAM,
+                    ExternalObject.external_id.in_({safe[name] for name in candidates}),
+                    ExternalObject.note_id.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
 
+    for name in candidates:
+        if safe[name] in tombstoned:
+            continue
+        if await _create_person_note(db, connection, name, safe[name]):
+            linkable.add(name)
+    return linkable
+
+
+async def _create_person_note(db: AsyncSession, connection: ProviderConnection, name: str, safe_name: str) -> bool:
     folder = await folder_service.ensure_folder_path(db, connection.vault_id, connection.user_id, "People")
     response = await note_service.create_note(
         db,
@@ -301,8 +347,9 @@ async def apply_record(
         return "user_deleted"
 
     body = record.body
+    linkable = await _linkable_people(db, connection, record.wants_notes, people_counts)
     for name in record.wants_notes:
-        if await _person_note(db, connection, name, people_counts):
+        if name in linkable:
             # Only link a person who now has a note. Earlier plain-text
             # mentions stay plain — retro-linking them would mean rewriting
             # notes the user may since have edited.

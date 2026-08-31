@@ -437,3 +437,59 @@ async def test_a_deletion_is_respected_by_every_connection_in_the_vault(
             await session.scalar(select(Note).where(Note.vault_id == first.vault_id, Note.path == "People/Dan Reeves"))
             is None
         ), "a second connection recreated a People note the user had deleted"
+
+
+# ── what a page of a backfill costs ─────────────────────────────────────────
+
+
+async def _queries_for(connection: ProviderConnection, *, events: int, attendees: int) -> int:
+    """Statements issued applying `events` records that each name `attendees`."""
+    from sqlalchemy import event as sa_event
+
+    names = tuple(f"Person {i}" for i in range(attendees))
+    counts: dict[str, int] = {}
+    issued = 0
+
+    async with async_session_factory() as session:
+        engine = session.get_bind()
+
+        def _tick(*_args: object, **_kwargs: object) -> None:
+            nonlocal issued
+            issued += 1
+
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        sa_event.listen(engine, "before_cursor_execute", _tick)
+        try:
+            for index in range(events):
+                record = replace(
+                    _event(DAY, names=names),
+                    external_id=f"{attendees}-evt-{index}",
+                    title=f"Event {attendees}-{index}",
+                )
+                await provider_sync_service.apply_record(session, row, STREAM, record, people_counts=counts)
+        finally:
+            sa_event.remove(engine, "before_cursor_execute", _tick)
+    return issued
+
+
+@pytest.mark.asyncio
+async def test_people_cost_a_page_not_a_person(connection: ProviderConnection) -> None:
+    """Both questions asked about a person — does their note exist, did someone
+    delete it — are set-shaped, and asking them name by name made a backfill
+    page cost two extra queries per attendee.
+
+    Measured when that regressed: 939 statements for 25 events with 8
+    attendees each, against 539 before. A first sync walks eight pages of up
+    to 250 events, so it is not academic.
+
+    Asserted as a *shape* rather than a number: going from 2 attendees to 16
+    must not multiply the work, because that is the property that broke. An
+    absolute count would only measure how many other queries happen to sit in
+    `apply_record`.
+    """
+    few = await _queries_for(connection, events=5, attendees=2)
+    many = await _queries_for(connection, events=5, attendees=16)
+
+    # Eight times the people, and the extra cost must not scale with them.
+    assert many <= few + 15, f"{few} queries for 2 attendees, {many} for 16 — the per-person questions came back"
