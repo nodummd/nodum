@@ -59,7 +59,9 @@ Write your meeting notes underneath. Reschedule the event, rename it, add
 attendees — the top half updates and what you wrote stays exactly as it was.
 
 If you delete a synced note, it is **not** recreated. Deleting it is taken as a
-decision, not an accident.
+decision, not an accident. That covers the People notes too — delete one and no
+connection puts it back, and the mentions that would have linked to it stay as
+plain text.
 
 ## Links, and why there are not more of them
 

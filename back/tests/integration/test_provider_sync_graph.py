@@ -346,3 +346,94 @@ async def test_a_stranger_with_no_note_is_still_left_as_plain_text(
         targets = {link.target_title for link in await _links_from(session, note.id)}
         assert targets == {"2026-09-02"}, f"a one-off correspondent became a ghost node: {targets}"
         assert not await _person_note_exists(session, row.vault_id, "Someone Once")
+
+
+@pytest.mark.asyncio
+async def test_a_people_note_the_user_deleted_is_not_recreated(
+    connection: ProviderConnection,
+) -> None:
+    """The docs promise a synced note the user deletes is never recreated, and
+    call it a decision rather than an accident. That held for event and thread
+    notes, which carry a mapping row whose `note_id` is nulled on delete — and
+    not for the People notes sync makes on the side, which carried nothing, so
+    the next event mentioning that person put the note straight back.
+
+    It is the most infuriating thing a sync engine can do, and the graph is
+    exactly where someone curates by deleting.
+    """
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        counts = {"Amara Osei": 5}
+
+        await provider_sync_service.apply_record(
+            session, row, STREAM, _event(DAY, names=("Amara Osei",)), people_counts=counts
+        )
+        person = await session.scalar(
+            select(Note).where(Note.vault_id == row.vault_id, Note.path == "People/Amara Osei")
+        )
+        assert person is not None
+
+        removed = await note_service.delete_note(session, row.vault_id, row.user_id, person.id)
+        assert removed.success, removed.message
+        assert (
+            await session.scalar(select(Note).where(Note.vault_id == row.vault_id, Note.path == "People/Amara Osei"))
+            is None
+        )
+
+        # A later event mentioning them again.
+        later = replace(_event(DAY, names=("Amara Osei",)), external_id="evt-later", title="Retro")
+        await provider_sync_service.apply_record(session, row, STREAM, later, people_counts=counts)
+
+        assert (
+            await session.scalar(select(Note).where(Note.vault_id == row.vault_id, Note.path == "People/Amara Osei"))
+            is None
+        ), "a People note the user deleted came back on the next sync"
+        retro = await session.scalar(select(Note).where(Note.vault_id == row.vault_id, Note.title == "Retro"))
+        assert retro is not None
+        targets = {link.target_title for link in await _links_from(session, retro.id)}
+        assert "amara osei" not in targets, "linked to a note the user deleted, which is a ghost node"
+
+
+@pytest.mark.asyncio
+async def test_a_deletion_is_respected_by_every_connection_in_the_vault(
+    workspace: dict, connection: ProviderConnection
+) -> None:
+    """People notes are shared across a vault's connections, so the decision to
+    delete one has to be as well — otherwise the mailbox puts back what the
+    calendar was told to drop."""
+    async with async_session_factory() as session:
+        first = await session.get(ProviderConnection, connection.id)
+        assert first is not None
+        await provider_sync_service.apply_record(
+            session, first, STREAM, _event(DAY, names=("Dan Reeves",)), people_counts={"Dan Reeves": 5}
+        )
+        person = await session.scalar(
+            select(Note).where(Note.vault_id == first.vault_id, Note.path == "People/Dan Reeves")
+        )
+        assert person is not None
+        await note_service.delete_note(session, first.vault_id, first.user_id, person.id)
+
+        second = ProviderConnection(
+            user_id=workspace["user_id"],
+            vault_id=workspace["vault_id"],
+            provider="google_gmail",
+            external_account_id=uuid.uuid4().hex,
+            external_email="tester@example.com",
+            connected_at=datetime.now(UTC),
+            settings={},
+            people_counts={},
+        )
+        session.add(second)
+        await session.commit()
+        await session.refresh(second)
+
+        record = replace(_event(DAY, names=("Dan Reeves",)), external_id="thread-9", title="Rollout")
+        await provider_sync_service.apply_record(
+            session, second, "gmail:messages", record, people_counts={"Dan Reeves": 9}
+        )
+
+        assert (
+            await session.scalar(select(Note).where(Note.vault_id == first.vault_id, Note.path == "People/Dan Reeves"))
+            is None
+        ), "a second connection recreated a People note the user had deleted"

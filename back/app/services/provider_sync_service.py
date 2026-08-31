@@ -62,6 +62,11 @@ _BACKOFF = (60, 300, 900, 3600, 21600)
 #: user came here for. Defined next to the validator that bounds it, because
 #: two copies of a default are two copies that drift.
 DEFAULT_PEOPLE_THRESHOLD = connection_settings.DEFAULT_PEOPLE_THRESHOLD
+#: The stream People notes are mapped under. Not a real sync stream — no
+#: adapter lists it, so it never gets a `sync_streams` row and never shows in
+#: the UI. It exists to give a People note the same "the user deleted this"
+#: memory every other synced note has.
+PEOPLE_STREAM = "people"
 #: Cap on the persisted interaction tally, so a busy mailbox cannot grow one
 #: JSONB column without bound.
 _MAX_TRACKED_PEOPLE = 500
@@ -197,7 +202,12 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
     path = f"People/{safe_name}"
     existing = await db.scalar(select(Note.id).where(Note.vault_id == connection.vault_id, Note.path == path))
     if existing is not None:
+        # Remember it, so deleting it later is remembered too.
+        await _remember_person(db, connection, safe_name, existing)
         return True
+
+    if await _person_was_deleted(db, connection, safe_name):
+        return False
 
     threshold = connection_settings.people_threshold(connection.settings)
     if counts.get(name, 0) < threshold:
@@ -212,7 +222,55 @@ async def _person_note(db: AsyncSession, connection: ProviderConnection, name: s
         folder_id=folder.data if folder.success else None,
         content=f"---\nsource: {connection.provider}\ntype: person\n---\n\n# {name}\n",
     )
-    return response.success
+    if not response.success or response.data is None:
+        return False
+    await _remember_person(db, connection, safe_name, response.data.id)
+    return True
+
+
+async def _remember_person(db: AsyncSession, connection: ProviderConnection, safe_name: str, note_id: UUID) -> None:
+    """Map a People note the same way records are mapped.
+
+    `external_objects.note_id` is `ON DELETE SET NULL`, so a row here is what
+    turns "the user removed this" into something the engine can see. Without
+    one, a People note carried no memory of having existed and the next event
+    mentioning that person simply made it again.
+    """
+    await db.execute(
+        pg_insert(ExternalObject)
+        .values(
+            connection_id=connection.id,
+            stream=PEOPLE_STREAM,
+            external_id=safe_name,
+            note_id=note_id,
+            content_hash="",
+            external_version=0,
+        )
+        .on_conflict_do_nothing(index_elements=["connection_id", "stream", "external_id"])
+    )
+    await db.commit()
+
+
+async def _person_was_deleted(db: AsyncSession, connection: ProviderConnection, safe_name: str) -> bool:
+    """Did anyone delete this People note, from any connection in the vault?
+
+    Vault-scoped rather than per connection, because the note is: `People/` sits
+    outside every connection's folder root so that one person is one note. A
+    per-connection answer would let the mailbox put back what the calendar was
+    told to drop.
+    """
+    tombstoned = await db.scalar(
+        select(ExternalObject.external_id)
+        .join(ProviderConnection, ProviderConnection.id == ExternalObject.connection_id)
+        .where(
+            ProviderConnection.vault_id == connection.vault_id,
+            ExternalObject.stream == PEOPLE_STREAM,
+            ExternalObject.external_id == safe_name,
+            ExternalObject.note_id.is_(None),
+        )
+        .limit(1)
+    )
+    return tombstoned is not None
 
 
 async def apply_record(
