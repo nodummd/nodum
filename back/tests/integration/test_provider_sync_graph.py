@@ -528,3 +528,74 @@ async def test_people_who_already_have_notes_cost_a_page_too(connection: Provide
     assert many <= few + 15, (
         f"{few} queries for 2 known people, {many} for 16 — remembering them went back to per-person"
     )
+
+
+@pytest.mark.asyncio
+async def test_re_syncing_does_not_rewrite_what_it_already_knows(
+    connection: ProviderConnection,
+) -> None:
+    """The path that runs every five minutes forever.
+
+    Neither cost guard above covers it: both apply records with fresh ids, so
+    both measure creation. An update re-asks which of the record's people have
+    notes — it has to, they can be deleted between runs — but the mapping rows
+    it writes never change after the first time, and re-writing them cost a
+    round trip and a commit per record indefinitely.
+
+    Asserted by *kind* rather than count: no write to the people mappings at
+    all on a re-sync, which is the property, rather than a number that drifts
+    with everything else `apply_record` does.
+    """
+    from sqlalchemy import event as sa_event
+
+    names = tuple(f"Regular {i}" for i in range(6))
+    counts = dict.fromkeys(names, 50)
+    people_writes = 0
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+
+        for index in range(3):
+            await provider_sync_service.apply_record(
+                session,
+                row,
+                STREAM,
+                replace(_event(DAY, names=names), external_id=f"re-{index}", title=f"Re {index}"),
+                people_counts=counts,
+            )
+
+        def _tick(_conn: object, _cursor: object, statement: str, *_rest: object) -> None:
+            nonlocal people_writes
+            # Counted by statement, not by matching a value inside it: the
+            # stream name is a bound parameter and never appears in the SQL,
+            # so looking for it there matched nothing and this test passed
+            # while measuring nothing at all.
+            if " ".join(statement.split()).lower().startswith("insert into external_objects"):
+                people_writes += 1
+
+        engine = session.get_bind()
+        sa_event.listen(engine, "before_cursor_execute", _tick)
+        try:
+            for index in range(3):
+                record = replace(
+                    _event(DAY, names=names),
+                    external_id=f"re-{index}",
+                    title=f"Re {index}",
+                    external_version=2,
+                )
+                record = replace(record, body=record.body + "\nrescheduled\n")
+                assert (
+                    await provider_sync_service.apply_record(session, row, STREAM, record, people_counts=counts)
+                    == "updated"
+                )
+        finally:
+            sa_event.remove(engine, "before_cursor_execute", _tick)
+
+    # One per record, from `_record_mapping`, which has to run — the record's
+    # own hash changed. Anything beyond that is the people mappings being
+    # rewritten with nothing new to say.
+    assert people_writes == 3, (
+        f"{people_writes} external_objects writes for 3 updated records; expected one each, so "
+        f"{people_writes - 3} were people mappings re-written on a re-sync that learned nothing new"
+    )

@@ -208,20 +208,31 @@ async def _linkable_people(
     if not paths:
         return set()
 
-    # The id comes back with the path, because looking it up afterwards was a
-    # second query per person on the path that runs *forever*: once the first
-    # sync is done, almost everyone already has a note.
+    # One query answers both halves: whether each person has a note, and
+    # whether this connection has already mapped it. The id comes back with
+    # the path so nothing has to be looked up again, and the outer join means
+    # the mapping is written only the first time — after that the insert would
+    # be a no-op that still costs a round trip and a commit on the path that
+    # runs every five minutes forever.
     found = (
         await db.execute(
-            select(Note.id, Note.path).where(Note.vault_id == connection.vault_id, Note.path.in_(paths.keys()))
+            select(Note.id, Note.path, ExternalObject.external_id)
+            .outerjoin(
+                ExternalObject,
+                (ExternalObject.note_id == Note.id)
+                & (ExternalObject.connection_id == connection.id)
+                & (ExternalObject.stream == PEOPLE_STREAM),
+            )
+            .where(Note.vault_id == connection.vault_id, Note.path.in_(paths.keys()))
         )
     ).all()
-    linkable = {paths[path] for _, path in found}
+    linkable = {paths[path] for _, path, _ in found}
 
-    # One insert for the record, not one per person with a commit each. These
-    # rows are what turns "the user removed this" into something the engine can
-    # see; writing them costs the same whether it is one person or twenty.
-    if found:
+    # These rows are what turns "the user removed this" into something the
+    # engine can see, so a person whose note exists but was never mapped still
+    # needs one — someone they wrote about themselves, say.
+    unmapped = [(note_id, path) for note_id, path, mapped in found if mapped is None]
+    if unmapped:
         await db.execute(
             pg_insert(ExternalObject)
             .values(
@@ -234,7 +245,7 @@ async def _linkable_people(
                         "content_hash": "",
                         "external_version": 0,
                     }
-                    for note_id, path in found
+                    for note_id, path in unmapped
                 ]
             )
             .on_conflict_do_nothing(index_elements=["connection_id", "stream", "external_id"])
