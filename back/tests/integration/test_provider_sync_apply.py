@@ -21,7 +21,7 @@ from sqlalchemy import select
 from app.core.db import async_session_factory
 from app.models.providers import ExternalObject, ProviderConnection, SyncStream
 from app.models.vaults import Note
-from app.services import provider_sync_service, providers
+from app.services import note_service, provider_sync_service, providers
 
 STREAM = "calendar:events:primary"
 
@@ -1130,3 +1130,82 @@ async def test_the_messages_a_user_can_act_on_are_kept(connection: ProviderConne
         )
         assert "encryption key" in row.last_error
         assert row.status == "key_unavailable"
+
+
+# ── when the marker is gone ─────────────────────────────────────────────────
+
+
+async def _content(note_id: uuid.UUID) -> str:
+    """Read in a fresh session. `apply_record` writes in its own, and a session
+    that already holds the note can hand back its own snapshot — which for a
+    test asserting "nothing changed" would pass no matter what happened."""
+    async with async_session_factory() as session:
+        note = await session.get(Note, note_id)
+        assert note is not None
+        return note.content
+
+
+async def _overwrite(connection: ProviderConnection, note_id: uuid.UUID, content: str) -> None:
+    async with async_session_factory() as session:
+        response = await note_service.update_content(
+            session, connection.vault_id, connection.user_id, note_id, content=content
+        )
+        assert response.success, response.message
+
+
+async def _synced_note_id(connection: ProviderConnection) -> uuid.UUID:
+    async with async_session_factory() as session:
+        note = await session.scalar(
+            select(Note).where(Note.vault_id == connection.vault_id, Note.title == "Design review")
+        )
+        assert note is not None
+        return note.id
+
+
+@pytest.mark.asyncio
+async def test_a_note_whose_marker_was_removed_is_not_taken_over(
+    connection: ProviderConnection,
+) -> None:
+    """`## Notes` is a plain heading in a note the user edits freely, and some
+    will delete it — tidying up, or not realising it is load-bearing.
+
+    Without the marker `split_user_region` reports the whole note as sync's, so
+    the next update replaced every word of it. That is the one thing this
+    feature promises never to do, and it would have happened silently, to
+    writing that exists nowhere else.
+    """
+    assert await _apply(connection, _record()) == "created"
+    note_id = await _synced_note_id(connection)
+
+    # The user takes the note over: their own words, no marker.
+    await _overwrite(connection, note_id, "# Design review\n\nAmara pushed back on the timeline. Follow up Tuesday.\n")
+
+    outcome = await _apply(connection, _record(body="# Design review\n\nsecond version\n", version=1))
+    assert outcome == "left_alone"
+
+    kept = await _content(note_id)
+    assert "Follow up Tuesday." in kept, "the user's writing was replaced"
+    assert "second version" not in kept
+
+
+@pytest.mark.asyncio
+async def test_putting_the_marker_back_makes_the_note_sync_again(
+    connection: ProviderConnection,
+) -> None:
+    """Left alone must not mean abandoned. The hash is deliberately not
+    recorded while a note is being left alone, so restoring the heading brings
+    it back rather than leaving it matching forever."""
+    await _apply(connection, _record())
+    note_id = await _synced_note_id(connection)
+
+    await _overwrite(connection, note_id, "# Design review\n\nmine\n")
+    moved = _record(body="# Design review\n\nsecond version\n", version=1)
+    assert await _apply(connection, moved) == "left_alone"
+
+    # They put it back, with their writing underneath.
+    await _overwrite(connection, note_id, "# Design review\n\nold\n\n## Notes\n\nmine\n")
+    assert await _apply(connection, moved) == "updated"
+
+    synced = await _content(note_id)
+    assert "second version" in synced
+    assert "mine" in synced, "restoring the marker cost the user their writing"

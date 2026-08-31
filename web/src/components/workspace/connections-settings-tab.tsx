@@ -283,6 +283,7 @@ function describeRun(stats: Record<string, number>): string {
     stats.unchanged ? `${stats.unchanged} unchanged` : null,
     stats.tombstoned ? `${stats.tombstoned} cancelled` : null,
     stats.user_deleted ? `${stats.user_deleted} skipped (you deleted them)` : null,
+    stats.left_alone ? `${stats.left_alone} left alone (no ## Notes heading)` : null,
     stats.error ? `${stats.error} failed` : null,
   ].filter(Boolean);
   return parts.length ? `Last successful run: ${parts.join(", ")}.` : "";

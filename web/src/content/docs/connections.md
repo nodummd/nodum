@@ -58,6 +58,12 @@ Amara pushed back on the timeline. Follow up Tuesday.     ← never overwritten
 Write your meeting notes underneath. Reschedule the event, rename it, add
 attendees — the top half updates and what you wrote stays exactly as it was.
 
+**The heading is load-bearing.** Delete it and sync can no longer tell its half
+of the note from yours, so it stops touching that note altogether rather than
+risk overwriting you — the connection reports it as *left alone*. Put the
+heading back and the note starts updating again from the next sync, keeping
+whatever is underneath.
+
 If you delete a synced note, it is **not** recreated. Deleting it is taken as a
 decision, not an accident. That covers the People notes too — delete one and no
 connection puts it back, and the mentions that would have linked to it stay as

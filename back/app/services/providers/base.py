@@ -211,6 +211,17 @@ def split_user_region(content: str) -> tuple[str, str]:
     return content[:index], content[index + 1 :]
 
 
+def has_user_region(content: str) -> bool:
+    """Is the marker still there?
+
+    `compose` always writes it, so a synced note without one has been edited by
+    hand. Detection mirrors `split_user_region` exactly rather than doing its
+    own `in` check, because the two drifting would mean deciding a note is safe
+    to overwrite by one rule and splitting it by another.
+    """
+    return content.startswith(USER_REGION_MARKER) or f"\n{USER_REGION_MARKER}" in content
+
+
 def compose(sync_region: str, user_region: str) -> str:
     """Rebuild a note from its two halves, always leaving the marker in place."""
     head = sync_region.rstrip()

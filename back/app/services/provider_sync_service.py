@@ -317,17 +317,34 @@ async def apply_record(
             # A late page must not clobber a newer write.
             return "stale"
 
+        taken_over = False
+
+        def _rewrite(current: str) -> str | None:
+            nonlocal taken_over
+            if not providers.has_user_region(current):
+                # The marker is gone, so there is no way to tell sync's half of
+                # this note from the person's. `compose` always writes the
+                # marker, so its absence means someone edited it away — and
+                # rewriting the note now would delete whatever they had put
+                # under it. Editing the marker away reads as taking the note
+                # over, and that is treated the same as deleting one: a
+                # decision, not an accident.
+                taken_over = True
+                return None
+            return providers.merge_into(current, body)
+
         # transform_content holds the note's row lock across the callback, so a
         # person typing under "## Notes" at this exact moment cannot lose it.
         response = await note_service.transform_content(
-            db,
-            connection.vault_id,
-            connection.user_id,
-            mapping.note_id,
-            lambda current: providers.merge_into(current, body),
+            db, connection.vault_id, connection.user_id, mapping.note_id, _rewrite
         )
         if not response.success:
             return "error"
+        if taken_over:
+            # Deliberately without recording the new hash: put the marker back
+            # and the next run picks the note up again, rather than finding a
+            # hash that matches and skipping it forever.
+            return "left_alone"
         await _record_mapping(db, connection, stream, record, mapping.note_id, content_hash)
         return "updated"
 

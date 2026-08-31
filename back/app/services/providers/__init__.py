@@ -42,6 +42,7 @@ from .base import (
     SyncRecord,
     compose,
     escape_remote_text,
+    has_user_region,
     merge_into,
     split_user_region,
 )
@@ -132,6 +133,7 @@ __all__ = [
     "compose",
     "escape_remote_text",
     "get_adapter",
+    "has_user_region",
     "merge_into",
     "registry_entry",
     "split_user_region",
