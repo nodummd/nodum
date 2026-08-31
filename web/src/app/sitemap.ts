@@ -43,6 +43,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: absolute("/forum"), changeFrequency: "daily", priority: 0.7 },
     // Auth pages are indexable but low value — they exist in the sitemap so a
     // crawler understands they are intentional rather than orphaned.
+    // Low priority as pages, but they must be crawlable: Google's OAuth review
+    // checks that the privacy policy is publicly reachable on the app's domain.
+    { url: absolute("/privacy"), changeFrequency: "yearly", priority: 0.3 },
+    { url: absolute("/terms"), changeFrequency: "yearly", priority: 0.3 },
     { url: absolute("/login"), changeFrequency: "yearly", priority: 0.3 },
     { url: absolute("/signup"), changeFrequency: "yearly", priority: 0.4 },
   ];

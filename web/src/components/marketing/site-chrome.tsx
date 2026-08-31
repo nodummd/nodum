@@ -139,9 +139,15 @@ export function SiteFooter() {
           <span className="mk-mono text-[0.72rem] text-[var(--mk-faint)]">
             MIT licensed · self-host in one command
           </span>
-          <span className="mk-mono text-[0.72rem] text-[var(--mk-faint)]">
-            Notes are the knots.
-          </span>
+          <div className="mk-mono flex items-center gap-4 text-[0.72rem]">
+            <Link className="text-[var(--mk-faint)] hover:opacity-80" href="/privacy">
+              Privacy
+            </Link>
+            <Link className="text-[var(--mk-faint)] hover:opacity-80" href="/terms">
+              Terms
+            </Link>
+            <span className="text-[var(--mk-faint)]">Notes are the knots.</span>
+          </div>
         </div>
       </div>
     </footer>
