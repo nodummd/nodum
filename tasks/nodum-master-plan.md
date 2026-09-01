@@ -1156,8 +1156,24 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     status, error box and the settings panel had otherwise never been on
     screen in a test. Stubbing there is sound because the shape being stubbed
     is pinned independently by the backend suite against a real database.
-  - *Still open.* No test drives a real Google API; that needs a registered
-    OAuth client and is operator setup. `web/` has no unit-test runner, so nothing below the e2e layer
+  - *Still open.* No automated test drives a real Google API — but the flow
+    has now been exercised live end to end on the dev stack with a real
+    account: Calendar backfilled 113 events into notes, and Gmail (connected
+    through the new setup screen, 7-day window riding the OAuth state)
+    backfilled real threads into Gmail/. Two launch-blocking bugs were found
+    live and fixed: the dev worker could not reach Postgres at all (bind-
+    mounted back/.env port), and connecting Gmail with Calendar already
+    connected re-stamped the Calendar connection (include_granted_scopes +
+    grant inference; the requested provider now rides the OAuth state).
+  - **2026-09-01: import & sync UX rebuilt** — one Import data door in the
+    vault's sidebar; options chosen before the OAuth redirect (history window
+    incl. future-only, labels, bodies, sender excludes, link toggles, folder
+    destination with tree picker); pause/resume/keep-future-only on the
+    server; a floating progress card that survives reloads; the Connections
+    settings tab removed. An adversarial review workflow (34 agents) over the
+    commit confirmed a high bug — pause silently undone by in-flight/queued
+    runs — plus a settings-wipe on reconnect and a set of dishonest controls;
+    all fixed and pinned the same day. `web/` has no unit-test runner, so nothing below the e2e layer
     tests React; adding one is a repo-wide choice, not a feature-branch
     decision. The same index-naming drift found in `0022` exists across five
     pre-existing tables and belongs in its own PR.

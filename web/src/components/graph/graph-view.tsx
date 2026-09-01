@@ -32,9 +32,27 @@ import {
 } from "@/lib/graph/hover-bus";
 import { cn } from "@/lib/utils";
 
-// Label EVERY node (Obsidian shows them all, fading by zoom). The render loop
-// culls off-screen labels; the cap only protects very large vaults.
+// A label element exists for every node up to this cap, highest-degree first.
+// The cap bounds the DOM, not what you see — the render loop decides that.
 const LABEL_CAP = 1200;
+// A search hit outside that cap gets a label made on demand, up to this many:
+// "search names what it found" has to hold in a big vault too, which is exactly
+// where the cap bites.
+const SEARCH_LABEL_EXTRA = 400;
+
+// Label level-of-detail. Names are drawn in importance order — most-connected
+// first — and each one takes the screen space it occupies on a coarse grid; a
+// name that would land on space already taken is simply not drawn. That single
+// rule is what makes a dense vault legible: zoomed out, only hubs and nodes
+// standing on their own have room, and every step of zoom hands space back to
+// the rest until, close in, everything is named.
+//
+// Deliberately geometric rather than a count or a percentage: a fifteen-note
+// vault still shows all fifteen names at the fit view, where any fixed budget
+// would have hidden twelve of them for no reason.
+const LABEL_CELL = 26; // px — cell of the claim grid
+const LABEL_PAD_X = 9; // px of breathing room claimed either side of a name
+const LABEL_PAD_Y = 3;
 
 // How far the un-highlighted graph recedes while a highlight is up (hover,
 // node-drag, search). Not to nothing: you should still be able to read where
@@ -398,7 +416,20 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   // Set on a fresh (non-restored) first build; the sim-end handler / pause
   // fallback fits the camera to the settled layout exactly once.
   const fitOnSettleRef = useRef(false);
-  const labelRef = useRef<{ overlay: HTMLDivElement; els: Map<number, HTMLDivElement> } | null>(null);
+  const labelRef = useRef<{
+    overlay: HTMLDivElement;
+    els: Map<number, HTMLDivElement>;
+    /** Label width per 1px of font size — measured once, scaled per frame. */
+    wpp: Map<number, number>;
+    /** Draw order: most connected first, so importance wins contested space. */
+    order: number[];
+    /** The degree-ranked base set, and what search added on top of it. */
+    base: number[];
+    extra: number[];
+  } | null>(null);
+  // The font size actually applied to the overlay, mirrored so label widths can
+  // be scaled without reading it back out of the DOM every frame.
+  const labelFontPxRef = useRef(10);
   const dimRafRef = useRef(0);
   const enterRafRef = useRef(0);
   const currentColorsRef = useRef<Float32Array>(new Float32Array(0));
@@ -448,6 +479,17 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const driftRafRef = useRef(0);
 
   const storeKey = `${vaultId}:${centerNoteId ?? "global"}:${String(depth)}`;
+
+  // cosmos.gl 3.x brings its GPU device up asynchronously (`graph.ready`), and
+  // every setter on it is synchronous and throws until that resolves. The data
+  // effect runs in the same commit as the one that constructs the engine, so it
+  // always lost that race: the first application threw, and nothing ran it
+  // again unless the data itself changed — which is why a workspace restored
+  // with the graph tab already open came back to a permanently blank canvas.
+  // The ref gates the apply; the counter re-runs the effect once the device is
+  // up.
+  const engineReadyRef = useRef(false);
+  const [engineReady, setEngineReady] = useState(0);
 
   /** Eased color transition toward a target array (hover dim). */
   const animateColors = (target: Float32Array) => {
@@ -507,6 +549,61 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     });
     graph.setLinkColors(links);
     if (draggingIndexRef.current === null) graph.render(undefined, 0);
+  };
+
+  /** Group / explorer colour of a node, or null for the default paint. */
+  const hexOf = (node: GraphNode) =>
+    node.unresolved ? null : nodeColorHex(node, appliedGroups, itemColors, folderColors);
+
+  /** One name in the overlay. The bulk build and the on-demand search labels
+   *  both come through here, so a label made either way is the same label. */
+  const makeLabelEl = (node: GraphNode): HTMLDivElement => {
+    const el = document.createElement("div");
+    el.textContent = node.title;
+    el.className = "nodum-graph-label";
+    el.style.opacity = "0";
+    const hex = hexOf(node);
+    if (hex) el.style.color = hex;
+    return el;
+  };
+
+  /** Search has to be able to name what it found, and labels only exist for the
+   *  LABEL_CAP most-connected nodes — so matches outside that set get a label
+   *  made here, for as long as the search stands. */
+  const syncSearchLabels = (matches: Set<number> | null) => {
+    const label = labelRef.current;
+    const graph = graphRef.current;
+    if (!label || !graph) return;
+    const base = new Set(label.base);
+    const wanted: number[] = [];
+    if (matches) {
+      for (const i of matches) {
+        if (!base.has(i)) wanted.push(i);
+      }
+      wanted.sort((a, b) => (nodesRef.current[b]?.degree ?? 0) - (nodesRef.current[a]?.degree ?? 0));
+      if (wanted.length > SEARCH_LABEL_EXTRA) wanted.length = SEARCH_LABEL_EXTRA;
+    }
+    const unchanged =
+      wanted.length === label.extra.length && wanted.every((i, k) => label.extra[k] === i);
+    if (unchanged) return;
+    const keep = new Set(wanted);
+    for (const i of label.extra) {
+      if (keep.has(i)) continue;
+      label.els.get(i)?.remove();
+      label.els.delete(i);
+      label.wpp.delete(i);
+    }
+    for (const i of wanted) {
+      if (label.els.has(i)) continue;
+      const node = nodesRef.current[i];
+      if (!node) continue;
+      const el = makeLabelEl(node);
+      label.overlay.appendChild(el);
+      label.els.set(i, el);
+    }
+    label.extra = wanted;
+    label.order = [...label.base, ...wanted];
+    graph.trackPointPositionsByIndices(label.order);
   };
 
   /** Re-apply whatever highlight should be showing when no node is hovered:
@@ -651,6 +748,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const count = flat ? Math.floor(flat.length / 2) : 0;
     if (!flat || count < 12) {
       graph.fitView(duration);
+      // Also the reference view — without this a small vault never recorded one,
+      // so every zoom read as "exactly the fit view" and the fade never moved.
+      markRefZoom(duration);
       return;
     }
     const xs = new Float64Array(count);
@@ -714,6 +814,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const container = containerRef.current;
     if (!container) return;
 
+    engineReadyRef.current = false;
     const accent = cssColor("--ob-interactive-accent", "hsl(254, 80%, 68%)");
     const graph = new CosmosGraph(container, {
       backgroundColor: [0, 0, 0, 0],
@@ -783,12 +884,26 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       },
     });
     graphRef.current = graph;
+    void graph.ready.then(() => {
+      // A view torn down mid-init must not wake the next one's effect.
+      if (graphRef.current !== graph) return;
+      engineReadyRef.current = true;
+      setEngineReady((n) => n + 1);
+    });
 
     const overlay = document.createElement("div");
     overlay.className = "pointer-events-none absolute inset-0 overflow-hidden";
     overlay.style.fontSize = "10px"; // labels inherit this; the tick scales it with zoom
     container.appendChild(overlay);
-    labelRef.current = { overlay, els: new Map() };
+    labelFontPxRef.current = 10;
+    labelRef.current = {
+      overlay,
+      els: new Map(),
+      wpp: new Map(),
+      order: [],
+      base: [],
+      extra: [],
+    };
 
     // Grabbing a node: spotlight it + its connections and hold the simulation
     // gently alive, so every other node keeps drifting in slow celestial motion
@@ -832,6 +947,35 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     container.addEventListener("pointerdown", onDown);
     container.addEventListener("pointerup", onUp);
 
+    // Scratch for the label pass, reused every frame: an overlay of a thousand
+    // names must not allocate sixty times a second.
+    const visIdx: number[] = [];
+    const visX: number[] = [];
+    const visY: number[] = [];
+    const drawn: boolean[] = [];
+    const claimed = new Set<number>();
+    /** Take the screen space a name needs. False when a more important name
+     *  already holds part of it; `force` takes it regardless. */
+    const claim = (x0: number, y0: number, x1: number, y1: number, force: boolean): boolean => {
+      const cx0 = Math.floor(x0 / LABEL_CELL);
+      const cx1 = Math.floor(x1 / LABEL_CELL);
+      const cy0 = Math.floor(y0 / LABEL_CELL);
+      const cy1 = Math.floor(y1 / LABEL_CELL);
+      if (!force) {
+        for (let cy = cy0; cy <= cy1; cy++) {
+          for (let cx = cx0; cx <= cx1; cx++) {
+            if (claimed.has(cy * 4096 + cx)) return false;
+          }
+        }
+      }
+      for (let cy = cy0; cy <= cy1; cy++) {
+        for (let cx = cx0; cx <= cx1; cx++) {
+          claimed.add(cy * 4096 + cx);
+        }
+      }
+      return true;
+    };
+
     const tick = () => {
       framesSinceApplyRef.current += 1;
       const container = containerRef.current;
@@ -846,57 +990,120 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       // Everything is measured against the fit zoom, so the default view always
       // looks the same regardless of the layout's coordinate extent.
       const rel = zoom / (refZoomRef.current || zoom);
-      // Obsidian's curve: labels are fully legible at the fit view and fade out
-      // as you zoom away (gone by ~3x out), fading back in as you zoom in.
-      const alpha = Math.max(0, Math.min(1, Math.log2(rel) + 1.7));
+      // Names are legible at the fit view and gone by ~0.6x out: zoomed away
+      // from a graph you are reading its shape, not its labels. Search results
+      // are exempt from this (below) — when the names are off, what you went
+      // looking for is the one thing still worth reading.
+      const alpha = Math.max(0, Math.min(1, (Math.log2(rel) + 0.7) / 0.7));
       // Zoom-adaptive sizing: nodes and labels shrink when zooming out and grow
       // gently (√) when zooming in — never ballooning.
       const sizeScale = Math.max(0.55, Math.min(2.2, Math.sqrt(rel)));
       if (Math.abs(sizeScale - lastSizeScaleRef.current) > 0.03) {
         lastSizeScaleRef.current = sizeScale;
         graph.setConfigPartial({ pointSizeScale: nodeSizeRef.current * sizeScale });
-        if (labelRef.current)
-          labelRef.current.overlay.style.fontSize = `${(10.5 * sizeScale * labelSizeRef.current).toFixed(1)}px`;
+        if (labelRef.current) {
+          const px = 10.5 * sizeScale * labelSizeRef.current;
+          labelRef.current.overlay.style.fontSize = `${px.toFixed(1)}px`;
+          labelFontPxRef.current = px;
+        }
       }
       const forceSet = forceLabelsRef.current;
       const pulseSet = pulseSetRef.current;
-      const els = labelRef.current?.els;
-      for (const [i, pos] of tracked) {
-        const el = els?.get(i);
-        if (!el || !pos) continue;
-        const [x, y] = graph.spaceToScreenPosition([pos[0], pos[1]]);
-        const offscreen = x < -60 || x > W + 60 || y < -30 || y > H + 30;
-        // The note you are working in, and the one the pointer is on elsewhere
-        // in the app, always show their name and get an accent glow (CSS) — at
-        // small node sizes the label is what actually makes them findable.
-        const pulsing = pulseSet.has(i) && !offscreen;
-        if (pulsing !== el.hasAttribute("data-pulse")) {
-          el.toggleAttribute("data-pulse", pulsing);
+      const label = labelRef.current;
+      if (label) {
+        const els = label.els;
+        const fontPx = labelFontPxRef.current;
+        // Every width is read here, before this frame writes a single style:
+        // interleaving reads and writes is one forced layout per label. Widths
+        // only scale with the font size, so each is measured once. A pane that
+        // is not laid out yet measures 0 — leave it for the next frame and fall
+        // back to a character-count estimate meanwhile.
+        if (label.wpp.size !== els.size) {
+          for (const [i, el] of els) {
+            if (label.wpp.has(i)) continue;
+            const w = el.offsetWidth;
+            if (w > 0) label.wpp.set(i, w / fontPx);
+          }
         }
-        // While a highlight is up, its nodes' names show and the rest recede to
-        // a faint but readable opacity (never off — you should still be able to
-        // read where this neighbourhood sits). Otherwise fade in/out by zoom.
-        // Off-screen labels are always culled.
-        const op = offscreen
-          ? 0
-          : pulsing
-            ? 1
-            : forceSet
-              ? forceSet.has(i)
-                ? 1
-                : // Dim, but never brighter than the zoom fade would allow —
-                  // zoomed out far enough that names are gone, a highlight must
-                  // not switch 1200 of them back on over each other.
-                  Math.min(alpha, DIM_LABEL_OPACITY)
-              : alpha <= 0.03
-                ? 0
-                : alpha;
-        if (op <= 0) {
-          if (el.style.opacity !== "0") el.style.opacity = "0";
-          continue;
+        const boxH = fontPx * 1.35 + LABEL_PAD_Y * 2;
+
+        // Pass 1 — where each name would go, in importance order, off-screen
+        // ones culled here. A name that is not on the glass must not be able to
+        // take space away from one that is.
+        let count = 0;
+        for (const i of label.order) {
+          const el = els.get(i);
+          const pos = tracked.get(i);
+          if (!el || !pos) continue;
+          const [x, y] = graph.spaceToScreenPosition([pos[0], pos[1]]);
+          const offscreen = x < -60 || x > W + 60 || y < -30 || y > H + 30;
+          // The note you are working in, and the one the pointer is on
+          // elsewhere in the app, get an accent glow (CSS) as well as their
+          // name — at small node sizes the label is what makes them findable.
+          const pulsing = pulseSet.has(i) && !offscreen;
+          if (pulsing !== el.hasAttribute("data-pulse")) {
+            el.toggleAttribute("data-pulse", pulsing);
+          }
+          if (offscreen) {
+            if (el.style.opacity !== "0") el.style.opacity = "0";
+            continue;
+          }
+          visIdx[count] = i;
+          visX[count] = x;
+          visY[count] = y;
+          drawn[count] = false;
+          count++;
         }
-        el.style.transform = `translate(${String(Math.round(x))}px, ${String(Math.round(y + 9))}px) translateX(-50%)`;
-        el.style.opacity = String(op);
+
+        // Pass 2 — who actually gets read. Each tier takes the space it needs
+        // before the next tier is offered any.
+        claimed.clear();
+        const place = (slot: number, opacity: number, always: boolean) => {
+          if (drawn[slot]) return;
+          const i = visIdx[slot];
+          const el = els.get(i);
+          if (!el) return;
+          const x = visX[slot];
+          const y = visY[slot];
+          const wpp = label.wpp.get(i) ?? (el.textContent?.length ?? 8) * 0.52;
+          const half = (wpp * fontPx) / 2 + LABEL_PAD_X;
+          const top = y + 9 - LABEL_PAD_Y;
+          if (!claim(x - half, top, x + half, top + boxH, always)) return;
+          drawn[slot] = true;
+          el.style.transform = `translate(${String(Math.round(x))}px, ${String(Math.round(y + 9))}px) translateX(-50%)`;
+          const op = opacity.toFixed(2);
+          if (el.style.opacity !== op) el.style.opacity = op;
+        };
+
+        // The breathing note first: it is one node, and it is the answer to
+        // "where am I" — geometry does not get to overrule that one.
+        for (let s = 0; s < count; s++) {
+          if (pulseSet.has(visIdx[s])) place(s, 1, true);
+        }
+        // Then the search or hover selection, legible at any zoom. That
+        // exemption is the whole point of being able to find something in a
+        // graph you have zoomed out of: the names are off, and the handful you
+        // asked for are on.
+        if (forceSet) {
+          for (let s = 0; s < count; s++) {
+            if (forceSet.has(visIdx[s])) place(s, 1, false);
+          }
+        }
+        // Then everyone else, most-connected first, subject to the zoom fade —
+        // and never brighter than a dim while a highlight is up, so what is
+        // highlighted stays the thing you read. Below the fade they are not
+        // drawn at all, which is what hands the whole screen to the search.
+        const rest = forceSet ? Math.min(alpha, DIM_LABEL_OPACITY) : alpha;
+        if (rest > 0.03) {
+          for (let s = 0; s < count; s++) {
+            place(s, rest, false);
+          }
+        }
+        for (let s = 0; s < count; s++) {
+          if (drawn[s]) continue;
+          const el = els.get(visIdx[s]);
+          if (el && el.style.opacity !== "0") el.style.opacity = "0";
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -912,6 +1119,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       cancelAnimationFrame(enterRafRef.current);
       cancelAnimationFrame(driftRafRef.current);
       cancelAnimationFrame(pulseRafRef.current);
+      engineReadyRef.current = false;
       pulseSetRef.current = new Set();
       overlay.remove();
       labelRef.current = null;
@@ -932,7 +1140,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const appliedSigRef = useRef("");
   useEffect(() => {
     const graph = graphRef.current;
-    if (!graph || !filtered) return;
+    if (!graph || !filtered || !engineReadyRef.current) return;
 
     // identical content (query refetch, debounce identity churn) is a no-op —
     // repeated reheats would keep nudging a settled layout
@@ -968,10 +1176,6 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       }
       return parsed;
     };
-    /** Group / explorer colour of a node, or null for the default paint. */
-    const hexOf = (node: GraphNode) =>
-      node.unresolved ? null : nodeColorHex(node, appliedGroups, itemColors, folderColors);
-
     const n = filtered.nodes.length;
     const positions = new Float32Array(n * 2);
     const colors = new Float32Array(n * 4);
@@ -1156,25 +1360,24 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       didFitRef.current = true;
     }
 
-    // labels: one per node (highest-degree first so a huge vault keeps its hubs
-    // when capped). The render loop fades them by zoom and culls off-screen.
+    // labels: one per node, most-connected first — that order is both the cap
+    // (a huge vault keeps its hubs) and the priority the render loop draws in.
     const label = labelRef.current;
     if (label) {
       label.els.forEach((el) => el.remove());
       label.els.clear();
+      label.wpp.clear();
+      label.extra = [];
       const labelIndices = filtered.nodes
         .map((node, i) => ({ i, degree: node.degree }))
         .sort((a, b) => b.degree - a.degree)
         .slice(0, LABEL_CAP)
         .map((x) => x.i);
+      label.base = labelIndices;
+      label.order = labelIndices;
       graph.trackPointPositionsByIndices(labelIndices);
       for (const i of labelIndices) {
-        const el = document.createElement("div");
-        el.textContent = filtered.nodes[i].title;
-        el.className = "nodum-graph-label";
-        el.style.opacity = "0";
-        const hex = hexOf(filtered.nodes[i]);
-        if (hex) el.style.color = hex;
+        const el = makeLabelEl(filtered.nodes[i]);
         label.overlay.appendChild(el);
         label.els.set(i, el);
       }
@@ -1191,7 +1394,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     baseLinkColorsRef.current = baseLinkColors;
     prevIdsRef.current = filtered.nodes.map((node) => node.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, appliedGroups, centerNoteId, explorerPaletteKey]);
+  }, [filtered, appliedGroups, centerNoteId, explorerPaletteKey, engineReady]);
 
   // Effect 2b — sticky "selected note" accent. Recolours just the focused node
   // on top of the base colours (no layout rebuild → no label flicker/jiggle).
@@ -1235,6 +1438,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const q = appliedSearch.trim();
     if (!q) {
       searchSetRef.current = null;
+      syncSearchLabels(null);
       if (hoveredIndexRef.current === null) applyHighlight(null, null);
       return;
     }
@@ -1243,6 +1447,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       if (matchesQuery(node, q)) set.add(i);
     });
     searchSetRef.current = set;
+    syncSearchLabels(set);
     if (hoveredIndexRef.current === null) applyHighlight(set, set);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSearch, filtered]);

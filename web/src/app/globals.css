@@ -238,6 +238,10 @@ body {
     0 1px 3px rgba(0, 0, 0, 0.9);
   white-space: nowrap;
   will-change: transform, opacity;
+  /* Names appear and leave as the view opens up for them (see the label
+     level-of-detail pass in graph-view.tsx). A short fade keeps that reading as
+     the graph breathing rather than as flicker. */
+  transition: opacity 140ms linear;
 }
 
 /* A breathing node: the note being worked in, or the one under the pointer

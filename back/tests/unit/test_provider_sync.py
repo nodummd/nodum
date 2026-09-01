@@ -759,7 +759,10 @@ class _FakeGmail(google_gmail.GoogleGmailAdapter):
 
 async def _render(thread: dict[str, Any], **settings: Any):
     adapter = _FakeGmail(thread)
-    ctx = _ctx(stream="gmail:messages", settings={"gmail": settings} if settings else {})
+    # Kwargs are gmail-section settings, except the toggles that live at the
+    # top level of the blob — lifted here so tests read naturally.
+    top = {key: settings.pop(key) for key in ("link_daily", "link_people") if key in settings}
+    ctx = _ctx(stream="gmail:messages", settings={**top, **({"gmail": settings} if settings else {})})
     return await adapter._thread("t1", ctx)
 
 
@@ -777,7 +780,7 @@ async def test_a_thread_becomes_one_note_with_its_participants() -> None:
         }
     )
     assert record is not None
-    assert record.folder.startswith("Mail/")
+    assert record.folder.startswith("Gmail/")
     # One note for the whole conversation, not one per message.
     assert record.body.count("# ") >= 1
     # Each person once, in first-seen order.
@@ -1854,3 +1857,91 @@ async def test_a_mail_subject_carrying_the_marker_is_neutralised() -> None:
     record = await _render({"id": "t1", "messages": [_message(sender="a@b.com", subject="## Notes")]})
     assert record is not None
     assert not base.has_user_region(record.body)
+
+
+# ── the options chosen before connecting ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_future_only_gmail_never_walks_history() -> None:
+    """backfill_days 0: no listing, no thread fetches — just the cursor,
+    bootstrapped from the profile, and a finished backfill. This is also what
+    "stop this backfill, keep future mail" resets a connection to."""
+    adapter = _FakeMailbox({"t1": ["INBOX"]})
+    page = await adapter.fetch(
+        _ctx(stream="gmail:messages", settings={"gmail": {"backfill_days": 0, "labels": ["INBOX"]}})
+    )
+    assert page.records == []
+    assert page.done is True
+    assert page.next_cursor == "9001", "the cursor was not bootstrapped, so nothing future will sync"
+    assert adapter.fetched == [], "future-only still fetched threads"
+    assert adapter.list_params == {}, "future-only still listed history"
+
+
+@pytest.mark.asyncio
+async def test_future_only_calendar_starts_its_window_now() -> None:
+    adapter = _FakeCalendar({"items": [], "nextSyncToken": "sync-1"})
+    await adapter.fetch(_ctx(settings={"calendar": {"backfill_days": 0}}))
+    time_min = adapter.calls[0].get("timeMin", "")
+    assert time_min, "future-only calendar sent no timeMin at all"
+    parsed = datetime.fromisoformat(time_min)
+    assert abs((datetime.now(UTC) - parsed).total_seconds()) < 120, time_min
+
+
+@pytest.mark.asyncio
+async def test_mail_from_an_excluded_sender_stays_out_of_the_vault() -> None:
+    """The whole thread, when every message in it matches the list."""
+    thread = {
+        "id": "t1",
+        "messages": [
+            _message(sender="Deals <noreply@shop.com>", subject="50% off"),
+            _message(sender="Deals <noreply@shop.com>", subject="50% off"),
+        ],
+    }
+    record = await _render(thread, exclude_senders=["shop.com"])
+    assert record is None, "an excluded sender's thread became a note"
+
+
+@pytest.mark.asyncio
+async def test_one_real_person_keeps_an_otherwise_excluded_thread() -> None:
+    """You probably replied. The thread stays; the excluded sender still never
+    becomes a participant or a People note."""
+    thread = {
+        "id": "t1",
+        "messages": [
+            _message(sender="Deals <promo@shop.com>", subject="Order 12"),
+            _message(sender="Amara <amara@example.com>", subject="Re: Order 12"),
+        ],
+    }
+    record = await _render(thread, exclude_senders=["shop.com"])
+    assert record is not None
+    assert record.wants_notes == ("Amara",), record.wants_notes
+
+
+@pytest.mark.asyncio
+async def test_a_domain_exclusion_does_not_swallow_subdomains() -> None:
+    """ "corp.com" excluding "mail.corp.com" too would be a guess, and the
+    wrong guess silently drops mail."""
+    thread = {"id": "t1", "messages": [_message(sender="HR <hr@mail.corp.com>", subject="Review")]}
+    record = await _render(thread, exclude_senders=["corp.com"])
+    assert record is not None, "a subdomain was swallowed by a bare-domain exclusion"
+
+
+@pytest.mark.asyncio
+async def test_the_daily_link_can_be_turned_off() -> None:
+    """Off means the date stays as readable text — not a link, not gone."""
+    thread = {"id": "t1", "messages": [_message(sender="a@b.com", subject="Hello", when=1_700_000_000_000)]}
+    linked = await _render(thread)
+    plain = await _render(thread, link_daily=False)
+    assert linked is not None and plain is not None
+    assert "[[" in linked.body.split("## Notes")[0].split("---\n\n")[-1] or "[[" in linked.body
+    assert "Thread started [[" in linked.body
+    assert "Thread started [[" not in plain.body
+    assert "Thread started 2023-11-14" in plain.body
+
+    event_linked = await _render_event(_calendar_item())
+    event_plain = await _render_event(_calendar_item(), settings={"link_daily": False})
+    assert event_linked is not None and event_plain is not None
+    assert "[[2026-09-02]]" in event_linked.body
+    assert "[[" not in event_plain.body.split("# Design review")[1]
+    assert "2026-09-02" in event_plain.body.split("# Design review")[1]

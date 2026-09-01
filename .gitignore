@@ -63,3 +63,4 @@ chat_exports/
 .claude/skills/react-best-practices/
 .claude/skills/ui-ux-pro-max/
 .claude/skills/ui-styling/
+celerybeat-schedule*

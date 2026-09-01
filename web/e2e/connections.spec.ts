@@ -16,10 +16,11 @@ import { signupFreshUser } from "./helpers";
  */
 
 async function openConnections(page: import("@playwright/test").Page) {
-  await page.keyboard.press("ControlOrMeta+Comma");
-  const dialog = page.getByRole("dialog").filter({ hasText: "Settings" }).first();
-  await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
-  await dialog.getByRole("button", { name: "Connections", exact: true }).click();
+  // Live sync lives in the Import dialog now, entered from the left sidebar —
+  // it is vault-scoped, and the sidebar is where the vault's things are.
+  await page.getByTestId("import-data-button").click();
+  const dialog = page.getByTestId("import-dialog");
+  await expect(dialog.getByText("Live sync")).toBeVisible({ timeout: 10_000 });
   return dialog;
 }
 
@@ -146,15 +147,14 @@ test.describe("returning from Google's consent screen", () => {
 
     await expect(page.getByText(/Google account connected/i)).toBeVisible({ timeout: 15_000 });
     // Landing back on an unchanged-looking vault is the whole complaint, so
-    // the outcome has to be on screen.
-    const dialog = page.getByRole("dialog").filter({ hasText: "Settings" }).first();
-    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
+    // the outcome has to be on screen: the Import dialog, where the
+    // connection's row actually lives.
+    const dialog = page.getByTestId("import-dialog");
+    await expect(dialog.getByText("Live sync")).toBeVisible();
     await expect(dialog.getByText(/only ever reads/i)).toBeVisible();
 
-    // Exactly one notice. The Connections tab used to read `?connected=` too —
-    // written for a landing that never worked, because the vault dispatcher
-    // stripped the query string before anything saw it. Opening the tab as
-    // part of handling the outcome puts both readers on the same URL.
+    // Exactly one notice — the old Connections tab carried a second reader of
+    // `?connected=` that double-toasted, and its removal must stay removed.
     await expect(page.getByText(/Google account connected/i)).toHaveCount(1);
     await expect(page.getByText(/Account connected\. The first sync is starting/i)).toHaveCount(0);
 

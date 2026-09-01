@@ -20,6 +20,7 @@ the one message that actually fixes it.
 
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -89,12 +90,37 @@ def redirect_uri() -> str:
     return f"{get_settings().OAUTH_REDIRECT_BASE_URL.rstrip('/')}/api/v1/connections/google/callback"
 
 
-async def build_start_url(*, user_id: str, vault_id: str, scopes: list[str]) -> str:
-    """Store the CSRF state (carrying the target vault) and return the consent URL."""
+async def build_start_url(
+    *,
+    user_id: str,
+    vault_id: str,
+    provider: str,
+    scopes: list[str],
+    settings: dict[str, Any] | None = None,
+) -> str:
+    """Store the CSRF state and return the consent URL.
+
+    The state carries everything the callback needs to finish the job: the
+    user, the vault, **which provider was asked for**, and the options chosen
+    before connecting.
+
+    The provider is the load-bearing one. `include_granted_scopes=true` means
+    a Gmail consent comes back carrying every previously-granted Calendar
+    scope too, and inferring the provider from the grant then matches Calendar
+    first — so "Connect Gmail" silently re-stamped the user's existing
+    Calendar connection and never created a Gmail one. The callback cannot be
+    told through the redirect (Google controls that URL), so the state token
+    is the only honest channel.
+
+    Settings ride along for the same reason: they are chosen *before* the
+    redirect, and parking them client-side loses them if the consent screen is
+    finished in another tab.
+    """
     from app.core.redis import redis_control
 
     state = secrets.token_urlsafe(32)
-    await redis_control.set(_STATE_KEY.format(state=state), f"{user_id}:{vault_id}", ex=_STATE_TTL)
+    payload = json.dumps({"u": user_id, "v": vault_id, "p": provider, "s": settings or {}})
+    await redis_control.set(_STATE_KEY.format(state=state), payload, ex=_STATE_TTL)
     params = httpx.QueryParams(
         client_id=get_settings().GOOGLE_SYNC_CLIENT_ID,
         redirect_uri=redirect_uri(),
@@ -113,8 +139,13 @@ async def build_start_url(*, user_id: str, vault_id: str, scopes: list[str]) -> 
     return f"{AUTH_URL}?{params}"
 
 
-async def consume_state(state: str) -> tuple[str, str] | None:
-    """Validate and burn the CSRF state. Returns (user_id, vault_id)."""
+async def consume_state(state: str) -> tuple[str, str, str, dict[str, Any]] | None:
+    """Validate and burn the CSRF state.
+
+    Returns (user_id, vault_id, provider, initial_settings), or None for
+    anything we did not mint or cannot read whole — a half-read state must
+    refuse rather than resolve to "somewhere".
+    """
     from app.core.redis import redis_control
 
     key = _STATE_KEY.format(state=state)
@@ -123,8 +154,19 @@ async def consume_state(state: str) -> tuple[str, str] | None:
         return None
     await redis_control.delete(key)
     value = raw.decode() if isinstance(raw, bytes) else str(raw)
-    user_id, _, vault_id = value.partition(":")
-    return (user_id, vault_id) if user_id and vault_id else None
+    try:
+        payload = json.loads(value)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    user_id = str(payload.get("u") or "")
+    vault_id = str(payload.get("v") or "")
+    provider = str(payload.get("p") or "")
+    settings = payload.get("s")
+    if not user_id or not vault_id:
+        return None
+    return (user_id, vault_id, provider, settings if isinstance(settings, dict) else {})
 
 
 async def exchange_code(code: str) -> dict[str, Any]:

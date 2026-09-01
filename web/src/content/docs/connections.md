@@ -3,7 +3,7 @@ title: Connected accounts
 section: Extending
 order: 5
 summary: Keep a Google Calendar — or, on a self-hosted instance, Gmail — in sync with a vault, so events and threads become notes that stay current.
-where: Settings → Connections
+where: Import data (left sidebar)
 ---
 
 Import brings your notes across once. A connection keeps something in sync:
@@ -17,8 +17,11 @@ to.
 
 ## Connecting
 
-Settings → **Connections** lists what this server offers. Pick one, approve the
-permissions on Google's screen, and the first sync starts on its own.
+**Import data** in the left sidebar (or the command palette) lists what this
+server offers under *Live sync*. Pick a source, choose what to sync — how much
+history, which labels, where notes land — and then approve the permissions on
+Google's screen. The choices are made *before* connecting, and the first sync
+runs from them.
 
 A connection belongs to **one vault**, chosen when you connect. Connect the
 same account to a second vault and you get a second, independent connection.
@@ -35,7 +38,7 @@ never met. Invitations you have not answered yet, or accepted tentatively, do
 sync: those are exactly the ones worth having in front of you. If you accepted
 something and later declined it, the note you already took stays as it is.
 
-**Gmail** — one note per *thread*, in `Mail/YYYY/MM`. A forty-message
+**Gmail** — one note per *thread*, in `Gmail/YYYY/MM`. A forty-message
 conversation is one place in your graph rather than forty.
 
 Each note carries the source's own details as properties — start and end time,
@@ -99,7 +102,24 @@ will not invent a link into it.
 
 ## Choosing what syncs
 
-The gear beside a connection opens its settings.
+Everything below is chosen on the setup screen before you connect, and can be
+changed later — **Import data → Connected → Options**. Two honest exceptions:
+which *calendars* to sync is picked right after connecting, because the list
+needs the grant; and the history window applies to the first import only —
+once history is in, the cursor has moved past it.
+
+**How much history.** A window from 24 hours to a year, a custom number of
+days, or **Future only**, which imports nothing old: new items start arriving
+from the moment you connect.
+
+**Skip these senders** (Gmail). Addresses or whole domains whose threads never
+become notes. Automated senders (`noreply@`, mailing lists) are already never
+linked as people. A domain matches itself exactly — `corp.com` does not also
+swallow `mail.corp.com`, because guessing wrong there silently drops mail.
+
+**Links into your graph.** The daily-note link and the People notes can each
+be turned off. Off means names and dates stay as plain, readable text — not
+links, not gone.
 
 **Calendars.** A Google account usually has several — your own, a shared team
 one, a subscribed holiday feed. Tick the ones you want. Each keeps its own
@@ -110,7 +130,7 @@ it carries on instead of re-importing everything.
 The list is refetched from Google each time you open the settings, so a
 calendar you made after connecting is there without reconnecting.
 
-**Folder.** Where synced notes go. Empty puts `Calendar/` and `Mail/` at the
+**Folder.** Where synced notes go. Empty puts `Calendar/` and `Gmail/` at the
 top of the vault; set `Sources/Google` and they land under that instead.
 
 **Link a person after.** How many appearances before someone gets their own
@@ -137,14 +157,22 @@ changing the folder affects new notes, not old ones.
 ## Keeping up
 
 Each stream is checked every five minutes; a new event usually appears within
-that. **Sync now** in Settings → Connections queues an immediate run, once a
-minute per connection — pressing it repeatedly cannot make Google answer any
-sooner, and the run already in flight is the one that finishes.
+that. **Sync now** on a connected row queues an immediate run, once a minute
+per connection — pressing it repeatedly cannot make Google answer any sooner,
+and the run already in flight is the one that finishes.
+
+**Pause** stops the schedule without touching anything else; resume picks up
+where it left off, with no backoff carried over. A run already in flight
+finishes its current batch first.
 
 The first sync is a backfill — a year of calendar by default, 90 days of mail —
-and can take several minutes across a few runs. It shows a running count while
-it works. There is no percentage, because Google does not say how much history
-there is, and a made-up progress bar is worse than an honest number.
+and can take several minutes across a few runs. A floating card shows a
+running count while it works, survives reloads (the progress is the server's,
+not the page's), and offers **Pause** and **Keep future only** — which stops
+importing history, keeps every note already imported, and switches the
+connection to syncing new items only. There is no percentage, because Google
+does not say how much history there is, and a made-up progress bar is worse
+than an honest number.
 
 The connection also says what the last run actually did — *"Last run: 3 new, 1
 updated, 12 unchanged"* — and tells you plainly if anything could not be saved,
@@ -164,7 +192,8 @@ another seven days and then breaks again.
 
 ## Disconnecting
 
-**Disconnect** withdraws the permission at Google and removes the connection.
+**Disconnect** on a connected row withdraws the permission at Google and
+removes the connection.
 Notes already in your vault are **kept** — they are yours, you may have written
 under them, and deleting them is not something a disconnect should decide.
 

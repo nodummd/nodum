@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.logging import get_logger
 from app.models.providers import ExternalObject, ProviderConnection, SyncStream
@@ -102,7 +102,13 @@ async def list_for_user(db: AsyncSession, user_id: UUID) -> ServiceResponse[list
 
 
 async def complete_google_connect(
-    db: AsyncSession, *, user_id: UUID, vault_id: UUID, code: str
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    vault_id: UUID,
+    code: str,
+    requested_provider: str = "",
+    initial_settings: dict[str, Any] | None = None,
 ) -> ServiceResponse[dict[str, Any]]:
     """Exchange the code and store the grant.
 
@@ -133,11 +139,30 @@ async def complete_google_connect(
         return ServiceResponse.fail("validation_failed", "Could not complete the connection.", reason="crashed")
 
     granted = str(tokens.get("scope") or "")
-    # Which adapter this grant is for is decided by what Google actually
-    # granted, not by what we asked for — a user can untick a scope on the
-    # consent screen, and connecting them to an adapter they did not authorise
-    # would fail on the first poll with a confusing 403.
-    provider_id = _provider_for_scopes(granted)
+    granted_set = set(granted.split())
+
+    if requested_provider:
+        # The provider the user actually clicked, carried through the OAuth
+        # state. This cannot be inferred from the grant: with
+        # `include_granted_scopes=true` a Gmail consent comes back carrying
+        # every previously-granted Calendar scope too, and inference matched
+        # Calendar first — so "Connect Gmail" re-stamped the existing Calendar
+        # connection and never created a Gmail one.
+        adapter = providers.get_adapter(requested_provider)
+        if adapter is None or not set(adapter.scopes) <= granted_set:
+            # The user unticked the requested permission on Google's screen.
+            # Falling back to whatever else was in the grant would connect
+            # something they did not ask for.
+            return ServiceResponse.fail(
+                "validation_failed",
+                "The requested permission was not granted. Connect again and leave it ticked.",
+                reason="no_scopes",
+            )
+        provider_id = requested_provider
+    else:
+        # A stale state from before the provider rode along in it: fall back
+        # to inferring from the grant, as this always used to.
+        provider_id = _provider_for_scopes(granted)
     if provider_id is None:
         return ServiceResponse.fail(
             "validation_failed",
@@ -165,6 +190,23 @@ async def complete_google_connect(
     )
     connection.external_email = email
     connection.scopes = granted
+    if initial_settings:
+        # Chosen on the setup screen before the redirect, already validated at
+        # /google/start. Applied on reconnect too — the user just picked them.
+        #
+        # Provider sections merge one level deep. A reconnect's setup screen
+        # sends {calendar: {backfill_days: N}} with no calendar_ids — it
+        # cannot know them, the list needs the grant — and replacing the
+        # stored section wholesale wiped a five-calendar selection down to
+        # primary, silently. The same replace-vs-merge bug this function
+        # already fixes one level down, reintroduced one level up.
+        merged = dict(connection.settings or {})
+        for key, value in initial_settings.items():
+            if key in ("calendar", "gmail") and isinstance(value, dict):
+                merged[key] = {**(merged.get(key) or {}), **value}
+            else:
+                merged[key] = value
+        connection.settings = merged
     connection.access_ciphertext = encrypt_secret(str(tokens["access_token"]), purpose="oauth")
     connection.refresh_ciphertext = encrypt_secret(str(tokens["refresh_token"]), purpose="oauth")
     connection.access_expires_at = google_auth.expires_at(tokens)
@@ -186,10 +228,15 @@ async def complete_google_connect(
         try:
             calendars = await google_calendar.list_calendars(str(tokens["access_token"]))
             primary = next((c["id"] for c in calendars if c["primary"]), None)
+            # Merged, not replaced: the calendar section may already carry
+            # options chosen on the setup screen (backfill_days), and stamping
+            # the default calendar over the whole section threw them away.
+            calendar_section = dict((connection.settings or {}).get("calendar") or {})
+            calendar_section.setdefault("calendar_ids", [primary or "primary"])
             connection.settings = {
                 **(connection.settings or {}),
                 "available_calendars": calendars,
-                "calendar": {"calendar_ids": [primary or "primary"]},
+                "calendar": calendar_section,
             }
             await db.commit()
         except Exception as exc:
@@ -224,6 +271,8 @@ async def sync_now(db: AsyncSession, connection_id: UUID, user_id: UUID) -> Serv
         return ServiceResponse.fail("not_found", "Connection not found.")
     if connection.status == "needs_reauth":
         return ServiceResponse.fail("validation_failed", connection.last_error or "Reconnect required.")
+    if connection.status == "paused":
+        return ServiceResponse.fail("validation_failed", "This connection is paused. Resume it to sync.")
 
     # One queued run per connection at a time. The general limiter allows 300
     # requests a minute, so without this a held-down button — or a loop in a
@@ -324,6 +373,77 @@ async def refresh_calendars(db: AsyncSession, connection_id: UUID, user_id: UUID
     connection.settings = settings
     await db.commit()
     return ServiceResponse.ok({"calendars": calendars, "stale": False})
+
+
+async def pause(db: AsyncSession, connection_id: UUID, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    """Stop the schedule without touching anything else.
+
+    Paused is the one status a person chooses. The sweep's whitelist is
+    (active, transient_broken), so a paused connection is simply never due —
+    no flag for the engine to check, no way to forget checking it. A run
+    already holding a lease finishes its current batch first; "paused" means
+    "no new runs", not "kill the one in flight".
+    """
+    connection = await _owned(db, connection_id, user_id)
+    if connection is None:
+        return ServiceResponse.fail("not_found", "Connection not found.")
+    connection.status = "paused"
+    await db.commit()
+    streams = list((await db.execute(select(SyncStream).where(SyncStream.connection_id == connection.id))).scalars())
+    return ServiceResponse.ok(_public(connection, streams))
+
+
+async def resume(db: AsyncSession, connection_id: UUID, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    """Back onto the schedule, with a clean slate.
+
+    Failures counted before the pause do not carry over — resuming into a
+    six-hour backoff because of errors from before the pause reads as broken.
+    If the grant is genuinely dead, the first run rediscovers that immediately
+    and says so.
+    """
+    connection = await _owned(db, connection_id, user_id)
+    if connection is None:
+        return ServiceResponse.fail("not_found", "Connection not found.")
+    connection.status = "active"
+    connection.disabled_until = None
+    connection.consecutive_failures = 0
+    await db.commit()
+    streams = list((await db.execute(select(SyncStream).where(SyncStream.connection_id == connection.id))).scalars())
+    return ServiceResponse.ok(_public(connection, streams))
+
+
+async def skip_backfill(db: AsyncSession, connection_id: UUID, user_id: UUID) -> ServiceResponse[dict[str, Any]]:
+    """Stop importing history; keep syncing what happens from now on.
+
+    Implemented by switching the connection to a zero-day window and asking
+    the engine for the full-resync it already knows how to do: the next run
+    resets the cursor, sees backfill_days=0, bootstraps a fresh cursor at
+    "now", and is immediately up to date. Reusing `needs_full_resync` rather
+    than writing the stream columns here matters for one racy reason — a run
+    mid-backfill overwrites cursor columns as it commits each page, and would
+    clobber a direct reset; the flag survives because the run loop never
+    touches it once running.
+
+    Notes already imported are kept. They are in the vault, they may have been
+    edited, and "stop importing" is not "delete what was imported".
+    """
+    connection = await _owned(db, connection_id, user_id)
+    if connection is None:
+        return ServiceResponse.fail("not_found", "Connection not found.")
+
+    section = "gmail" if connection.provider == "google_gmail" else "calendar"
+    merged = dict(connection.settings or {})
+    merged[section] = {**(merged.get(section) or {}), "backfill_days": 0}
+    connection.settings = merged
+
+    await db.execute(
+        update(SyncStream)
+        .where(SyncStream.connection_id == connection.id, SyncStream.backfill_done.is_(False))
+        .values(needs_full_resync=True)
+    )
+    await db.commit()
+    streams = list((await db.execute(select(SyncStream).where(SyncStream.connection_id == connection.id))).scalars())
+    return ServiceResponse.ok(_public(connection, streams))
 
 
 async def update_settings(

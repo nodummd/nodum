@@ -31,10 +31,12 @@ async def workspace(client: AsyncClient) -> dict:
 @pytest.mark.asyncio
 async def test_a_state_carries_the_user_and_vault_that_started_the_flow() -> None:
     user_id, vault_id = str(uuid.uuid4()), str(uuid.uuid4())
-    url = await google_auth.build_start_url(user_id=user_id, vault_id=vault_id, scopes=["scope"])
+    url = await google_auth.build_start_url(
+        user_id=user_id, vault_id=vault_id, provider="google_calendar", scopes=["scope"]
+    )
 
     state = url.split("state=")[1].split("&")[0]
-    assert await google_auth.consume_state(state) == (user_id, vault_id)
+    assert await google_auth.consume_state(state) == (user_id, vault_id, "google_calendar", {})
 
 
 @pytest.mark.asyncio
@@ -42,7 +44,9 @@ async def test_a_state_is_single_use() -> None:
     """Otherwise a state that leaked — a referrer header, a shared screen, a
     proxy log — could be replayed to attach an attacker's Google account to
     the vault it names."""
-    url = await google_auth.build_start_url(user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), scopes=[])
+    url = await google_auth.build_start_url(
+        user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), provider="google_calendar", scopes=[]
+    )
     state = url.split("state=")[1].split("&")[0]
 
     assert await google_auth.consume_state(state) is not None
@@ -59,7 +63,9 @@ async def test_a_state_nobody_issued_is_refused() -> None:
 async def test_a_state_is_long_enough_not_to_be_guessed() -> None:
     """It is the only secret in the flow, and the callback is unauthenticated."""
     urls = [
-        await google_auth.build_start_url(user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), scopes=[])
+        await google_auth.build_start_url(
+            user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), provider="google_calendar", scopes=[]
+        )
         for _ in range(5)
     ]
     states = [url.split("state=")[1].split("&")[0] for url in urls]
@@ -72,7 +78,9 @@ async def test_a_state_is_long_enough_not_to_be_guessed() -> None:
 @pytest.mark.asyncio
 async def test_a_state_expires() -> None:
     """A consent screen left open for a day must not still be usable."""
-    url = await google_auth.build_start_url(user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), scopes=[])
+    url = await google_auth.build_start_url(
+        user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), provider="google_calendar", scopes=[]
+    )
     state = url.split("state=")[1].split("&")[0]
 
     ttl = await redis_control.ttl(google_auth._STATE_KEY.format(state=state))
@@ -83,7 +91,16 @@ async def test_a_state_expires() -> None:
 async def test_a_corrupt_state_value_is_refused_rather_than_half_read() -> None:
     """`partition` on a value with no separator yields an empty vault id, and
     connecting "somewhere" is worse than not connecting."""
-    for stored in ("", "only-a-user-id", ":only-a-vault-id"):
+    for stored in (
+        "",
+        "only-a-user-id",
+        ":only-a-vault-id",
+        "not json at all",
+        '"a json string, not an object"',
+        "[]",
+        '{"u": "user-but-no-vault"}',
+        '{"v": "vault-but-no-user"}',
+    ):
         state = f"probe-{uuid.uuid4().hex}"
         await redis_control.set(google_auth._STATE_KEY.format(state=state), stored, ex=60)
         assert await google_auth.consume_state(state) is None, f"{stored!r} was accepted"
@@ -116,7 +133,9 @@ async def test_the_callback_refuses_a_missing_code_without_touching_a_state(
     """A callback with no code cannot be completed, so it must not burn the
     state either — the user pressing back and retrying would otherwise find
     their own flow dead."""
-    url = await google_auth.build_start_url(user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), scopes=[])
+    url = await google_auth.build_start_url(
+        user_id=str(uuid.uuid4()), vault_id=str(uuid.uuid4()), provider="google_calendar", scopes=[]
+    )
     state = url.split("state=")[1].split("&")[0]
 
     resp = await client.get(
@@ -134,11 +153,13 @@ async def test_two_flows_started_at_once_do_not_share_a_state() -> None:
     """Two tabs, two vaults. Each callback must land on the vault its own flow
     named."""
     pairs = [(str(uuid.uuid4()), str(uuid.uuid4())) for _ in range(4)]
-    urls = await asyncio.gather(*(google_auth.build_start_url(user_id=u, vault_id=v, scopes=[]) for u, v in pairs))
+    urls = await asyncio.gather(
+        *(google_auth.build_start_url(user_id=u, vault_id=v, provider="google_calendar", scopes=[]) for u, v in pairs)
+    )
     states = [url.split("state=")[1].split("&")[0] for url in urls]
 
     resolved = [await google_auth.consume_state(state) for state in states]
-    assert resolved == pairs
+    assert resolved == [(u, v, "google_calendar", {}) for u, v in pairs]
 
 
 # ── the redirect contract, through the real route ───────────────────────────
@@ -265,3 +286,23 @@ async def test_starting_a_flow_for_a_provider_this_server_will_not_run(client: A
     )
     assert unconfigured.status_code == 422
     assert "GOOGLE_SYNC_CLIENT_ID" in unconfigured.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_the_state_carries_the_provider_and_the_chosen_settings() -> None:
+    """Both have to survive the redirect server-side.
+
+    The provider because the grant cannot be trusted to reveal it — with
+    `include_granted_scopes` a Gmail consent carries the Calendar scopes too,
+    and inferring from the grant is the bug that made "Connect Gmail"
+    re-stamp the Calendar connection. The settings because they are chosen
+    before the redirect, and a browser tab is not a place to park them.
+    """
+    user_id, vault_id = str(uuid.uuid4()), str(uuid.uuid4())
+    chosen = {"gmail": {"backfill_days": 7, "labels": ["INBOX"]}, "folder_root": "Sources"}
+    url = await google_auth.build_start_url(
+        user_id=user_id, vault_id=vault_id, provider="google_gmail", scopes=["s"], settings=chosen
+    )
+    state = url.split("state=")[1].split("&")[0]
+
+    assert await google_auth.consume_state(state) == (user_id, vault_id, "google_gmail", chosen)

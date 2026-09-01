@@ -57,10 +57,10 @@ async function openConnectionsWith(page: Page, rows: StubConnection[]) {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data }) });
   });
 
-  await page.keyboard.press("ControlOrMeta+Comma");
-  const dialog = page.getByRole("dialog").filter({ hasText: "Settings" }).first();
-  await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 10_000 });
-  await dialog.getByRole("button", { name: "Connections", exact: true }).click();
+  // The connected list lives in the Import dialog now.
+  await page.getByTestId("import-data-button").click();
+  const dialog = page.getByTestId("import-dialog");
+  await expect(dialog.getByText("Live sync")).toBeVisible({ timeout: 10_000 });
   return dialog;
 }
 
@@ -149,8 +149,12 @@ test.describe("how a connection reports itself", () => {
 
     await expect(dialog.getByText("Server key unavailable")).toBeVisible();
     await expect(dialog.getByText(/encryption key has changed/)).toBeVisible();
-    // Reconnecting does not fix an operator's key change, so it is not offered.
-    await expect(dialog.getByRole("button", { name: /Reconnect/ })).toHaveCount(0);
+    // Reconnect IS offered: a fresh consent issues fresh tokens under the new
+    // key, which is exactly the remedy. The first version of this spec
+    // asserted the button's absence on the theory that reconnecting cannot
+    // fix an operator's key change — then a real key rotation happened on a
+    // live instance, and reconnecting fixed it in one click.
+    await expect(dialog.getByRole("button", { name: /Reconnect/ })).toBeVisible();
   });
 
   test("nothing a connection carries can put a token on screen", async ({ page }) => {
@@ -193,7 +197,8 @@ async function openPanel(page: Page, overrides: StubConnection = {}, calendars =
   const dialog = await openConnectionsWith(page, [
     connection({ settings: { available_calendars: calendars, calendar: { calendar_ids: ["primary"] } }, ...overrides }),
   ]);
-  await dialog.getByRole("button", { name: "Sync settings" }).click();
+  await dialog.getByRole("button", { name: "Options" }).click();
+  await expect(dialog.getByTestId("sync-setup")).toBeVisible();
   return dialog;
 }
 
@@ -219,7 +224,7 @@ test.describe("choosing what a connection syncs", () => {
     });
 
     await dialog.getByRole("checkbox", { name: /Team/ }).check();
-    await dialog.getByRole("spinbutton").fill("5");
+    await dialog.getByLabel("Appearances before a person is linked").fill("5");
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText(/Saved\./)).toBeVisible();
 
@@ -263,7 +268,230 @@ test.describe("choosing what a connection syncs", () => {
 
     await expect(dialog.getByText("Store message bodies")).toHaveCount(0);
     // And the ones that apply to both are there.
-    await expect(dialog.getByText("Folder")).toBeVisible();
-    await expect(dialog.getByText("Link a person after")).toBeVisible();
+    await expect(dialog.getByText("Where notes go")).toBeVisible();
+    await expect(dialog.getByText("Make notes for people")).toBeVisible();
+  });
+});
+
+/**
+ * The setup screen — options chosen before connecting.
+ *
+ * The payload is the thing worth pinning: every choice must reach the server
+ * in the shape `connection_settings.clean` accepts, inside the start request,
+ * because that is what rides the OAuth state and configures the first sync.
+ * A wizard that renders beautifully and sends nothing would pass any visual
+ * assertion.
+ */
+
+const CATALOG = {
+  configured: true,
+  providers: [
+    {
+      id: "google_calendar",
+      name: "Google Calendar",
+      blurb: "Events become notes.",
+      caveats: ["Read-only."],
+      scopes: [],
+      available: true,
+      self_hosted_only: false,
+    },
+    {
+      id: "google_gmail",
+      name: "Gmail",
+      blurb: "Threads become notes.",
+      caveats: ["Read-only."],
+      scopes: [],
+      available: true,
+      self_hosted_only: true,
+    },
+  ],
+};
+
+async function openWizard(page: Page, providerName: string) {
+  await page.route("**/api/v1/connections/providers", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: CATALOG }),
+    });
+  });
+  const dialog = await openConnectionsWith(page, []);
+  // Scoped to the Live sync section: "Gmail" also matches the one-time
+  // Takeout importer's card, which is a different thing entirely.
+  await dialog
+    .getByRole("region", { name: "Live sync" })
+    .getByRole("button", { name: providerName })
+    .click();
+  await expect(dialog.getByTestId("sync-setup")).toBeVisible();
+  return dialog;
+}
+
+function captureStart(page: Page): { body: () => Record<string, unknown> | null } {
+  let captured: Record<string, unknown> | null = null;
+  void page.route("**/api/v1/connections/google/start*", async (route) => {
+    captured = route.request().postDataJSON() as Record<string, unknown>;
+    // A same-page hash keeps the "navigate to Google" step from tearing the
+    // page down under the assertion.
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: { url: "#google-consent", provider: "google_calendar" } }),
+    });
+  });
+  return { body: () => captured };
+}
+
+test.describe("choosing before connecting", () => {
+  test("the chosen options travel inside the start request", async ({ page }) => {
+    await signupFreshUser(page, "wizard-payload");
+    const start = captureStart(page);
+    const dialog = await openWizard(page, "Google Calendar");
+
+    await dialog.getByRole("button", { name: "7 days", exact: true }).click();
+    await dialog.getByText("Link each note to its daily note").click();
+    await dialog.getByRole("button", { name: "Connect Google Calendar" }).click();
+
+    await expect.poll(() => start.body()).not.toBeNull();
+    const settings = (start.body() as { settings: Record<string, unknown> }).settings;
+    expect((settings.calendar as { backfill_days: number }).backfill_days).toBe(7);
+    expect(settings.link_daily).toBe(false);
+    expect(settings.link_people).toBe(true);
+    expect(typeof settings.people_threshold).toBe("number");
+  });
+
+  test("future-only and a custom destination folder both arrive", async ({ page }) => {
+    await signupFreshUser(page, "wizard-future");
+    const start = captureStart(page);
+    const dialog = await openWizard(page, "Google Calendar");
+
+    await dialog.getByRole("button", { name: "Future only" }).click();
+    await dialog.getByText("A new folder").click();
+    await dialog.getByLabel("New folder name").fill("Sources/Google");
+    await dialog.getByRole("button", { name: "Connect Google Calendar" }).click();
+
+    await expect.poll(() => start.body()).not.toBeNull();
+    const settings = (start.body() as { settings: Record<string, unknown> }).settings;
+    expect((settings.calendar as { backfill_days: number }).backfill_days).toBe(0);
+    expect(settings.folder_root).toBe("Sources/Google");
+  });
+
+  test("gmail's scope choices arrive too", async ({ page }) => {
+    await signupFreshUser(page, "wizard-gmail");
+    const start = captureStart(page);
+    const dialog = await openWizard(page, "Gmail");
+
+    await dialog.getByRole("button", { name: "starred", exact: true }).click();
+    await dialog.getByText("Store message bodies").click();
+    await dialog.getByLabel("Senders to skip").fill("noreply@shop.com\npromo-mail.com");
+    await dialog.getByRole("button", { name: "Connect Gmail" }).click();
+
+    await expect.poll(() => start.body()).not.toBeNull();
+    const gmail = (start.body() as { settings: { gmail: Record<string, unknown> } }).settings.gmail;
+    expect(gmail.labels).toEqual(["INBOX", "STARRED"]);
+    expect(gmail.store_bodies).toBe(true);
+    expect(gmail.exclude_senders).toEqual(["noreply@shop.com", "promo-mail.com"]);
+  });
+});
+
+/**
+ * The floating progress card.
+ *
+ * Its whole reason to exist is surviving the page: the state is the server's,
+ * so a reload mid-import shows the card again without being asked. These stub
+ * the connections endpoint the same way as above — the shape is pinned by the
+ * backend suite — and drive the card's controls.
+ */
+test.describe("the sync progress card", () => {
+  test("a running import shows, counts, pauses, and can keep future only", async ({ page }) => {
+    const verbs: string[] = [];
+    await page.route("**/api/v1/connections/connections", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: [
+            connection({
+              vault_id: "PATCHED-BELOW",
+              last_run: {},
+              streams: [
+                {
+                  stream: "calendar:events:primary",
+                  backfill_done: false,
+                  records_seen: 1234,
+                  last_success_at: null,
+                  syncing: true,
+                },
+              ],
+            }),
+          ].map((row) => ({ ...row, vault_id: new URL(page.url()).pathname.split("/")[2] })),
+        }),
+      });
+    });
+    for (const verb of ["pause", "resume", "skip-backfill"]) {
+      await page.route(`**/api/v1/connections/connections/*/${verb}`, async (route) => {
+        verbs.push(verb);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ data: connection() }),
+        });
+      });
+    }
+    await signupFreshUser(page, "progress-card");
+
+    const card = page.getByTestId("sync-progress");
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(card.getByText(/1,234 items so far/)).toBeVisible();
+    await expect(card.getByText(/Importing Google Calendar/)).toBeVisible();
+
+    await card.getByRole("button", { name: "Pause" }).click();
+    await expect.poll(() => verbs).toContain("pause");
+
+    await card.getByRole("button", { name: "Keep future only" }).click();
+    // The confirm says what the button does — not "Delete", because nothing is.
+    const confirm = page.getByRole("dialog").filter({ hasText: "Stop importing history" });
+    await expect(confirm.getByText(/already imported are kept/)).toBeVisible();
+    await confirm.getByRole("button", { name: "Keep future only" }).click();
+    await expect.poll(() => verbs).toContain("skip-backfill");
+  });
+
+  test("a finished import becomes a closable notice", async ({ page }) => {
+    let calls = 0;
+    await page.route("**/api/v1/connections/connections", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      calls += 1;
+      const done = calls > 2;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: [
+            connection({
+              last_run: {},
+              streams: [
+                {
+                  stream: "calendar:events:primary",
+                  backfill_done: done,
+                  records_seen: 111,
+                  last_success_at: done ? "2026-09-01T10:00:00+00:00" : null,
+                  syncing: !done,
+                },
+              ],
+            }),
+          ].map((row) => ({ ...row, vault_id: new URL(page.url()).pathname.split("/")[2] })),
+        }),
+      });
+    });
+    await signupFreshUser(page, "progress-done");
+
+    const card = page.getByTestId("sync-progress");
+    await expect(card.getByText(/Importing Google Calendar/)).toBeVisible({ timeout: 15_000 });
+    // The 3-second poll flips it to done a couple of ticks later.
+    await expect(card.getByText(/import finished/)).toBeVisible({ timeout: 20_000 });
+    await expect(card.getByText(/111 items/)).toBeVisible();
+
+    await card.getByRole("button", { name: "Close" }).click();
+    await expect(card).toHaveCount(0);
   });
 });
