@@ -14,8 +14,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Pause, Play, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Check, Loader2, Pause, Play, X } from "lucide-react";
+import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { confirmDelete } from "@/components/workspace/confirm-dialog";
@@ -34,9 +34,10 @@ function seenTotal(connection: ProviderConnection): number {
 export function SyncProgressCard({ vaultId }: { vaultId: string }) {
   const queryClient = useQueryClient();
   const setImportOpen = useWorkspaceStore((s) => s.setImportOpen);
-  const [closed, setClosed] = useState<Set<string>>(new Set());
   const watched = useWorkspaceStore((s) => s.syncWatched);
   const markSyncWatched = useWorkspaceStore((s) => s.markSyncWatched);
+  const closed = useWorkspaceStore((s) => s.syncNoticeClosed);
+  const closeSyncNotice = useWorkspaceStore((s) => s.closeSyncNotice);
 
   const { data } = useQuery({
     queryKey: ["sync-connections"],
@@ -48,17 +49,29 @@ export function SyncProgressCard({ vaultId }: { vaultId: string }) {
   });
 
   const mine = (data ?? []).filter((c) => c.vault_id === vaultId);
-  const running = mine.filter((c) => backfilling(c) && c.status !== "paused");
+  // A dead grant or a lost key is not progress, and a spinner over it says
+  // "working" about a connection that cannot work. Broken rows get their own
+  // state; transient backoff shows as retrying, not importing.
+  const broken = mine.filter(
+    (c) => backfilling(c) && (c.status === "needs_reauth" || c.status === "key_unavailable"),
+  );
+  const running = mine.filter(
+    (c) =>
+      backfilling(c) &&
+      c.status !== "paused" &&
+      c.status !== "needs_reauth" &&
+      c.status !== "key_unavailable",
+  );
   const paused = mine.filter((c) => backfilling(c) && c.status === "paused");
 
   useEffect(() => {
     // Zustand, not component state: the store's setter is a no-op when every
     // id is already recorded, and the watched set outliving this component
     // means navigating away mid-import does not forfeit the finished notice.
-    markSyncWatched([...running, ...paused].map((connection) => connection.id));
-  }, [running, paused, markSyncWatched]);
+    markSyncWatched([...running, ...paused, ...broken].map((connection) => connection.id));
+  }, [running, paused, broken, markSyncWatched]);
 
-  const finished = mine.filter((c) => watched[c.id] && !backfilling(c) && !closed.has(c.id));
+  const finished = mine.filter((c) => watched[c.id] && !backfilling(c) && !closed[c.id]);
 
   const pause = useMutation({
     mutationFn: (id: string) => connectionsApi.pause(id),
@@ -76,7 +89,7 @@ export function SyncProgressCard({ vaultId }: { vaultId: string }) {
     onError: (e) => toastError(e, "Could not stop the import."),
   });
 
-  const active = [...running, ...paused, ...finished];
+  const active = [...running, ...paused, ...broken, ...finished];
   if (active.length === 0) return null;
 
   return (
@@ -88,6 +101,9 @@ export function SyncProgressCard({ vaultId }: { vaultId: string }) {
     >
       {active.map((connection) => {
         const isPaused = connection.status === "paused";
+        const isBroken =
+          connection.status === "needs_reauth" || connection.status === "key_unavailable";
+        const isRetrying = connection.status === "transient_broken";
         const isDone = !backfilling(connection);
         const seen = seenTotal(connection);
         return (
@@ -99,6 +115,8 @@ export function SyncProgressCard({ vaultId }: { vaultId: string }) {
             <div className="flex items-center gap-2">
               {isDone ? (
                 <Check className="size-4 shrink-0 text-green-500" />
+              ) : isBroken ? (
+                <AlertTriangle className="size-4 shrink-0 text-amber-400" />
               ) : isPaused ? (
                 <Pause className="size-4 shrink-0 text-ob-faint" />
               ) : (
@@ -108,23 +126,29 @@ export function SyncProgressCard({ vaultId }: { vaultId: string }) {
                 <p className="truncate text-[12px] font-medium text-ob-text">
                   {isDone
                     ? `${connection.provider_name} import finished`
-                    : isPaused
-                      ? `${connection.provider_name} import paused`
-                      : `Importing ${connection.provider_name}…`}
+                    : isBroken
+                      ? `${connection.provider_name} import interrupted`
+                      : isPaused
+                        ? `${connection.provider_name} import paused`
+                        : isRetrying
+                          ? `${connection.provider_name} import retrying…`
+                          : `Importing ${connection.provider_name}…`}
                 </p>
                 <p className="text-[11px] text-ob-faint">
                   {isDone
                     ? `${seen.toLocaleString()} items — new ones keep syncing on their own`
-                    : seen > 0
-                      ? `${seen.toLocaleString()} items so far`
-                      : "Starting…"}
+                    : isBroken
+                      ? "The connection needs attention — open Import data to fix it"
+                      : seen > 0
+                        ? `${seen.toLocaleString()} items so far`
+                        : "Starting…"}
                 </p>
               </div>
               {isDone && (
                 <button
                   type="button"
                   aria-label="Close"
-                  onClick={() => setClosed((current) => new Set(current).add(connection.id))}
+                  onClick={() => closeSyncNotice(connection.id)}
                   className="rounded p-1 text-ob-faint hover:bg-ob-hover hover:text-ob-text"
                 >
                   <X className="size-3.5" />
@@ -132,7 +156,19 @@ export function SyncProgressCard({ vaultId }: { vaultId: string }) {
               )}
             </div>
 
-            {!isDone && (
+            {isBroken && (
+              <div className="mt-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setImportOpen(true)}
+                >
+                  Open Import data
+                </Button>
+              </div>
+            )}
+            {!isDone && !isBroken && (
               <div className="mt-2 flex items-center gap-1.5">
                 <Button
                   size="sm"

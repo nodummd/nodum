@@ -103,7 +103,10 @@ will not invent a link into it.
 ## Choosing what syncs
 
 Everything below is chosen on the setup screen before you connect, and can be
-changed later — **Import data → Connected → Options**.
+changed later — **Import data → Connected → Options**. Two honest exceptions:
+which *calendars* to sync is picked right after connecting, because the list
+needs the grant; and the history window applies to the first import only —
+once history is in, the cursor has moved past it.
 
 **How much history.** A window from 24 hours to a year, a custom number of
 days, or **Future only**, which imports nothing old: new items start arriving
@@ -127,7 +130,7 @@ it carries on instead of re-importing everything.
 The list is refetched from Google each time you open the settings, so a
 calendar you made after connecting is there without reconnecting.
 
-**Folder.** Where synced notes go. Empty puts `Calendar/` and `Mail/` at the
+**Folder.** Where synced notes go. Empty puts `Calendar/` and `Gmail/` at the
 top of the vault; set `Sources/Google` and they land under that instead.
 
 **Link a person after.** How many appearances before someone gets their own

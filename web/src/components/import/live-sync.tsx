@@ -168,10 +168,21 @@ export function SyncSetup({
 
   const busy = connect.isPending || save.isPending;
   const customActive = !WINDOWS.some((w) => w.days === days);
+  // The window only governs the FIRST walk: once the backfill is done the
+  // cursor has moved past it, and offering the chips would be a control that
+  // does nothing — the dishonest kind.
+  const backfillDone = Boolean(connection) && connection!.streams.every((s) => s.backfill_done);
 
   return (
     <div className="space-y-5 p-5" data-testid="sync-setup">
       {/* History window */}
+      {backfillDone && (
+        <p className="rounded-md border border-ob-border bg-ob-bg px-3 py-2 text-[12px] text-ob-faint">
+          History is already imported — the window applies to the first import only. New items keep
+          syncing on their own.
+        </p>
+      )}
+      {!backfillDone && (
       <fieldset>
         <legend className="text-[12px] font-medium text-ob-text">
           {gmail ? "How much mail to import" : "How much history to import"}
@@ -221,7 +232,9 @@ export function SyncSetup({
               value={customActive ? String(days) : customDays}
               onChange={(event) => {
                 setCustomDays(event.target.value);
-                const parsed = Number(event.target.value);
+                // Floored: the server takes whole days, and refusing the whole
+                // payload over "2.5" would be baffling.
+                const parsed = Math.floor(Number(event.target.value));
                 if (parsed > 0) setDays(parsed);
               }}
               aria-label="Custom number of days"
@@ -231,6 +244,7 @@ export function SyncSetup({
           </span>
         </div>
       </fieldset>
+      )}
 
       {/* Calendar selection — only meaningful once the grant exists */}
       {!gmail && !connection && (
@@ -340,8 +354,9 @@ export function SyncSetup({
           <label className="block">
             <span className="text-[12px] font-medium text-ob-text">Skip these senders</span>
             <p className="mt-0.5 mb-1 text-[11px] text-ob-faint">
-              Addresses or whole domains, one per line — their threads never become notes.
-              Automated senders (noreply@, mailing lists) are skipped as people already.
+              Addresses or whole domains, one per line. A thread where everyone is on this list
+              never becomes a note; one real correspondent in it keeps the thread, but listed
+              senders still never become people in your graph. Notes already made are kept.
             </p>
             <textarea
               value={excludeSenders}

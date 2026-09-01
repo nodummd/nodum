@@ -44,6 +44,11 @@ async def run_one(connection_id: str) -> dict[str, int]:
             # it up. Not an error: the task must not retry forever over a row
             # the user deliberately deleted.
             return {"missing": 1}
+        if connection.status == "paused":
+            # Paused between enqueueing and the worker picking it up — the
+            # sweep's whitelist cannot see a task already on the broker, so
+            # the check has to happen here, at the last moment before work.
+            return {"paused": 1}
         response = await provider_sync_service.sync_connection(session, connection)
         return {"ok": 1} if response.success else {"failed": 1}
 
@@ -83,6 +88,8 @@ async def run_due(limit: int = BATCH) -> dict[str, int]:
             totals["ok"] += 1
         elif result.get("failed"):
             totals["failed"] += 1
+        elif result.get("paused"):
+            totals["paused"] = totals.get("paused", 0) + 1
         else:
             # Disconnected between the listing and the run. Counted so the
             # totals still add up rather than quietly losing one.

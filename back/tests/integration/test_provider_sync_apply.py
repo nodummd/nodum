@@ -1311,3 +1311,90 @@ async def test_pause_and_stop_are_scoped_to_their_owner(client: AsyncClient, con
     for verb in ("pause", "resume", "skip-backfill"):
         resp = await client.post(f"/api/v1/connections/connections/{connection.id}/{verb}", headers=stranger["headers"])
         assert resp.status_code == 404, f"{verb}: {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_a_pause_landing_mid_run_is_not_overwritten(connection: ProviderConnection) -> None:
+    """The progress card's headline flow: pause pressed while a backfill runs.
+
+    The run's loaded instance still says "active", so its final bookkeeping —
+    "active" on success, "transient_broken" plus a backoff on a routine 429 —
+    stamped over the pause, and the sweep resumed the backfill the user had
+    just stopped. Pause promises "no new runs"; the run in flight must not
+    revoke it. Both endings are exercised: a run that succeeds and a run that
+    fails after the pause landed.
+    """
+    from sqlalchemy import update as sa_update
+
+    from app.services.providers import base as provider_base
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        # The pause arrives through another session, as it does in life.
+        await session.execute(
+            sa_update(ProviderConnection).where(ProviderConnection.id == row.id).values(status="paused")
+        )
+        await session.commit()
+        # The running instance is stale on purpose: it loaded before the pause.
+        row.status = "active"
+
+        await provider_sync_service._record_failure(
+            session, row, provider_base.ProviderError("rate limited", error_class="rate_limit")
+        )
+        fresh = await session.scalar(select(ProviderConnection.status).where(ProviderConnection.id == row.id))
+        assert fresh == "paused", "a transient failure mid-run revoked the user's pause"
+
+
+@pytest.mark.asyncio
+async def test_a_queued_manual_sync_respects_a_pause_that_beat_it(
+    connection: ProviderConnection,
+) -> None:
+    """Sync now enqueues; pause can land before a worker picks the task up.
+    The sweep's whitelist cannot see a task already on the broker, so the
+    worker itself must refuse."""
+    from app.services import provider_connection_service
+    from app.tasks import provider_sync as task_module
+
+    async with async_session_factory() as session:
+        await provider_connection_service.pause(session, connection.id, connection.user_id)
+
+    result = await task_module.run_one(str(connection.id))
+    assert result == {"paused": 1}, f"a queued run executed a paused connection: {result}"
+
+
+@pytest.mark.asyncio
+async def test_reconnecting_keeps_the_calendars_already_chosen(workspace: dict) -> None:
+    """The setup screen cannot send calendar_ids on a reconnect — the list
+    needs the grant — so its {calendar: {backfill_days}} must merge into the
+    stored section, not replace it. Replaced, a five-calendar selection
+    silently became primary-only."""
+    from tests.integration.test_provider_connect import _connect_as, _Google
+
+    sub = uuid.uuid4().hex
+    first = await _connect_as(workspace, _Google(sub=sub), "google_calendar")
+    assert first.success, first.message
+
+    async with async_session_factory() as session:
+        row = (
+            await session.execute(select(ProviderConnection).where(ProviderConnection.user_id == workspace["user_id"]))
+        ).scalar_one()
+        row.settings = {
+            **row.settings,
+            "calendar": {"calendar_ids": ["primary", "team@x.com", "family@x.com"]},
+        }
+        await session.commit()
+
+    second = await _connect_as(
+        workspace, _Google(sub=sub), "google_calendar", settings={"calendar": {"backfill_days": 7}}
+    )
+    assert second.success, second.message
+
+    async with async_session_factory() as session:
+        row = (
+            await session.execute(select(ProviderConnection).where(ProviderConnection.user_id == workspace["user_id"]))
+        ).scalar_one()
+        assert row.settings["calendar"]["calendar_ids"] == ["primary", "team@x.com", "family@x.com"], (
+            "reconnecting wiped the calendar selection"
+        )
+        assert row.settings["calendar"]["backfill_days"] == 7

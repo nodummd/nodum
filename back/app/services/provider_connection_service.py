@@ -193,7 +193,20 @@ async def complete_google_connect(
     if initial_settings:
         # Chosen on the setup screen before the redirect, already validated at
         # /google/start. Applied on reconnect too — the user just picked them.
-        connection.settings = {**(connection.settings or {}), **initial_settings}
+        #
+        # Provider sections merge one level deep. A reconnect's setup screen
+        # sends {calendar: {backfill_days: N}} with no calendar_ids — it
+        # cannot know them, the list needs the grant — and replacing the
+        # stored section wholesale wiped a five-calendar selection down to
+        # primary, silently. The same replace-vs-merge bug this function
+        # already fixes one level down, reintroduced one level up.
+        merged = dict(connection.settings or {})
+        for key, value in initial_settings.items():
+            if key in ("calendar", "gmail") and isinstance(value, dict):
+                merged[key] = {**(merged.get(key) or {}), **value}
+            else:
+                merged[key] = value
+        connection.settings = merged
     connection.access_ciphertext = encrypt_secret(str(tokens["access_token"]), purpose="oauth")
     connection.refresh_ciphertext = encrypt_secret(str(tokens["refresh_token"]), purpose="oauth")
     connection.access_expires_at = google_auth.expires_at(tokens)

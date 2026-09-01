@@ -280,6 +280,9 @@ interface WorkspaceState {
    *  those earn a "finished" notice, otherwise every page load would announce
    *  imports that finished days ago. */
   syncWatched: Record<string, true>;
+  /** Finished-import notices the user closed — in the store so a vault switch
+   *  does not resurrect them. */
+  syncNoticeClosed: Record<string, true>;
   /** The onboarding tour, re-opened on request (first run opens it itself). */
   tourOpen: boolean;
   leftPane: "files" | "search" | "bookmarks";
@@ -348,6 +351,7 @@ interface WorkspaceState {
   openSettings: (tab?: string) => void;
   setImportOpen: (open: boolean) => void;
   markSyncWatched: (ids: string[]) => void;
+  closeSyncNotice: (id: string) => void;
   setSettingsOpen: (open: boolean) => void;
   setTourOpen: (open: boolean) => void;
   setLeftPane: (pane: "files" | "search" | "bookmarks") => void;
@@ -400,6 +404,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       settingsTab: null,
       importOpen: false,
       syncWatched: {},
+      syncNoticeClosed: {},
       tourOpen: false,
       leftPane: "files",
       searchSeed: null,
@@ -779,6 +784,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setVersionsOpen: (open) => set({ versionsOpen: open }),
       openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab ?? null }),
       setImportOpen: (open) => set({ importOpen: open }),
+      closeSyncNotice: (id) => set((state) => ({ syncNoticeClosed: { ...state.syncNoticeClosed, [id]: true } })),
       markSyncWatched: (ids) =>
         set((state) => {
           if (ids.every((id) => state.syncWatched[id])) return state;
