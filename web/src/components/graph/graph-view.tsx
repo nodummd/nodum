@@ -32,13 +32,23 @@ import {
 } from "@/lib/graph/hover-bus";
 import { cn } from "@/lib/utils";
 
-// A label element exists for every node up to this cap, highest-degree first.
-// The cap bounds the DOM, not what you see — the render loop decides that.
+// Most label elements the overlay will hold. This bounds the DOM only, and it
+// is a bound on what is ON SCREEN (see refreshLabelCandidates) rather than on
+// the vault: a label element is made for what the viewport is showing, so
+// zooming into any corner of a fifty-thousand-note graph names what is in
+// front of you. A global slice of the vault could not do that — the nodes
+// outside it were nameless at every zoom, forever.
 const LABEL_CAP = 1200;
-// A search hit outside that cap gets a label made on demand, up to this many:
-// "search names what it found" has to hold in a big vault too, which is exactly
-// where the cap bites.
-const SEARCH_LABEL_EXTRA = 400;
+// How often the candidate set may be recomputed. It costs a GPU read-back of
+// every point position, so it is throttled and only runs when the view has
+// actually moved or the layout is still settling.
+const CANDIDATE_INTERVAL_MS = 220;
+// Extra viewport, as a fraction of it, kept in the candidate set — panning a
+// little then re-uses labels instead of rebuilding them.
+const CANDIDATE_MARGIN = 0.25;
+// Names longer than this are cut. A graph is a map, and a map's labels are
+// short; the full title is one hover away, in the tooltip.
+const LABEL_MAX_CHARS = 30;
 
 // Label level-of-detail. Names are drawn in importance order — most-connected
 // first — and each one takes the screen space it occupies on a coarse grid; a
@@ -423,9 +433,6 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     wpp: Map<number, number>;
     /** Draw order: most connected first, so importance wins contested space. */
     order: number[];
-    /** The degree-ranked base set, and what search added on top of it. */
-    base: number[];
-    extra: number[];
   } | null>(null);
   // The font size actually applied to the overlay, mirrored so label widths can
   // be scaled without reading it back out of the DOM every frame.
@@ -490,6 +497,12 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   // up.
   const engineReadyRef = useRef(false);
   const [engineReady, setEngineReady] = useState(0);
+  // Label-candidate bookkeeping: when the set was last rebuilt, the camera it
+  // was rebuilt for, and a flag for the things that invalidate it outright
+  // (new data, a new search).
+  const candidateAtRef = useRef(0);
+  const candidateCamRef = useRef<[number, number, number] | null>(null);
+  const candidateDirtyRef = useRef(true);
 
   /** Eased color transition toward a target array (hover dim). */
   const animateColors = (target: Float32Array) => {
@@ -555,55 +568,87 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
   const hexOf = (node: GraphNode) =>
     node.unresolved ? null : nodeColorHex(node, appliedGroups, itemColors, folderColors);
 
-  /** One name in the overlay. The bulk build and the on-demand search labels
-   *  both come through here, so a label made either way is the same label. */
+  // The render loop was built once and holds that render's closures, so
+  // anything it calls which depends on render values has to read them through
+  // a ref. Label colours are the case that bites: a group query or a folder
+  // colour changes the palette without the engine ever being rebuilt, and a
+  // stale `hexOf` would paint new labels in the old colours.
+  const hexOfRef = useRef(hexOf);
+  useEffect(() => {
+    hexOfRef.current = hexOf;
+  });
+
+  /** One name in the overlay. Truncated, because a graph label is a map label:
+   *  the whole title is in the hover tooltip, one pointer-move away. */
   const makeLabelEl = (node: GraphNode): HTMLDivElement => {
     const el = document.createElement("div");
-    el.textContent = node.title;
+    el.textContent =
+      node.title.length > LABEL_MAX_CHARS
+        ? `${node.title.slice(0, LABEL_MAX_CHARS - 1).trimEnd()}…`
+        : node.title;
     el.className = "nodum-graph-label";
     el.style.opacity = "0";
-    const hex = hexOf(node);
+    const hex = hexOfRef.current(node);
     if (hex) el.style.color = hex;
     return el;
   };
 
-  /** Search has to be able to name what it found, and labels only exist for the
-   *  LABEL_CAP most-connected nodes — so matches outside that set get a label
-   *  made here, for as long as the search stands. */
-  const syncSearchLabels = (matches: Set<number> | null) => {
-    const label = labelRef.current;
+  /** Which nodes have a label element at all — a question about the viewport,
+   *  not about the vault.
+   *
+   *  Everything currently on screen (plus a margin) becomes a candidate, most
+   *  connected first, capped at LABEL_CAP. Zoom in and the handful in front of
+   *  you are all candidates, so they are all named; zoom out and the cap picks
+   *  hubs, which is what a distant view should say anyway. Search matches and
+   *  the breathing note sort to the front, so the exemptions that let you find
+   *  something in a graph you have zoomed out of survive the cap.
+   *
+   *  Costs a read-back of every point position, hence the throttle in the
+   *  render loop. */
+  const refreshLabelCandidates = () => {
     const graph = graphRef.current;
-    if (!label || !graph) return;
-    const base = new Set(label.base);
-    const wanted: number[] = [];
-    if (matches) {
-      for (const i of matches) {
-        if (!base.has(i)) wanted.push(i);
-      }
-      wanted.sort((a, b) => (nodesRef.current[b]?.degree ?? 0) - (nodesRef.current[a]?.degree ?? 0));
-      if (wanted.length > SEARCH_LABEL_EXTRA) wanted.length = SEARCH_LABEL_EXTRA;
+    const label = labelRef.current;
+    const container = containerRef.current;
+    if (!graph || !label || !container) return;
+    const nodes = nodesRef.current;
+    const flat = nodes.length > 0 ? graph.getPointPositions() : [];
+    if (flat.length < nodes.length * 2) return; // engine not up yet
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+    const marginX = W * CANDIDATE_MARGIN;
+    const marginY = H * CANDIDATE_MARGIN;
+    const search = searchSetRef.current;
+    const pulse = pulseSetRef.current;
+    const candidates: number[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const x = flat[i * 2];
+      const y = flat[i * 2 + 1];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const [sx, sy] = graph.spaceToScreenPosition([x, y]);
+      if (sx < -marginX || sx > W + marginX || sy < -marginY || sy > H + marginY) continue;
+      candidates.push(i);
     }
-    const unchanged =
-      wanted.length === label.extra.length && wanted.every((i, k) => label.extra[k] === i);
-    if (unchanged) return;
-    const keep = new Set(wanted);
-    for (const i of label.extra) {
-      if (keep.has(i)) continue;
-      label.els.get(i)?.remove();
+    const rank = (i: number) => (pulse.has(i) ? 2 : 0) + (search?.has(i) ? 1 : 0);
+    candidates.sort((a, b) => rank(b) - rank(a) || (nodes[b]?.degree ?? 0) - (nodes[a]?.degree ?? 0));
+    if (candidates.length > LABEL_CAP) candidates.length = LABEL_CAP;
+
+    const wanted = new Set(candidates);
+    for (const [i, el] of label.els) {
+      if (wanted.has(i)) continue;
+      el.remove();
       label.els.delete(i);
       label.wpp.delete(i);
     }
-    for (const i of wanted) {
+    for (const i of candidates) {
       if (label.els.has(i)) continue;
-      const node = nodesRef.current[i];
+      const node = nodes[i];
       if (!node) continue;
       const el = makeLabelEl(node);
       label.overlay.appendChild(el);
       label.els.set(i, el);
     }
-    label.extra = wanted;
-    label.order = [...label.base, ...wanted];
-    graph.trackPointPositionsByIndices(label.order);
+    label.order = candidates;
+    graph.trackPointPositionsByIndices(candidates);
   };
 
   /** Re-apply whatever highlight should be showing when no node is hovered:
@@ -896,14 +941,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     overlay.style.fontSize = "10px"; // labels inherit this; the tick scales it with zoom
     container.appendChild(overlay);
     labelFontPxRef.current = 10;
-    labelRef.current = {
-      overlay,
-      els: new Map(),
-      wpp: new Map(),
-      order: [],
-      base: [],
-      extra: [],
-    };
+    labelRef.current = { overlay, els: new Map(), wpp: new Map(), order: [] };
 
     // Grabbing a node: spotlight it + its connections and hold the simulation
     // gently alive, so every other node keeps drifting in slow celestial motion
@@ -998,15 +1036,43 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       // Zoom-adaptive sizing: nodes and labels shrink when zooming out and grow
       // gently (√) when zooming in — never ballooning.
       const sizeScale = Math.max(0.55, Math.min(2.2, Math.sqrt(rel)));
+      // Labels grow far less than nodes do. A name only has to be legible,
+      // and every pixel it gains in width is a neighbour that loses its own
+      // name to the claim grid — which is backwards, because zooming in is
+      // exactly when you want more names, not fewer.
+      const labelScale = Math.max(0.55, Math.min(1.25, Math.sqrt(rel)));
       if (Math.abs(sizeScale - lastSizeScaleRef.current) > 0.03) {
         lastSizeScaleRef.current = sizeScale;
         graph.setConfigPartial({ pointSizeScale: nodeSizeRef.current * sizeScale });
         if (labelRef.current) {
-          const px = 10.5 * sizeScale * labelSizeRef.current;
+          const px = 10.5 * labelScale * labelSizeRef.current;
           labelRef.current.overlay.style.fontSize = `${px.toFixed(1)}px`;
           labelFontPxRef.current = px;
         }
       }
+      // Which names exist at all follows the viewport, so it has to be redone
+      // when the view moves or the layout is still settling — but not every
+      // frame: it reads every point position back off the GPU.
+      const now = performance.now();
+      // An invalidation (new data, a new search) skips the throttle: waiting
+      // it out would blank every name for a fifth of a second each time.
+      const dirty = candidateDirtyRef.current;
+      if (dirty || now - candidateAtRef.current > CANDIDATE_INTERVAL_MS) {
+        const cam = cameraRef.current;
+        const was = candidateCamRef.current;
+        const moved =
+          !was ||
+          !cam ||
+          Math.abs(cam[2] - was[2]) > was[2] * 0.02 ||
+          Math.hypot(cam[0] - was[0], cam[1] - was[1]) * cam[2] > 40;
+        if (dirty || moved || graph.isSimulationRunning) {
+          candidateDirtyRef.current = false;
+          candidateAtRef.current = now;
+          candidateCamRef.current = cam;
+          refreshLabelCandidates();
+        }
+      }
+
       const forceSet = forceLabelsRef.current;
       const pulseSet = pulseSetRef.current;
       const label = labelRef.current;
@@ -1288,17 +1354,14 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     // it throws and would take the whole workspace down with it. Degrade to an
     // empty canvas instead, and allow a retry on the next data change.
     try {
-      applyToEngine(graph, filtered);
+      applyToEngine(graph);
     } catch (err) {
       console.warn("graph: engine unavailable, skipping frame", err);
       appliedSigRef.current = "";
       return;
     }
 
-    function applyToEngine(
-      graph: CosmosGraph,
-      filtered: { nodes: GraphNode[]; edges: [number, number][] },
-    ) {
+    function applyToEngine(graph: CosmosGraph) {
     graph.setPointPositions(positions, true);
     if (animateEnter) {
       // seed the added indices invisible; runEnterAnimation ramps them up
@@ -1360,28 +1423,17 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       didFitRef.current = true;
     }
 
-    // labels: one per node, most-connected first — that order is both the cap
-    // (a huge vault keeps its hubs) and the priority the render loop draws in.
+    // Labels are not built here. Node indices have just changed meaning, so
+    // the pool is dropped and the render loop rebuilds it from the viewport on
+    // its next pass — by then the new positions are in the engine.
     const label = labelRef.current;
     if (label) {
       label.els.forEach((el) => el.remove());
       label.els.clear();
       label.wpp.clear();
-      label.extra = [];
-      const labelIndices = filtered.nodes
-        .map((node, i) => ({ i, degree: node.degree }))
-        .sort((a, b) => b.degree - a.degree)
-        .slice(0, LABEL_CAP)
-        .map((x) => x.i);
-      label.base = labelIndices;
-      label.order = labelIndices;
-      graph.trackPointPositionsByIndices(labelIndices);
-      for (const i of labelIndices) {
-        const el = makeLabelEl(filtered.nodes[i]);
-        label.overlay.appendChild(el);
-        label.els.set(i, el);
-      }
+      label.order = [];
     }
+    candidateDirtyRef.current = true;
     }
 
     framesSinceApplyRef.current = 0;
@@ -1438,7 +1490,7 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
     const q = appliedSearch.trim();
     if (!q) {
       searchSetRef.current = null;
-      syncSearchLabels(null);
+      candidateDirtyRef.current = true;
       if (hoveredIndexRef.current === null) applyHighlight(null, null);
       return;
     }
@@ -1447,7 +1499,9 @@ export function GraphView({ vaultId, centerNoteId, depth = 1, compact = false, f
       if (matchesQuery(node, q)) set.add(i);
     });
     searchSetRef.current = set;
-    syncSearchLabels(set);
+    // Matches sort to the front of the candidate set, so a match is never left
+    // without a label element by the cap.
+    candidateDirtyRef.current = true;
     if (hoveredIndexRef.current === null) applyHighlight(set, set);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSearch, filtered]);
