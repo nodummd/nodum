@@ -82,6 +82,10 @@ export function SidebarLeft({
           onClick={() => setPane("bookmarks")}
           icon={<Bookmark className="size-4" strokeWidth={1.75} />}
         />
+        {/* Hairline, because this one is not a fourth pane: the tabs to its
+            left switch what is below, this opens a dialog. */}
+        <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-ob-border" />
+        <ImportDataButton />
         <VaultSwitcher vaultId={vaultId} vaultName={vaultName} />
       </div>
 
@@ -92,7 +96,6 @@ export function SidebarLeft({
               <FileExplorer vaultId={vaultId} activeNoteId={activeNoteId} onOpenNote={onOpenNote} />
             </div>
             <CanvasesSection vaultId={vaultId} />
-            <ImportDataButton />
           </>
         )}
         {pane === "search" && <SearchPane vaultId={vaultId} onOpenNote={onOpenNote} />}
@@ -110,20 +113,29 @@ export function SidebarLeft({
   );
 }
 
+/** Opens the Import & sync dialog.
+ *
+ *  Shaped like a PaneTab so the strip reads as one row, but deliberately not
+ *  one: no `aria-pressed`, because it toggles nothing — `aria-haspopup` says
+ *  what actually happens. The label lives on the tooltip, like its neighbours. */
 function ImportDataButton() {
   const setImportOpen = useWorkspaceStore((s) => s.setImportOpen);
   return (
-    <div className="border-t border-ob-border p-2">
-      <button
-        type="button"
-        data-testid="import-data-button"
-        onClick={() => setImportOpen(true)}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ob-muted transition-colors hover:bg-ob-hover hover:text-ob-text"
-      >
-        <Import className="size-4" strokeWidth={1.75} />
-        Import data
-      </button>
-    </div>
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="Import data"
+          aria-haspopup="dialog"
+          data-testid="import-data-button"
+          onClick={() => setImportOpen(true)}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-ob-faint transition-colors duration-150 hover:bg-ob-hover hover:text-ob-text"
+        >
+          <Import className="size-4" strokeWidth={1.75} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Import data</TooltipContent>
+    </Tooltip>
   );
 }
 
