@@ -1177,3 +1177,32 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     tests React; adding one is a repo-wide choice, not a feature-branch
     decision. The same index-naming drift found in `0022` exists across five
     pre-existing tables and belongs in its own PR.
+
+- **2026-09-01: graph labels get a level of detail → v3.9.0.** The knowledge
+  graph drew every name at full strength at the fit view, which on a
+  four-hundred-node vault is a wall of overlapping text rather than a map.
+  Names are now drawn most-connected first, each claiming the screen space it
+  occupies on a coarse grid, and a name that would land on space already taken
+  is not drawn: 494 labels became 48 legible ones at the fit view, and every
+  step of zoom hands the space back until, close in, everything is named.
+  Geometry decides rather than a count, so a fifteen-note vault still shows
+  all fifteen. Search is the exemption — zoomed out past the point where names
+  are drawn, what was searched for is still named, and only that; so is the
+  note being typed in. Matches beyond the 1200-label DOM cap get a label made
+  on demand.
+  - *Two bugs surfaced doing it.* The zoom fade had been dead code:
+    `fitToBulk`'s small-graph branch returned before recording the reference
+    zoom, so `rel` was permanently 1 and the curve never moved at any zoom.
+    And the graph came back **blank** on any workspace restored with the graph
+    tab open — cosmos.gl 3.x brings its GPU device up asynchronously, the data
+    effect runs in the same commit that constructs the engine, so the first
+    apply always threw into the existing "engine unavailable" guard and
+    nothing ever ran it again. Gated on `graph.ready` now. Confirmed against
+    `HEAD` before fixing, so it was not a regression from this work.
+  - *Testing.* New `graph-labels.spec.ts`: zoom-out silence, the search
+    exemption at that zoom, and a no-overlap invariant over a deliberately
+    crowded forty-note graph — 8/8 across repeats with retries off. The
+    hover spec's dim assertion was updated, because "everything else is dimmed
+    but visible" is no longer the contract.
+  - *Still open.* The on-demand search labels only trigger above 1200 nodes
+    and are not covered by a test. `web/` still has no unit-test runner.
