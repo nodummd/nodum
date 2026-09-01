@@ -43,7 +43,7 @@ class CommonSettings(BaseSettings):
 
     # ── Application ───────────────────────────────────────────────────────────
     APP_NAME: str = "Nodum"
-    APP_VERSION: str = "3.9.0"
+    APP_VERSION: str = "3.9.1"
     ENVIRONMENT: Annotated[
         Literal["dev", "test", "staging", "production"],
         BeforeValidator(normalize_environment),

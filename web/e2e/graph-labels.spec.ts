@@ -132,6 +132,73 @@ test.describe("graph label level-of-detail", () => {
     }).toPass({ timeout: 20_000 });
   });
 
+  test("a vault past the label cap still names what you zoom into", async ({ page }) => {
+    // The pool of label elements used to be a fixed slice of the vault, taken
+    // once by degree. Past that slice a node had no label element at all, so no
+    // amount of zooming would ever name it — which is what a synced mailbox
+    // looks like: thousands of one-link leaves hanging off daily notes.
+    test.setTimeout(300_000);
+    await signupFreshUser(page, "graphcap");
+    const HUBS = 56;
+    const LEAVES = 25; // 1456 notes — comfortably past the 1200-element cap
+    await page.evaluate(
+      async ({ hubs, leaves }) => {
+        const refresh = await fetch("/api/v1/auth/refresh", { method: "POST" });
+        const token = (await refresh.json()).data.access_token;
+        const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+        const vaults = await (await fetch("/api/v1/vaults", { headers })).json();
+        const vaultId = vaults.data[0].id;
+        const jobs: (() => Promise<unknown>)[] = [];
+        for (let h = 0; h < hubs; h++) {
+          const hub = `2026-08-${String((h % 28) + 1).padStart(2, "0")}-${h}`;
+          jobs.push(() =>
+            fetch(`/api/v1/vaults/${vaultId}/notes`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ title: hub, content: "daily" }),
+            }),
+          );
+          for (let l = 0; l < leaves; l++) {
+            jobs.push(() =>
+              fetch(`/api/v1/vaults/${vaultId}/notes`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                  title: `Response about the property, 3 room flat in Via Don Pompeo Bertini ${h}-${l}`,
+                  content: `[[${hub}]]`,
+                }),
+              }),
+            );
+          }
+        }
+        for (let i = 0; i < jobs.length; i += 25) {
+          await Promise.all(jobs.slice(i, i + 25).map((job) => job()));
+        }
+      },
+      { hubs: HUBS, leaves: LEAVES },
+    );
+    await page.reload();
+    await openSettledGraph(page);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(2, 2);
+
+    const elements = () => page.locator(".nodum-graph-label").count();
+    expect(await elements()).toBeLessThanOrEqual(1200);
+
+    await zoom(page, 6, -240);
+    await expect(async () => {
+      // The pool follows the viewport rather than the vault: zoomed in, it is a
+      // fraction of the cap. Held at the cap, this is the bug — a nameless node
+      // you can zoom into forever.
+      expect(await elements()).toBeLessThan(500);
+      const lit = await drawnLabels(page);
+      expect(lit.length).toBeGreaterThan(0);
+      // Names are cut to 30 characters plus the ellipsis; the whole title is in
+      // the hover tooltip.
+      expect(Math.max(...lit.map((label) => label.text.length))).toBeLessThanOrEqual(30);
+    }).toPass({ timeout: 30_000 });
+  });
+
   test("what is drawn never overlaps, however crowded the graph", async ({ page }) => {
     test.setTimeout(120_000);
     await signupFreshUser(page, "graphcrowd");

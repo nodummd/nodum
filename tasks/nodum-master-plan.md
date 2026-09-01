@@ -1206,3 +1206,22 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     but visible" is no longer the contract.
   - *Still open.* The on-demand search labels only trigger above 1200 nodes
     and are not covered by a test. `web/` still has no unit-test runner.
+
+- **2026-09-01 (v3.9.1): graph names follow the viewport.** Reported against
+  production within the hour: zoomed right into a cluster, the nodes had no
+  names. The label pool was a fixed slice of the vault — the 1200
+  most-connected nodes, taken once — so a node outside it had no label element
+  and no zoom would ever name it. A synced mailbox is thousands of one-link
+  leaves hanging off daily notes, so most of what you zoom into was outside it.
+  Measured on a 1456-note vault, names drawn went 54 → 30 → 15 while zooming
+  *in*. The pool now follows the viewport (on screen plus a 25% margin, most
+  connected first, still capped at 1200 for the DOM): 61 → 51 → 30. It costs a
+  read-back of every point position, so it is throttled to 220ms and skipped
+  unless the view moved, the layout is settling, or the data changed. Search
+  matches and the breathing note sort to the front of that ordering, which also
+  retires the on-demand search-label path flagged as untested in v3.9.0 — an
+  on-screen match is now always a candidate. Names are cut to 30 characters
+  (the full title is in the hover tooltip), and labels no longer grow with the
+  2.2× node scale on zoom-in, because every pixel of label width is a
+  neighbour that loses its own name. Also fixed: label colours went stale, as
+  the render loop holds the closures from the render that built it.
