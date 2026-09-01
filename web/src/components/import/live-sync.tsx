@@ -610,17 +610,19 @@ export function ConnectedList({
                     <p className="text-ob-text">
                       {connection.last_error || "This connection needs attention."}
                     </p>
-                    {connection.status === "needs_reauth" && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="mt-2"
-                        onClick={() => reconnect.mutate(connection)}
-                      >
-                        <Link2 className="mr-1 size-3.5" />
-                        Reconnect
-                      </Button>
-                    )}
+                    {/* Both broken states are fixed the same way: a fresh
+                        consent issues fresh tokens — under the new key, in the
+                        key_unavailable case. A message that names the remedy
+                        while hiding its button is only half honest. */}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-2"
+                      onClick={() => reconnect.mutate(connection)}
+                    >
+                      <Link2 className="mr-1 size-3.5" />
+                      Reconnect
+                    </Button>
                   </div>
                 </div>
               )}

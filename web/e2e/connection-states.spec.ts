@@ -149,8 +149,12 @@ test.describe("how a connection reports itself", () => {
 
     await expect(dialog.getByText("Server key unavailable")).toBeVisible();
     await expect(dialog.getByText(/encryption key has changed/)).toBeVisible();
-    // Reconnecting does not fix an operator's key change, so it is not offered.
-    await expect(dialog.getByRole("button", { name: /Reconnect/ })).toHaveCount(0);
+    // Reconnect IS offered: a fresh consent issues fresh tokens under the new
+    // key, which is exactly the remedy. The first version of this spec
+    // asserted the button's absence on the theory that reconnecting cannot
+    // fix an operator's key change — then a real key rotation happened on a
+    // live instance, and reconnecting fixed it in one click.
+    await expect(dialog.getByRole("button", { name: /Reconnect/ })).toBeVisible();
   });
 
   test("nothing a connection carries can put a token on screen", async ({ page }) => {
