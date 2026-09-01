@@ -4,14 +4,14 @@ from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, Query
 from fastapi.responses import RedirectResponse
 
 from app.core.custom_exceptions import NotFoundError, ValidationFailedError
 from app.dependencies.auth import CurrentUserId
 from app.dependencies.db import SessionDep
 from app.services import provider_connection_service, providers
-from app.services.providers import google_auth
+from app.services.providers import connection_settings, google_auth
 from app.services.vault_service import get_owned_vault
 from app.settings import get_settings
 
@@ -41,6 +41,7 @@ async def start_google(
     vault_id: UUID,
     db: SessionDep,
     provider: str = Query(description="google_calendar or google_gmail"),
+    payload: dict[str, Any] | None = Body(default=None),
 ) -> dict[str, Any]:
     """Begin the consent flow. Returns the URL for the browser to visit."""
     # Checked here, not only on the way back. The callback checks too, but by
@@ -65,7 +66,25 @@ async def start_google(
             )
         raise NotFoundError("Unknown provider.")
 
-    url = await google_auth.build_start_url(user_id=str(user_id), vault_id=str(vault_id), scopes=list(adapter.scopes))
+    # Options chosen before connecting ride through the OAuth state, so they
+    # survive the redirect server-side and are applied the moment the
+    # connection exists. Validated HERE, before the round trip to Google — a
+    # bad value should fail while the user is still looking at the form, not
+    # after they have approved a consent screen.
+    initial_settings: dict[str, Any] = {}
+    if payload and payload.get("settings") is not None:
+        try:
+            initial_settings = connection_settings.clean(payload["settings"])
+        except connection_settings.InvalidSetting as exc:
+            raise ValidationFailedError(str(exc)) from exc
+
+    url = await google_auth.build_start_url(
+        user_id=str(user_id),
+        vault_id=str(vault_id),
+        provider=provider,
+        scopes=list(adapter.scopes),
+        settings=initial_settings,
+    )
     return {"data": {"url": url, "provider": provider}}
 
 
@@ -119,10 +138,15 @@ async def google_callback(
     resolved = await google_auth.consume_state(state)
     if resolved is None:
         return back("expired")
-    user_id, vault_id = resolved
+    user_id, vault_id, provider, initial_settings = resolved
 
     response = await provider_connection_service.complete_google_connect(
-        db, user_id=UUID(user_id), vault_id=UUID(vault_id), code=code
+        db,
+        user_id=UUID(user_id),
+        vault_id=UUID(vault_id),
+        code=code,
+        requested_provider=provider,
+        initial_settings=initial_settings,
     )
     if response.success:
         return back("ok")
@@ -144,6 +168,27 @@ async def list_connection_calendars(connection_id: UUID, user_id: CurrentUserId,
     the answer briefly — the settings panel asks every time it opens.
     """
     data = (await provider_connection_service.refresh_calendars(db, connection_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@router.post("/connections/{connection_id}/pause")
+async def pause_connection(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Stop the schedule; nothing else changes. A run already in flight
+    finishes its current batch first."""
+    data = (await provider_connection_service.pause(db, connection_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@router.post("/connections/{connection_id}/resume")
+async def resume_connection(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    data = (await provider_connection_service.resume(db, connection_id, user_id)).unwrap()
+    return {"data": data}
+
+
+@router.post("/connections/{connection_id}/skip-backfill")
+async def skip_backfill(connection_id: UUID, user_id: CurrentUserId, db: SessionDep) -> dict[str, Any]:
+    """Stop importing history; keep syncing from now on. Imported notes stay."""
+    data = (await provider_connection_service.skip_backfill(db, connection_id, user_id)).unwrap()
     return {"data": data}
 
 

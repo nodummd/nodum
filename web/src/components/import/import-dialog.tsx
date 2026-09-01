@@ -1,10 +1,20 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, Check, Loader2, Search, Upload } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CalendarDays,
+  Check,
+  Loader2,
+  Mail,
+  Search,
+  Upload,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "./brand-icon";
+import { ConnectedList, SyncSetup } from "./live-sync";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +24,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { importApi, type ImportResult, type ImportSource } from "@/lib/api/endpoints";
+import {
+  connectionsApi,
+  importApi,
+  type ImportResult,
+  type ImportSource,
+  type ProviderConnection,
+  type SyncProvider,
+} from "@/lib/api/endpoints";
 import { toastError, useToastStore } from "@/lib/stores/toast-store";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +60,8 @@ export function ImportDialog({
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<ImportSource | null>(null);
+  const [syncPick, setSyncPick] = useState<SyncProvider | null>(null);
+  const [syncEdit, setSyncEdit] = useState<ProviderConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -56,6 +75,39 @@ export function ImportDialog({
     staleTime: 60 * 60 * 1000,
     enabled: open,
   });
+
+  const { data: syncCatalog } = useQuery({
+    queryKey: ["sync-providers"],
+    queryFn: () => connectionsApi.providers(),
+    staleTime: 60 * 60 * 1000,
+    enabled: open,
+  });
+  const { data: allConnections } = useQuery({
+    queryKey: ["sync-connections"],
+    queryFn: () => connectionsApi.list(),
+    enabled: open,
+    // A backfill runs in the background; poll so progress is visible without
+    // a reload. The floating progress card shares this key, so one poller
+    // serves both.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((c) => c.streams.some((s) => s.syncing || !s.backfill_done))
+        ? 3000
+        : false,
+  });
+  // Opening the dialog is asking "where are things NOW". The progress card
+  // keeps this query mounted from page load, so a second observer appearing
+  // here does not refetch on its own — with cached data present, React Query
+  // fetches again only when told. Without this, the dialog showed connection
+  // state as of whenever the page loaded.
+  useEffect(() => {
+    if (open) void queryClient.invalidateQueries({ queryKey: ["sync-connections"] });
+  }, [open, queryClient]);
+
+  // The dialog belongs to one vault; the endpoint returns the account's.
+  const connections = useMemo(
+    () => (allConnections ?? []).filter((c) => c.vault_id === vaultId),
+    [allConnections, vaultId],
+  );
 
   const grouped = useMemo(() => {
     const sources = data?.sources ?? [];
@@ -79,6 +131,8 @@ export function ImportDialog({
 
   const reset = useCallback(() => {
     setPicked(null);
+    setSyncPick(null);
+    setSyncEdit(null);
     setResult(null);
     setQuery("");
     setBusy(false);
@@ -128,7 +182,10 @@ export function ImportDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="gap-0 overflow-clip border-ob-border bg-ob-sidebar p-0 sm:max-w-[820px]">
+      <DialogContent
+        data-testid="import-dialog"
+        className="gap-0 overflow-clip border-ob-border bg-ob-sidebar p-0 sm:max-w-[820px]"
+      >
         <DialogHeader className="border-b border-ob-border px-5 pt-4 pb-3">
           <DialogTitle className="flex items-center gap-2">
             {picked && (
@@ -141,7 +198,23 @@ export function ImportDialog({
                 <ArrowLeft className="size-4" />
               </button>
             )}
-            {picked ? `Import from ${picked.name}` : "Import data"}
+            {(picked || syncPick || syncEdit) && !picked && (
+              <button
+                type="button"
+                onClick={reset}
+                aria-label="Back to all sources"
+                className="-ml-1 rounded p-1 text-ob-muted hover:bg-ob-hover hover:text-ob-text"
+              >
+                <ArrowLeft className="size-4" />
+              </button>
+            )}
+            {picked
+              ? `Import from ${picked.name}`
+              : syncEdit
+                ? `${syncEdit.provider_name} options`
+                : syncPick
+                  ? `Sync ${syncPick.name}`
+                  : "Import data"}
           </DialogTitle>
           {/* Constant on purpose. This is the dialog's accessible
               description, and a description that changes out from under a
@@ -154,7 +227,26 @@ export function ImportDialog({
         </DialogHeader>
 
         <div className="h-[min(560px,76vh)] overflow-y-auto">
-          {!picked && (
+          {syncPick && !picked && (
+            <SyncSetup vaultId={vaultId} provider={syncPick} onBack={reset} />
+          )}
+          {syncEdit && !picked && !syncPick && (
+            <SyncSetup
+              vaultId={vaultId}
+              provider={{
+                id: syncEdit.provider,
+                name: syncEdit.provider_name,
+                blurb: "",
+                caveats: [],
+                scopes: [],
+                available: true,
+                self_hosted_only: false,
+              }}
+              connection={syncEdit}
+              onBack={reset}
+            />
+          )}
+          {!picked && !syncPick && !syncEdit && (
             <PickerGrid
               grouped={grouped}
               total={data?.sources.length ?? 0}
@@ -162,6 +254,17 @@ export function ImportDialog({
               query={query}
               onQuery={setQuery}
               onPick={setPicked}
+              liveSync={
+                <>
+                  <ConnectedList connections={connections} onEdit={setSyncEdit} />
+                  <LiveSyncSection
+                    configured={syncCatalog?.configured ?? true}
+                    providers={syncCatalog?.providers ?? []}
+                    connections={connections}
+                    onPick={setSyncPick}
+                  />
+                </>
+              }
             />
           )}
 
@@ -222,6 +325,7 @@ function PickerGrid({
   query,
   onQuery,
   onPick,
+  liveSync,
 }: {
   grouped: [string, ImportSource[]][];
   total: number;
@@ -229,6 +333,7 @@ function PickerGrid({
   query: string;
   onQuery: (value: string) => void;
   onPick: (source: ImportSource) => void;
+  liveSync?: React.ReactNode;
 }) {
   return (
     <div className="p-5">
@@ -243,6 +348,8 @@ function PickerGrid({
           autoFocus
         />
       </div>
+
+      {liveSync}
 
       {isPending && (
         <p className="py-16 text-center text-[13px] text-ob-faint">Loading sources…</p>
@@ -279,6 +386,90 @@ function PickerGrid({
         </section>
       ))}
     </div>
+  );
+}
+
+function LiveSyncSection({
+  configured,
+  providers,
+  connections,
+  onPick,
+}: {
+  configured: boolean;
+  providers: SyncProvider[];
+  connections: ProviderConnection[];
+  onPick: (provider: SyncProvider) => void;
+}) {
+  const connectedIds = new Set(connections.map((c) => c.provider));
+
+  return (
+    <section className="mb-6" aria-label="Live sync">
+      <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-ob-faint uppercase">
+        Live sync
+      </h3>
+      <p className="mb-2 text-[12px] leading-relaxed text-ob-faint">
+        A connection keeps a source in sync: new items arrive as notes on their own and update
+        themselves. Nodum only ever reads — everything it writes lands above a{" "}
+        <code className="rounded bg-ob-active px-1">## Notes</code> heading, so anything you write
+        underneath is never touched.
+      </p>
+
+      {!configured && (
+        <div className="nodum-import-caveats">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-ob-accent" />
+          <div>
+            <p className="text-ob-text">Google sync is not configured on this server.</p>
+            <p className="mt-1">
+              An administrator needs to register a Google Cloud OAuth client and set{" "}
+              <code>GOOGLE_SYNC_CLIENT_ID</code> and <code>GOOGLE_SYNC_CLIENT_SECRET</code>. The
+              project must also be published — an OAuth consent screen left in “Testing” expires
+              every connection after 7 days.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {configured && (
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {providers.map((provider) => {
+            const gmail = provider.id === "google_gmail";
+            const already = connectedIds.has(provider.id);
+            return (
+              <li key={provider.id}>
+                <button
+                  type="button"
+                  disabled={!provider.available}
+                  onClick={() => onPick(provider)}
+                  className="nodum-import-card disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md"
+                    style={{ background: gmail ? "#ea433520" : "#4285f420" }}
+                  >
+                    {gmail ? (
+                      <Mail className="size-4" style={{ color: "#ea4335" }} />
+                    ) : (
+                      <CalendarDays className="size-4" style={{ color: "#4285f4" }} />
+                    )}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="nodum-import-name">
+                      {provider.name}
+                      {already && <span className="ml-1.5 text-[11px] text-ob-faint">connected</span>}
+                    </span>
+                    <span className="nodum-import-blurb">
+                      {provider.available
+                        ? provider.blurb
+                        : "Self-hosted only — Gmail’s API scopes oblige a hosted service to pass a paid annual security audit."}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

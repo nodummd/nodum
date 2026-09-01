@@ -42,7 +42,9 @@ from app.models.base import Base, TimestampMixin, UUIDMixin
 #: Every status the engine actually assigns. Enforced by
 #: `test_status_values_are_declared` — a tuple that merely documents intent
 #: drifts from the code within two changes and then misleads.
-CONNECTION_STATUSES = ("active", "transient_broken", "needs_reauth", "key_unavailable")
+#: "paused" is the one state a person chooses. The sweep's whitelist is
+#: (active, transient_broken), so a paused connection is simply never due.
+CONNECTION_STATUSES = ("active", "transient_broken", "needs_reauth", "key_unavailable", "paused")
 
 #: Why a connection stopped. Kept separate from the message so the UI can react
 #: to the *class* — `oauth_testing_mode` gets its own explanation, because the

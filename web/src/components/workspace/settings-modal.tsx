@@ -12,7 +12,6 @@ import { AiSettingsTab } from "./ai-settings-tab";
 import { ClipperTab } from "./clipper-tab";
 import { DeleteAccountSection } from "./delete-account";
 import { ApiKeysTab } from "./api-keys-tab";
-import { ConnectionsSettingsTab } from "./connections-settings-tab";
 import { McpSettingsTab } from "./mcp-settings-tab";
 import { PluginsTab } from "./plugins-tab";
 import { VaultsSection } from "./vaults-section";
@@ -53,7 +52,6 @@ const TABS = [
   "Canvas",
   "Plugins",
   "AI",
-  "Connections",
   "MCP",
   "API keys",
   "Web Clipper",
@@ -294,7 +292,6 @@ export function SettingsModal({ vaultId, open, onOpenChange }: SettingsModalProp
           <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             {tab === "Plugins" && <PluginsTab vaultId={vaultId} />}
             {tab === "AI" && <AiSettingsTab vaultId={vaultId} vaultName={vault?.name} />}
-            {tab === "Connections" && <ConnectionsSettingsTab vaultId={vaultId} />}
             {tab === "MCP" && <McpSettingsTab />}
             {tab === "API keys" && <ApiKeysTab />}
 

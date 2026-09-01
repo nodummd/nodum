@@ -89,6 +89,25 @@ _AUTOMATED = (
 # needs. Two explicit cases are longer and cannot do that.
 
 
+def _sender_excluded(address: str, excludes: list[str]) -> bool:
+    """Does this address match the user's exclude list?
+
+    A pattern is either a full address or a bare domain. Domains match that
+    domain exactly, not its subdomains — "corp.com" excluding "mail.corp.com"
+    too would be a guess about the user's intent, and the wrong guess silently
+    drops mail.
+    """
+    if not address or not excludes:
+        return False
+    lowered = address.lower()
+    domain = lowered.rsplit("@", 1)[-1]
+    for pattern in excludes:
+        p = pattern.lstrip("@")
+        if lowered == pattern or domain == p:
+            return True
+    return False
+
+
 def _labels(settings: dict[str, Any]) -> list[str]:
     """Which labels are in scope. Read by both the cursor and the query that
     fills it, so the two cannot drift apart and resync the wrong window."""
@@ -116,6 +135,13 @@ class GoogleGmailAdapter:
     async def _backfill(self, ctx: FetchContext) -> SyncPage:
         days = settings_schema.backfill_days(ctx.settings, "gmail", DEFAULT_BACKFILL_DAYS)
         labels = _labels(ctx.settings)
+
+        if days == 0:
+            # Future only: no history walk at all. Bootstrap the incremental
+            # cursor from the profile and declare the backfill finished —
+            # everything from this moment on arrives through history.list.
+            profile = await self._get("/profile", ctx.access_token, {})
+            return SyncPage(records=[], next_page_token="", next_cursor=str(profile.get("historyId") or ""), done=True)
 
         params = {"maxResults": str(THREADS_PER_PAGE), "q": f"newer_than:{days}d"}
         if len(labels) == 1:
@@ -233,7 +259,12 @@ class GoogleGmailAdapter:
             if not subject:
                 subject = escape_remote_text(headers.get("subject", "").strip())
             name, address = _split_address(headers.get("from", ""))
-            if name and name not in participants and not is_automated(address):
+            if (
+                name
+                and name not in participants
+                and not is_automated(address)
+                and not _sender_excluded(address, settings_schema.exclude_senders(ctx.settings))
+            ):
                 participants.append(escape_remote_text(name))
             labels.update(str(label) for label in (message.get("labelIds") or []))
 
@@ -251,6 +282,29 @@ class GoogleGmailAdapter:
                 blocks.append(f"{heading}\n\n{quoted}" if body else heading)
             else:
                 blocks.append(heading)
+
+        # A thread every one of whose messages is from an excluded sender is
+        # out of scope entirely. One non-excluded human in it keeps it — you
+        # probably replied — but the excluded senders still never become
+        # participants or People notes (handled above, like automated ones).
+        excludes = settings_schema.exclude_senders(ctx.settings)
+        if (
+            excludes
+            and messages
+            and all(
+                _sender_excluded(
+                    _split_address(
+                        {
+                            str(h.get("name", "")).lower(): str(h.get("value", ""))
+                            for h in ((m.get("payload") or {}).get("headers") or [])
+                        }.get("from", "")
+                    )[1],
+                    excludes,
+                )
+                for m in messages
+            )
+        ):
+            return None
 
         # Scope is decided here, and only here.
         #
@@ -300,7 +354,10 @@ class GoogleGmailAdapter:
         front.append("---")
 
         lines = ["\n".join(front), "", f"# {subject}", ""]
-        lines.append(f"Thread started [[{format_date(ctx.daily_format, first_at)}]]")
+        started = format_date(ctx.daily_format, first_at)
+        lines.append(
+            f"Thread started [[{started}]]" if settings_schema.link_daily(ctx.settings) else f"Thread started {started}"
+        )
         lines.append("")
         lines.extend(["\n\n".join(blocks)])
         if not store_bodies:
@@ -312,7 +369,7 @@ class GoogleGmailAdapter:
             # "Re: Q3 roadmap" is a rejected segment, and that is most of any
             # inbox. Sanitised for the filename; the heading keeps the subject.
             title=safe_segment(subject, fallback="(no subject)"),
-            folder=f"Mail/{first_at.strftime('%Y/%m')}",
+            folder=f"Gmail/{first_at.strftime('%Y/%m')}",
             body="\n".join(lines).rstrip() + "\n",
             external_updated_at=last_at,
             external_version=int(payload.get("historyId") or 0),

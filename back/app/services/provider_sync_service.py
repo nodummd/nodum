@@ -377,7 +377,11 @@ async def apply_record(
         return "user_deleted"
 
     body = record.body
-    linkable = await _linkable_people(db, connection, record.wants_notes, people_counts)
+    linkable = (
+        await _linkable_people(db, connection, record.wants_notes, people_counts)
+        if connection_settings.link_people(connection.settings)
+        else set()
+    )
     for name in record.wants_notes:
         if name in linkable:
             # Only link a person who now has a note. Earlier plain-text

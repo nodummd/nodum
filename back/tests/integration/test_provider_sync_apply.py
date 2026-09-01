@@ -1209,3 +1209,105 @@ async def test_putting_the_marker_back_makes_the_note_sync_again(
     synced = await _content(note_id)
     assert "second version" in synced
     assert "mine" in synced, "restoring the marker cost the user their writing"
+
+
+# ── pausing, resuming, and stopping a backfill ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_paused_connection_is_never_due(connection: ProviderConnection) -> None:
+    """Paused is enforced by the sweep's whitelist, not by a flag the engine
+    must remember to check — a paused connection is simply not in the set."""
+    from app.services import provider_connection_service
+
+    async with async_session_factory() as session:
+        assert await _is_due(session, connection), "fixture should start due"
+
+        paused = await provider_connection_service.pause(session, connection.id, connection.user_id)
+        assert paused.success and paused.data is not None
+        assert paused.data["status"] == "paused"
+        assert not await _is_due(session, connection), "paused but still swept"
+
+        resumed = await provider_connection_service.resume(session, connection.id, connection.user_id)
+        assert resumed.success and resumed.data is not None
+        assert resumed.data["status"] == "active"
+        assert await _is_due(session, connection)
+
+
+@pytest.mark.asyncio
+async def test_resuming_does_not_inherit_a_backoff_earned_before_the_pause(
+    connection: ProviderConnection,
+) -> None:
+    from app.services import provider_connection_service
+    from app.services.providers import base as provider_base
+
+    async with async_session_factory() as session:
+        row = await session.get(ProviderConnection, connection.id)
+        assert row is not None
+        for _ in range(4):
+            await provider_sync_service._record_failure(
+                session, row, provider_base.ProviderError("flaky", error_class="provider_5xx")
+            )
+        assert row.disabled_until is not None
+
+        await provider_connection_service.pause(session, row.id, row.user_id)
+        resumed = await provider_connection_service.resume(session, row.id, row.user_id)
+        assert resumed.success and resumed.data is not None
+
+        fresh = await session.get(ProviderConnection, row.id)
+        assert fresh is not None
+        assert fresh.disabled_until is None
+        assert fresh.consecutive_failures == 0, "resumed straight into a six-hour backoff"
+
+
+@pytest.mark.asyncio
+async def test_manual_sync_refuses_a_paused_connection(connection: ProviderConnection) -> None:
+    from app.services import provider_connection_service
+
+    async with async_session_factory() as session:
+        await provider_connection_service.pause(session, connection.id, connection.user_id)
+        response = await provider_connection_service.sync_now(session, connection.id, connection.user_id)
+    assert not response.success
+    assert "paused" in response.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_stopping_a_backfill_keeps_what_arrived_and_switches_to_future_only(
+    connection: ProviderConnection,
+) -> None:
+    """ "Stop importing history" is three promises: imported notes stay, the
+    stream comes back as future-only (window zero plus the engine's own
+    full-resync reset — the flag, not a direct column write, because a run
+    mid-backfill overwrites cursor columns as it commits each page), and
+    nothing needs the user to reconnect."""
+    from app.services import provider_connection_service
+
+    assert await _apply(connection, _record()) == "created"
+
+    async with async_session_factory() as session:
+        session.add(SyncStream(connection_id=connection.id, stream=STREAM, poll_interval_s=300, backfill_done=False))
+        await session.commit()
+
+        stopped = await provider_connection_service.skip_backfill(session, connection.id, connection.user_id)
+        assert stopped.success and stopped.data is not None
+        assert stopped.data["settings"]["calendar"]["backfill_days"] == 0
+
+        stream = await session.scalar(select(SyncStream).where(SyncStream.connection_id == connection.id))
+        assert stream is not None and stream.needs_full_resync is True
+
+    # The note that already arrived is untouched.
+    async with async_session_factory() as session:
+        note = await session.scalar(
+            select(Note).where(Note.vault_id == connection.vault_id, Note.title == "Design review")
+        )
+        assert note is not None, "stopping the backfill deleted an imported note"
+
+
+@pytest.mark.asyncio
+async def test_pause_and_stop_are_scoped_to_their_owner(client: AsyncClient, connection: ProviderConnection) -> None:
+    from tests.integration.test_provider_connect import _signup
+
+    stranger = await _signup(client, "pause-stranger")
+    for verb in ("pause", "resume", "skip-backfill"):
+        resp = await client.post(f"/api/v1/connections/connections/{connection.id}/{verb}", headers=stranger["headers"])
+        assert resp.status_code == 404, f"{verb}: {resp.status_code}"

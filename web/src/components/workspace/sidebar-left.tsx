@@ -2,7 +2,7 @@
 
 /** Left sidebar — Files / Search tab strip + resize handle (Obsidian style). */
 
-import { Bookmark, Files, Search } from "lucide-react";
+import { Bookmark, Files, Import, Search } from "lucide-react";
 import { useCallback, useRef } from "react";
 
 import { BookmarksPane } from "./bookmarks-pane";
@@ -92,6 +92,7 @@ export function SidebarLeft({
               <FileExplorer vaultId={vaultId} activeNoteId={activeNoteId} onOpenNote={onOpenNote} />
             </div>
             <CanvasesSection vaultId={vaultId} />
+            <ImportDataButton />
           </>
         )}
         {pane === "search" && <SearchPane vaultId={vaultId} onOpenNote={onOpenNote} />}
@@ -105,6 +106,23 @@ export function SidebarLeft({
         onPointerDown={onDragStart}
         className="absolute top-0 right-0 z-10 h-full w-1 cursor-col-resize hover:bg-ob-accent/40"
       />
+    </div>
+  );
+}
+
+function ImportDataButton() {
+  const setImportOpen = useWorkspaceStore((s) => s.setImportOpen);
+  return (
+    <div className="border-t border-ob-border p-2">
+      <button
+        type="button"
+        data-testid="import-data-button"
+        onClick={() => setImportOpen(true)}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ob-muted transition-colors hover:bg-ob-hover hover:text-ob-text"
+      >
+        <Import className="size-4" strokeWidth={1.75} />
+        Import data
+      </button>
     </div>
   );
 }

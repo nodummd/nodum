@@ -45,7 +45,7 @@ export function ConnectionCallbackNotice() {
   const search = useSearchParams();
   const router = useRouter();
   const push = useToastStore((s) => s.push);
-  const openSettings = useWorkspaceStore((s) => s.openSettings);
+  const setImportOpen = useWorkspaceStore((s) => s.setImportOpen);
   const queryClient = useQueryClient();
   // React runs effects twice in development, and a duplicate toast reads as a
   // duplicate failure.
@@ -66,7 +66,7 @@ export function ConnectionCallbackNotice() {
       void queryClient.invalidateQueries({ queryKey: ["sync-connections"] });
       // Land them where the result actually shows up, rather than on a vault
       // that looks no different than before.
-      openSettings("Connections");
+      setImportOpen(true);
     } else if (outcome === "denied") {
       push("Connection cancelled — nothing was changed.", "info");
     } else if (outcome === "expired") {
@@ -84,7 +84,7 @@ export function ConnectionCallbackNotice() {
     router.replace(query ? `${window.location.pathname}?${query}` : window.location.pathname, {
       scroll: false,
     });
-  }, [outcome, reason, search, push, openSettings, router, queryClient]);
+  }, [outcome, reason, search, push, setImportOpen, router, queryClient]);
 
   return null;
 }

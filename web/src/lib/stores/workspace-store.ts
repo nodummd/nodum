@@ -273,6 +273,13 @@ interface WorkspaceState {
    *  (the vault switcher's "Manage vaults…", the AI panel's "set this up"). */
   settingsOpen: boolean;
   settingsTab: string | null;
+  /** The Import & Sync dialog — global because the sidebar, the command
+   *  palette and the OAuth callback landing all need to open it. */
+  importOpen: boolean;
+  /** Connection ids whose backfill this session has watched running — only
+   *  those earn a "finished" notice, otherwise every page load would announce
+   *  imports that finished days ago. */
+  syncWatched: Record<string, true>;
   /** The onboarding tour, re-opened on request (first run opens it itself). */
   tourOpen: boolean;
   leftPane: "files" | "search" | "bookmarks";
@@ -339,6 +346,8 @@ interface WorkspaceState {
   setVersionsOpen: (open: boolean) => void;
   /** Open settings, optionally straight to a named tab. */
   openSettings: (tab?: string) => void;
+  setImportOpen: (open: boolean) => void;
+  markSyncWatched: (ids: string[]) => void;
   setSettingsOpen: (open: boolean) => void;
   setTourOpen: (open: boolean) => void;
   setLeftPane: (pane: "files" | "search" | "bookmarks") => void;
@@ -389,6 +398,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       versionsOpen: false,
       settingsOpen: false,
       settingsTab: null,
+      importOpen: false,
+      syncWatched: {},
       tourOpen: false,
       leftPane: "files",
       searchSeed: null,
@@ -767,6 +778,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setSwitcherOpen: (open) => set({ switcherOpen: open }),
       setVersionsOpen: (open) => set({ versionsOpen: open }),
       openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab ?? null }),
+      setImportOpen: (open) => set({ importOpen: open }),
+      markSyncWatched: (ids) =>
+        set((state) => {
+          if (ids.every((id) => state.syncWatched[id])) return state;
+          const next = { ...state.syncWatched };
+          for (const id of ids) next[id] = true;
+          return { syncWatched: next };
+        }),
       setSettingsOpen: (open) => set({ settingsOpen: open, settingsTab: open ? get().settingsTab : null }),
       setTourOpen: (open) => set({ tourOpen: open }),
       setLeftPane: (pane) => set({ leftPane: pane }),

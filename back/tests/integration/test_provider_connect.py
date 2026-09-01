@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.db import async_session_factory
 from app.models.providers import ProviderConnection
@@ -522,3 +522,109 @@ async def test_credentials_that_cannot_be_decrypted_say_so_precisely(workspace: 
 
     assert caught.value.error_class == "config", "a key change must not look like a revoked grant"
     assert "encryption key" in str(caught.value)
+
+
+# ── one Google account, a second provider ──────────────────────────────────
+
+GMAIL_SCOPES = "openid email https://www.googleapis.com/auth/gmail.readonly"
+#: What Google actually returns for a Gmail consent when Calendar was granted
+#: earlier and `include_granted_scopes=true`: everything, merged.
+MERGED_SCOPES = f"{CALENDAR_SCOPES} https://www.googleapis.com/auth/gmail.readonly"
+
+
+async def _connect_as(workspace: dict, google: _Google, provider: str, settings: dict | None = None):
+    async with async_session_factory() as session:
+        with google:
+            return await provider_connection_service.complete_google_connect(
+                session,
+                user_id=workspace["user_id"],
+                vault_id=workspace["vault_id"],
+                code="auth-code",
+                requested_provider=provider,
+                initial_settings=settings,
+            )
+
+
+@pytest.mark.asyncio
+async def test_connecting_gmail_after_calendar_creates_a_second_connection(workspace: dict) -> None:
+    """The bug that made "Connect Gmail" impossible with Calendar connected.
+
+    `include_granted_scopes=true` means a Gmail consent returns the
+    previously-granted Calendar scopes too. Inferring the provider from the
+    grant matched Calendar first — so the callback re-stamped the existing
+    Calendar connection and never created a Gmail one. The user pressed
+    Connect, everything reported success, and nothing changed.
+
+    The requested provider now rides through the OAuth state and wins whenever
+    its scopes were actually granted.
+    """
+    from app.settings import get_settings
+
+    saved = get_settings().GOOGLE_SYNC_GMAIL_ENABLED
+    get_settings().GOOGLE_SYNC_GMAIL_ENABLED = True
+    try:
+        sub = uuid.uuid4().hex
+        first = await _connect_as(workspace, _Google(sub=sub), "google_calendar")
+        assert first.success, first.message
+
+        second = await _connect_as(workspace, _Google(sub=sub, scope=MERGED_SCOPES), "google_gmail")
+        assert second.success, second.message
+
+        async with async_session_factory() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(ProviderConnection)
+                        .where(ProviderConnection.user_id == workspace["user_id"])
+                        .order_by(ProviderConnection.provider)
+                    )
+                ).scalars()
+            )
+        assert [r.provider for r in rows] == ["google_calendar", "google_gmail"], (
+            "the Gmail consent re-stamped the Calendar connection instead of creating its own"
+        )
+        assert rows[0].external_account_id == rows[1].external_account_id == sub
+    finally:
+        get_settings().GOOGLE_SYNC_GMAIL_ENABLED = saved
+
+
+@pytest.mark.asyncio
+async def test_unticking_the_requested_permission_connects_nothing(workspace: dict) -> None:
+    """Requested Gmail, granted only the old Calendar scopes. Falling back to
+    whatever else is in the grant would connect something the user did not
+    ask for — refuse instead, with the reason code the UI has words for."""
+    from app.settings import get_settings
+
+    saved = get_settings().GOOGLE_SYNC_GMAIL_ENABLED
+    get_settings().GOOGLE_SYNC_GMAIL_ENABLED = True
+    try:
+        response = await _connect_as(workspace, _Google(scope=CALENDAR_SCOPES), "google_gmail")
+        assert not response.success
+        assert response.details.get("reason") == "no_scopes"
+
+        async with async_session_factory() as session:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(ProviderConnection)
+                .where(ProviderConnection.user_id == workspace["user_id"])
+            )
+        assert count == 0, "a refused consent still created a connection"
+    finally:
+        get_settings().GOOGLE_SYNC_GMAIL_ENABLED = saved
+
+
+@pytest.mark.asyncio
+async def test_settings_chosen_before_connecting_arrive_on_the_connection(workspace: dict) -> None:
+    """The wizard's choices ride the OAuth state and must exist the moment the
+    connection does — the first sync runs from them, and a backfill that
+    starts with the defaults and then narrows has already synced the wrong
+    window."""
+    chosen = {"folder_root": "Sources", "calendar": {"backfill_days": 7}, "link_people": False}
+    response = await _connect_as(workspace, _Google(), "google_calendar", settings=chosen)
+    assert response.success, response.message
+
+    row = await _row(workspace)
+    assert row is not None
+    assert row.settings.get("folder_root") == "Sources"
+    assert row.settings.get("calendar", {}).get("backfill_days") == 7
+    assert row.settings.get("link_people") is False
