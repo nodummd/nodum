@@ -1156,8 +1156,53 @@ _(filled by research workflow — Obsidian behavioral details, library decisions
     status, error box and the settings panel had otherwise never been on
     screen in a test. Stubbing there is sound because the shape being stubbed
     is pinned independently by the backend suite against a real database.
-  - *Still open.* No test drives a real Google API; that needs a registered
-    OAuth client and is operator setup. `web/` has no unit-test runner, so nothing below the e2e layer
+  - *Still open.* No automated test drives a real Google API — but the flow
+    has now been exercised live end to end on the dev stack with a real
+    account: Calendar backfilled 113 events into notes, and Gmail (connected
+    through the new setup screen, 7-day window riding the OAuth state)
+    backfilled real threads into Gmail/. Two launch-blocking bugs were found
+    live and fixed: the dev worker could not reach Postgres at all (bind-
+    mounted back/.env port), and connecting Gmail with Calendar already
+    connected re-stamped the Calendar connection (include_granted_scopes +
+    grant inference; the requested provider now rides the OAuth state).
+  - **2026-09-01: import & sync UX rebuilt** — one Import data door in the
+    vault's sidebar; options chosen before the OAuth redirect (history window
+    incl. future-only, labels, bodies, sender excludes, link toggles, folder
+    destination with tree picker); pause/resume/keep-future-only on the
+    server; a floating progress card that survives reloads; the Connections
+    settings tab removed. An adversarial review workflow (34 agents) over the
+    commit confirmed a high bug — pause silently undone by in-flight/queued
+    runs — plus a settings-wipe on reconnect and a set of dishonest controls;
+    all fixed and pinned the same day. `web/` has no unit-test runner, so nothing below the e2e layer
     tests React; adding one is a repo-wide choice, not a feature-branch
     decision. The same index-naming drift found in `0022` exists across five
     pre-existing tables and belongs in its own PR.
+
+- **2026-09-01: graph labels get a level of detail → v3.9.0.** The knowledge
+  graph drew every name at full strength at the fit view, which on a
+  four-hundred-node vault is a wall of overlapping text rather than a map.
+  Names are now drawn most-connected first, each claiming the screen space it
+  occupies on a coarse grid, and a name that would land on space already taken
+  is not drawn: 494 labels became 48 legible ones at the fit view, and every
+  step of zoom hands the space back until, close in, everything is named.
+  Geometry decides rather than a count, so a fifteen-note vault still shows
+  all fifteen. Search is the exemption — zoomed out past the point where names
+  are drawn, what was searched for is still named, and only that; so is the
+  note being typed in. Matches beyond the 1200-label DOM cap get a label made
+  on demand.
+  - *Two bugs surfaced doing it.* The zoom fade had been dead code:
+    `fitToBulk`'s small-graph branch returned before recording the reference
+    zoom, so `rel` was permanently 1 and the curve never moved at any zoom.
+    And the graph came back **blank** on any workspace restored with the graph
+    tab open — cosmos.gl 3.x brings its GPU device up asynchronously, the data
+    effect runs in the same commit that constructs the engine, so the first
+    apply always threw into the existing "engine unavailable" guard and
+    nothing ever ran it again. Gated on `graph.ready` now. Confirmed against
+    `HEAD` before fixing, so it was not a regression from this work.
+  - *Testing.* New `graph-labels.spec.ts`: zoom-out silence, the search
+    exemption at that zoom, and a no-overlap invariant over a deliberately
+    crowded forty-note graph — 8/8 across repeats with retries off. The
+    hover spec's dim assertion was updated, because "everything else is dimmed
+    but visible" is no longer the contract.
+  - *Still open.* The on-demand search labels only trigger above 1200 nodes
+    and are not covered by a test. `web/` still has no unit-test runner.

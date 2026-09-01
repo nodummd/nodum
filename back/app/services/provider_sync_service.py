@@ -377,7 +377,11 @@ async def apply_record(
         return "user_deleted"
 
     body = record.body
-    linkable = await _linkable_people(db, connection, record.wants_notes, people_counts)
+    linkable = (
+        await _linkable_people(db, connection, record.wants_notes, people_counts)
+        if connection_settings.link_people(connection.settings)
+        else set()
+    )
     for name in record.wants_notes:
         if name in linkable:
             # Only link a person who now has a note. Earlier plain-text
@@ -655,7 +659,15 @@ async def sync_connection(db: AsyncSession, connection: ProviderConnection) -> S
     # the cursor advanced. It does not say every record was saved, and
     # conflating the two is what let earlier bugs drop records in silence while
     # the UI reported "Up to date".
-    connection.status = "active"
+    #
+    # "Healthy" must not overwrite "paused": a pause that landed while this
+    # run was in flight is the user's decision, and stamping active here (or
+    # transient_broken in the failure path) silently put the connection back
+    # on the schedule — pause's own promise is "no new runs".
+    if await _paused_meanwhile(db, connection):
+        connection.status = "paused"
+    else:
+        connection.status = "active"
     connection.error_class = ""
     connection.last_error = ""
     connection.consecutive_failures = 0
@@ -693,6 +705,27 @@ _CLASS_MESSAGES = {
 }
 
 
+async def _paused_meanwhile(db: AsyncSession, connection: ProviderConnection) -> bool:
+    """Did the user pause this connection while a run was in flight?
+
+    A pause is a row the *user's* request wrote mid-run; the instance this run
+    loaded still says whatever it said at load time, and writing a final
+    status through it would stamp over the pause.
+
+    Read through a session of its own, deliberately. On the run's session a
+    plain column select AUTOFLUSHES first — pushing the stale in-memory
+    "active" over the freshly-paused row before reading it back, which makes
+    the check erase the very thing it exists to see. The test for this watched
+    it happen.
+    """
+    del db  # the run's session must not be involved — see above
+    from app.core.db import async_session_factory
+
+    async with async_session_factory() as own:
+        fresh = await own.scalar(select(ProviderConnection.status).where(ProviderConnection.id == connection.id))
+    return fresh == "paused"
+
+
 async def _record_failure(db: AsyncSession, connection: ProviderConnection, exc: provider_base.ProviderError) -> None:
     """Advance the connection's health state and schedule the next attempt."""
     raw = str(exc)
@@ -704,9 +737,13 @@ async def _record_failure(db: AsyncSession, connection: ProviderConnection, exc:
     raised_as = exc.error_class
     error_class = raised_as
 
+    paused_meanwhile = await _paused_meanwhile(db, connection)
+
     if raised_as == "auth":
         error_class, message = google_auth.classify_refresh_failure(raw, connected_at=connection.connected_at)
-        # A revoked or expired grant will not fix itself. Stop retrying.
+        # A revoked or expired grant will not fix itself. Stop retrying. A
+        # dead grant outranks a pause — resuming cannot work without a
+        # reconnect, and "paused" would hide the one message that says so.
         connection.status = "needs_reauth"
         connection.disabled_until = None
     elif raised_as == "config":
@@ -725,7 +762,12 @@ async def _record_failure(db: AsyncSession, connection: ProviderConnection, exc:
             error_class=raised_as,
             detail=raw[:500],
         )
-        connection.status = "transient_broken"
+        # A transient failure during a run the user has since paused stays
+        # paused — retry-with-backoff would put it back on the schedule.
+        if paused_meanwhile:
+            connection.status = "paused"
+        else:
+            connection.status = "transient_broken"
         index = min(connection.consecutive_failures, len(_BACKOFF) - 1)
         delay = exc.retry_after or _BACKOFF[index]
         connection.disabled_until = datetime.now(UTC) + timedelta(seconds=delay)

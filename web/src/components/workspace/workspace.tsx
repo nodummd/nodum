@@ -24,6 +24,7 @@ function GraphLoading() {
 import { CommandPalette } from "./command-palette";
 import { ConnectionCallbackNotice } from "./connection-callback-notice";
 import { ImportDialog } from "@/components/import/import-dialog";
+import { SyncProgressCard } from "@/components/import/sync-progress-card";
 import { QuickSwitcher } from "./quick-switcher";
 import { Ribbon } from "./ribbon";
 import { SettingsModal } from "./settings-modal";
@@ -245,7 +246,8 @@ export function Workspace({ vault }: { vault: Vault }) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const { commands: pluginCommands, runCommand: runPluginCommand } = usePlugins(vault.id, { run: true });
   const importFolderRef = useRef<HTMLInputElement>(null);
-  const [importOpen, setImportOpen] = useState(false);
+  const importOpen = useWorkspaceStore((s) => s.importOpen);
+  const setImportOpen = useWorkspaceStore((s) => s.setImportOpen);
 
   const exportVault = useCallback(() => {
     // Same-origin proxy carries the cookie; access token not needed for a download
@@ -598,6 +600,7 @@ export function Workspace({ vault }: { vault: Vault }) {
       />
       <SettingsModal vaultId={vault.id} open={settingsOpen} onOpenChange={setSettingsOpen} />
       <ImportDialog vaultId={vault.id} open={importOpen} onOpenChange={setImportOpen} />
+      <SyncProgressCard vaultId={vault.id} />
       <DemoWorkspaceOffer />
       <OnboardingTour />
       <ConfirmDialog />

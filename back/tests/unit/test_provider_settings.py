@@ -31,7 +31,7 @@ from app.services.providers import connection_settings as cs
         ({"calendar": {"calendar_ids": "primary"}}, "a string iterates by letter — one stream per character"),
         ({"calendar": {"calendar_ids": [""]}}, "an empty id polls someone else's default calendar"),
         ({"calendar": {"calendar_ids": [{"id": "x"}]}}, "a dict lands in an f-string as a stream name"),
-        ({"calendar": {"backfill_days": 0}}, "zero days is a first walk that finds nothing"),
+        ({"calendar": {"backfill_days": -1}}, "negative days is not a window"),
         ({"calendar": {"backfill_days": 10**6}}, "an unbounded first walk"),
         ({"calendar": "primary"}, "a section that is not an object"),
         ({"gmail": {"labels": ["L"] * 26}}, "same amplification through the label filter"),
@@ -132,3 +132,37 @@ def test_readers_clamp_rather_than_trust() -> None:
     assert cs.backfill_days({"calendar": {"backfill_days": 10**9}}, "calendar", 365) == cs.MAX_BACKFILL_DAYS
     many = [f"L{i}" for i in range(900)]
     assert len(cs.identifiers({"gmail": {"labels": many}}, "gmail", "labels", default=["INBOX"], limit=25)) == 25
+
+
+def test_future_only_is_a_real_choice() -> None:
+    """backfill_days 0 means "no history at all — sync from now on"."""
+    assert cs.clean({"gmail": {"backfill_days": 0}})["gmail"]["backfill_days"] == 0
+    assert cs.backfill_days({"gmail": {"backfill_days": 0}}, "gmail", 90) == 0
+    # Poison still falls back rather than becoming an accidental future-only.
+    assert cs.backfill_days({"gmail": {"backfill_days": "no"}}, "gmail", 90) == 90
+    assert cs.backfill_days({"gmail": {"backfill_days": -3}}, "gmail", 90) == 90
+
+
+def test_link_toggles_are_booleans_or_refused() -> None:
+    cleaned = cs.clean({"link_daily": False, "link_people": True})
+    assert cleaned == {"link_daily": False, "link_people": True}
+    for bad in ("yes", 1, None):
+        with pytest.raises(cs.InvalidSetting):
+            cs.clean({"link_daily": bad})
+    # Readers are total and default to on.
+    assert cs.link_daily(None) is True
+    assert cs.link_daily({"link_daily": "yes"}) is True
+    assert cs.link_daily({"link_daily": False}) is False
+    assert cs.link_people({"link_people": False}) is False
+
+
+def test_exclude_senders_are_validated_and_lowercased() -> None:
+    cleaned = cs.clean({"gmail": {"exclude_senders": [" Noreply@Shop.com ", "shop.com", "noreply@shop.com"]}})
+    assert cleaned["gmail"]["exclude_senders"] == ["noreply@shop.com", "shop.com"]
+    with pytest.raises(cs.InvalidSetting):
+        cs.clean({"gmail": {"exclude_senders": ["ok", ""]}})
+    with pytest.raises(cs.InvalidSetting):
+        cs.clean({"gmail": {"exclude_senders": ["x"] * 51}})
+    # The reader survives a blob clean() never saw.
+    assert cs.exclude_senders({"gmail": {"exclude_senders": "not-a-list"}}) == []
+    assert cs.exclude_senders(None) == []

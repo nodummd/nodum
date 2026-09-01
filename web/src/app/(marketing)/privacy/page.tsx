@@ -165,7 +165,7 @@ export default function PrivacyPage() {
 
             <h3 className="mt-6 mb-2 font-semibold">Turning it off</h3>
             <p className="opacity-90">
-              <strong>Settings → Connections → Disconnect</strong> withdraws the permission at
+              <strong>Import data → Connected → Disconnect</strong> withdraws the permission at
               Google and removes the stored token. You can also revoke it directly at{" "}
               <a
                 className="mk-navlink"

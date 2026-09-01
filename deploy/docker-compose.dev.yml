@@ -80,6 +80,13 @@ services:
     environment:
       - ENVIRONMENT=dev
       - POSTGRES_SERVER=postgres
+      # Explicit, not defaulted: ../back is bind-mounted, so a host-side
+      # back/.env (written for tools that dial the HOST-mapped 15432) is read
+      # by pydantic-settings inside the container too. The api service already
+      # overrides it; without this line the worker inherited 15432 and every
+      # DB-touching background task failed on connect — including the whole
+      # provider sync sweep, silently, forever.
+      - POSTGRES_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER:-nodum}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-nodum}
       - POSTGRES_DB=${POSTGRES_DB:-nodum}

@@ -189,7 +189,7 @@ class GoogleCalendarAdapter:
         # rendered with the vault's own daily-note format, because emitting
         # "Sep 2, 2026" into a vault that uses YYYY-MM-DD produces a ghost node
         # instead of a link.
-        lines.append(f"[[{day_link}]]{when}")
+        lines.append(f"[[{day_link}]]{when}" if settings_schema.link_daily(ctx.settings) else f"{day_link}{when}")
         if names:
             lines.append("")
             lines.append(f"With {_people_sentence(names)}.")

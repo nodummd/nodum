@@ -482,9 +482,20 @@ export interface AvailableCalendar {
 export interface ConnectionSettings {
   folder_root?: string;
   people_threshold?: number;
+  /** Emit the [[daily note]] wikilink on each synced note. Default true. */
+  link_daily?: boolean;
+  /** Create People notes and link them. Default true. */
+  link_people?: boolean;
   available_calendars?: AvailableCalendar[];
+  /** backfill_days 0 means "future only" — no history walk at all. */
   calendar?: { calendar_ids?: string[]; backfill_days?: number };
-  gmail?: { labels?: string[]; backfill_days?: number; store_bodies?: boolean };
+  gmail?: {
+    labels?: string[];
+    backfill_days?: number;
+    store_bodies?: boolean;
+    /** Addresses or bare domains whose mail stays out of the vault. */
+    exclude_senders?: string[];
+  };
 }
 
 export interface ProviderConnection {
@@ -493,8 +504,8 @@ export interface ProviderConnection {
   provider_name: string;
   vault_id: string;
   email: string;
-  /** Mirrors CONNECTION_STATUSES on the server; there is no "paused". */
-  status: "active" | "transient_broken" | "needs_reauth" | "key_unavailable";
+  /** Mirrors CONNECTION_STATUSES on the server. */
+  status: "active" | "transient_broken" | "needs_reauth" | "key_unavailable" | "paused";
   error_class: string;
   last_error: string;
   connected_at: string | null;
@@ -512,13 +523,24 @@ export const connectionsApi = {
     api<{ configured: boolean; providers: SyncProvider[] }>("/connections/providers"),
   list: () => api<ProviderConnection[]>("/connections/connections"),
   /** Returns the Google consent URL for the browser to visit. */
-  start: (vaultId: string, provider: string) =>
+  /** Begin the consent flow. Options chosen on the setup screen ride the
+   *  OAuth state server-side, so they exist the moment the connection does —
+   *  the first sync runs from them. */
+  start: (vaultId: string, provider: string, settings?: ConnectionSettings) =>
     apiJson<{ url: string; provider: string }>(
       `/connections/google/start?vault_id=${encodeURIComponent(vaultId)}&provider=${encodeURIComponent(provider)}`,
       "POST",
+      settings ? { settings } : undefined,
     ),
   syncNow: (connectionId: string) =>
     apiJson<Record<string, number>>(`/connections/connections/${connectionId}/sync`, "POST"),
+  pause: (connectionId: string) =>
+    apiJson<ProviderConnection>(`/connections/connections/${connectionId}/pause`, "POST"),
+  resume: (connectionId: string) =>
+    apiJson<ProviderConnection>(`/connections/connections/${connectionId}/resume`, "POST"),
+  /** Stop importing history; keep syncing from now on. Imported notes stay. */
+  skipBackfill: (connectionId: string) =>
+    apiJson<ProviderConnection>(`/connections/connections/${connectionId}/skip-backfill`, "POST"),
   /** Refetched from Google, so a calendar made after connecting is selectable.
    *  `stale` means the fetch failed and this is the last known list. */
   calendars: (connectionId: string) =>

@@ -85,8 +85,11 @@ test.describe("graph focus highlight", () => {
       const values = await opacities();
       // The match is fully lit…
       expect(Math.max(...values)).toBe(1);
-      // …and everything else is dimmed but still readable, never hidden.
-      const rest = values.filter((v) => v < 1);
+      // …and the rest of the graph is dimmed but still readable. Names that
+      // lost their space to a more important one are not drawn at all (see the
+      // level-of-detail pass), so the contract is about the ones that are: none
+      // of them competes with the match, and none is dimmed to illegibility.
+      const rest = values.filter((v) => v > 0 && v < 1);
       expect(rest.length).toBeGreaterThan(0);
       expect(Math.min(...rest)).toBeGreaterThan(0.1);
       expect(Math.max(...rest)).toBeLessThan(0.5);

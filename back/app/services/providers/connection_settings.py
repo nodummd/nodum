@@ -37,6 +37,9 @@ from app.services.importers.base import safe_segment
 #: an attacker can make the poller do, so it sits just above real use.
 MAX_CALENDARS = 25
 MAX_LABELS = 25
+#: Enough to blocklist every newsletter anyone really has; a bound because an
+#: unbounded list is scanned per message, per thread, forever.
+MAX_EXCLUDE_SENDERS = 50
 #: Ten years. Google will not return more usefully, and the number only ever
 #: widens the first walk.
 MAX_BACKFILL_DAYS = 3650
@@ -134,6 +137,12 @@ def clean(patch: dict[str, Any]) -> dict[str, Any]:
             patch["people_threshold"], name="people_threshold", low=1, high=MAX_PEOPLE_THRESHOLD
         )
 
+    for key in ("link_daily", "link_people"):
+        if key in patch:
+            if not isinstance(patch[key], bool):
+                raise InvalidSetting(f"{key} must be true or false.")
+            out[key] = patch[key]
+
     calendar = _section(patch, "calendar")
     cleaned_calendar: dict[str, Any] = {}
     if "calendar_ids" in calendar:
@@ -141,8 +150,9 @@ def clean(patch: dict[str, Any]) -> dict[str, Any]:
             calendar["calendar_ids"], name="calendar_ids", limit=MAX_CALENDARS
         )
     if "backfill_days" in calendar:
+        # 0 is a real choice: "future only" — no history walk at all.
         cleaned_calendar["backfill_days"] = _whole_number(
-            calendar["backfill_days"], name="backfill_days", low=1, high=MAX_BACKFILL_DAYS
+            calendar["backfill_days"], name="backfill_days", low=0, high=MAX_BACKFILL_DAYS
         )
     if "calendar" in patch:
         out["calendar"] = cleaned_calendar
@@ -153,12 +163,22 @@ def clean(patch: dict[str, Any]) -> dict[str, Any]:
         cleaned_gmail["labels"] = _identifiers(gmail["labels"], name="labels", limit=MAX_LABELS)
     if "backfill_days" in gmail:
         cleaned_gmail["backfill_days"] = _whole_number(
-            gmail["backfill_days"], name="backfill_days", low=1, high=MAX_BACKFILL_DAYS
+            gmail["backfill_days"], name="backfill_days", low=0, high=MAX_BACKFILL_DAYS
         )
     if "store_bodies" in gmail:
         if not isinstance(gmail["store_bodies"], bool):
             raise InvalidSetting("store_bodies must be true or false.")
         cleaned_gmail["store_bodies"] = gmail["store_bodies"]
+    if "exclude_senders" in gmail:
+        # Lowercased BEFORE deduplication — addresses are case-insensitive, and
+        # "Noreply@Shop.com" surviving next to "noreply@shop.com" is the same
+        # entry twice.
+        lowered: list[str] = []
+        for entry in _identifiers(gmail["exclude_senders"], name="exclude_senders", limit=MAX_EXCLUDE_SENDERS):
+            candidate = entry.lower()
+            if candidate not in lowered:
+                lowered.append(candidate)
+        cleaned_gmail["exclude_senders"] = lowered
     if "gmail" in patch:
         out["gmail"] = cleaned_gmail
 
@@ -179,9 +199,13 @@ def _coerce_int(value: Any, *, default: int, low: int, high: int) -> int:
         number = int(value)
     except (TypeError, ValueError):
         return default
-    if number <= 0:
+    # Below the floor is nonsense and falls back; above the ceiling is intent
+    # with the volume too high, and clamps. The floor is 0 where "none at all"
+    # is a real choice (backfill) and 1 where it is the flood the bound exists
+    # to prevent (people_threshold).
+    if number < low:
         return default
-    return max(low, min(high, number))
+    return min(high, number)
 
 
 def people_threshold(settings: dict[str, Any] | None) -> int:
@@ -201,7 +225,7 @@ def folder_root(settings: dict[str, Any] | None) -> str:
 def backfill_days(settings: dict[str, Any] | None, section: str, default: int) -> int:
     block = (settings or {}).get(section)
     raw = block.get("backfill_days") if isinstance(block, dict) else None
-    return _coerce_int(raw, default=default, low=1, high=MAX_BACKFILL_DAYS)
+    return _coerce_int(raw, default=default, low=0, high=MAX_BACKFILL_DAYS)
 
 
 def identifiers(
@@ -217,6 +241,35 @@ def identifiers(
         if isinstance(item, str) and item.strip() and item.strip() not in out:
             out.append(item.strip()[:MAX_ID_LENGTH])
     return out[:limit] or list(default)
+
+
+def link_daily(settings: dict[str, Any] | None) -> bool:
+    """Emit the [[daily note]] wikilink? Default yes — it is the single most
+    valuable connection this feature makes — but a link is still the user's
+    graph, and some people keep their daily notes out of it on purpose."""
+    value = (settings or {}).get("link_daily")
+    return value if isinstance(value, bool) else True
+
+
+def link_people(settings: dict[str, Any] | None) -> bool:
+    """Create People notes and link them? Off means names stay plain text."""
+    value = (settings or {}).get("link_people")
+    return value if isinstance(value, bool) else True
+
+
+def exclude_senders(settings: dict[str, Any] | None) -> list[str]:
+    """Addresses or bare domains whose mail stays out of the vault entirely."""
+    block = (settings or {}).get("gmail")
+    raw = block.get("exclude_senders") if isinstance(block, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            cleaned = item.strip().lower()[:MAX_ID_LENGTH]
+            if cleaned not in out:
+                out.append(cleaned)
+    return out[:MAX_EXCLUDE_SENDERS]
 
 
 def store_bodies(settings: dict[str, Any] | None) -> bool:
