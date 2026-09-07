@@ -164,6 +164,14 @@ cp .env.example .env        # then edit the values (every one is commented)
 Or from the repo root: `make dev-up`, `make dev-logs`, `make dev-down`
 (`make help` lists everything).
 
+The repo ships a `nodum` CLI — once the repo is installed (`pip install -e .` from
+`back/` for editable dev use, or `pip install .` from a built wheel), run
+`nodum start` / `nodum stop` / `nodum status` / `nodum logs` / `nodum exec` /
+`nodum migrate` / `nodum clean` instead of calling compose.sh directly.
+`nodum start --env prod` targets production (needs `deploy/.env.prod`);
+`nodum start --no-build` skips the image rebuild. Run `nodum --help` for the
+full command list.
+
 ## Self-hosting
 
 ```bash
