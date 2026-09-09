@@ -12,26 +12,39 @@ on:
 
 jobs:
   claude:
-    # NOTE: a comment STARTING WITH "@claude review" or "@claude /review" is handled by
+    # NOTE: a comment STARTING WITH "@claude review" / "@claude /review" is handled by
     # claude-code-review.yml, and "@claude security-review" / "@claude /security-review" by
-    # claude-security-review.yml — exclude exactly those FOUR prefixes here. The conditions
-    # are exact complements: each dedicated workflow fires on its own startsWith(...), this
-    # one on everything else, so a single comment never starts two runs. startsWith (no
-    # trailing space) tolerates anything after the command — a newline, extra instructions,
-    # or nothing — which is what previously leaked multiple workflows. A comment that merely
-    # mentions review later (e.g. "@claude fix the /review endpoint") still lands here.
-    # Caveat of the slash-less spellings: "@claude reviewers are waiting" now starts with
-    # "@claude review" and so routes to the review workflow, not here. Put a different verb
-    # first ("@claude please tell the reviewers ...") to reach this workflow.
-    # This job keeps the OWNER/MEMBER/COLLABORATOR gate; the two review workflows are
-    # narrowed to a single login because they burn the shared review token unattended.
+    # claude-security-review.yml. The exclusion below is the EXACT NEGATION of what those
+    # two workflows fire on, so a single comment never starts two runs.
+    #
+    # It negates the WHOLE condition (one of the four prefixes AND a login on the
+    # CLAUDE_REVIEW_LOGINS allowlist), not just the prefix. Negating the prefix alone would
+    # black-hole a collaborator who is not on the allowlist: their "@claude review this
+    # migration" would match the review workflow's prefix but fail its login check, and be
+    # excluded here too — no run, no comment, no explanation. With the full negation their
+    # comment simply falls through to this general job, exactly as it did before the
+    # dedicated review workflows existed. Keep this expression in sync with the `if:` in
+    # both review workflows; the allowlist default must match theirs.
+    #
+    # startsWith (no trailing space) tolerates anything after the command — a newline, extra
+    # instructions, or nothing — which is what previously leaked multiple workflows. A
+    # comment that merely mentions review later ("@claude fix the /review endpoint") lands
+    # here. Caveat of the slash-less spellings: for an allowlisted author, "@claude
+    # reviewers are waiting" starts with "@claude review" and routes to the review workflow.
+    # Put a different verb first ("@claude please tell the reviewers ...") to reach this job.
+    #
+    # This job keeps its own OWNER/MEMBER/COLLABORATOR gate. It is deliberately broader than
+    # the review workflows' allowlist: those run unattended on a whole diff and burn the
+    # shared review token, whereas this one only answers a directed mention. Note it holds
+    # contents: write, so if you ever want one trust model everywhere, tighten THIS job
+    # rather than loosening the review ones.
     #
     # author_association gating (OWNER/MEMBER/COLLABORATOR) is defense-in-depth on top of
     # claude-code-action's own collaborator gate: this job holds contents: write, so don't
     # even start the runner for an untrusted actor.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.body, '@claude review') && !startsWith(github.event.comment.body, '@claude /review') && !startsWith(github.event.comment.body, '@claude security-review') && !startsWith(github.event.comment.body, '@claude /security-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !startsWith(github.event.comment.body, '@claude review') && !startsWith(github.event.comment.body, '@claude /review') && !startsWith(github.event.comment.body, '@claude security-review') && !startsWith(github.event.comment.body, '@claude /security-review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !((startsWith(github.event.comment.body, '@claude review') || startsWith(github.event.comment.body, '@claude /review') || startsWith(github.event.comment.body, '@claude security-review') || startsWith(github.event.comment.body, '@claude /security-review')) && contains(fromJSON(vars.CLAUDE_REVIEW_LOGINS || '["maqboolthoufeeq"]'), github.event.comment.user.login)) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !((startsWith(github.event.comment.body, '@claude review') || startsWith(github.event.comment.body, '@claude /review') || startsWith(github.event.comment.body, '@claude security-review') || startsWith(github.event.comment.body, '@claude /security-review')) && contains(fromJSON(vars.CLAUDE_REVIEW_LOGINS || '["maqboolthoufeeq"]'), github.event.comment.user.login)) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
     runs-on: ubuntu-latest
