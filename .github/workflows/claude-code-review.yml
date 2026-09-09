@@ -9,21 +9,29 @@ on:
 jobs:
   claude-review:
     # Trigger gating (defense-in-depth):
-    # 1. issue_comment fires for BOTH issues and PRs — require github.event.issue.pull_request
-    #    (only present on PR comments) so `@claude /review` on a plain issue, which has no
+    # 1. COMMENT-ONLY. There is no pull_request trigger on purpose: a review never starts
+    #    by itself when a PR is opened, synchronized or reopened. The only way in is a
+    #    human typing the command in a comment.
+    # 2. issue_comment fires for BOTH issues and PRs — require github.event.issue.pull_request
+    #    (only present on PR comments) so `@claude review` on a plain issue, which has no
     #    diff to review, doesn't spin up a review with empty context.
-    # 2. Restrict to trusted authors via author_association (OWNER/MEMBER/COLLABORATOR).
-    #    This workflow is secret-backed with pull-requests: write and reads the full diff,
-    #    so gate at the YAML level and don't even start the runner for an untrusted
-    #    commenter — on top of claude-code-action's own collaborator gate.
-    # startsWith (no trailing space) tolerates anything after the command — a newline,
-    # extra focus instructions ("@claude /review focus on the migration"), or nothing.
+    # 3. Restrict to ONE login (github.event.comment.user.login). This workflow is
+    #    secret-backed with pull-requests: write and reads the full diff, so gate at the
+    #    YAML level and don't even start the runner for anyone else — on top of
+    #    claude-code-action's own collaborator gate. Deliberately stricter than the old
+    #    author_association allowlist: OWNER/MEMBER/COLLABORATOR let ANY repo collaborator
+    #    spend the shared CLAUDE_CODE_OAUTH_TOKEN. Add a second maintainer by extending
+    #    this to contains(fromJSON('["maqboolthoufeeq","other-handle"]'), ...user.login).
+    # Both `@claude review` and `@claude /review` trigger it; the slash form is kept so
+    # existing habits and older PR comments keep working. startsWith (no trailing space)
+    # tolerates anything after the command — a newline, extra focus instructions
+    # ("@claude review focus on the new migration"), or nothing.
     if: |
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '@claude /review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-      (github.event_name == 'pull_request_review_comment' && startsWith(github.event.comment.body, '@claude /review') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '@claude review') || startsWith(github.event.comment.body, '@claude /review')) && github.event.comment.user.login == 'maqboolthoufeeq') ||
+      (github.event_name == 'pull_request_review_comment' && (startsWith(github.event.comment.body, '@claude review') || startsWith(github.event.comment.body, '@claude /review')) && github.event.comment.user.login == 'maqboolthoufeeq')
 
     runs-on: ubuntu-latest
-    # Cancel a superseded review run if a new /review lands on the same PR.
+    # Cancel a superseded review run if a new review command lands on the same PR.
     concurrency:
       group: claude-review-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
@@ -68,10 +76,16 @@ jobs:
               live-preview editor, Yjs collab, @cosmos.gl/graph graph view.
             - deploy/ — docker compose stacks (dev/test/staging/prod).
 
-            The triggering comment may carry extra instructions after `/review`
-            (e.g. `@claude /review focus on the new migration`). Honour them — they
-            narrow or redirect the review focus, but never relax the project rules
-            below.
+            ## The triggering comment
+            You were invoked by a comment beginning with `@claude review` (the
+            `@claude /review` spelling also works). Anything the commenter wrote
+            AFTER that command is a direct instruction to you — e.g.
+            `@claude review focus on the new migration and skip the frontend`, or
+            `@claude review only look at tenancy`. Honour those instructions: they
+            narrow, redirect or re-prioritise the review. They never relax the
+            project rules below, and they never grant you write access. If the
+            comment carries no extra instructions, perform the full review described
+            here.
 
             ## Project conventions (enforce these — they are the house rules)
             - Root CLAUDE.md is authoritative. Backend conventions live in
