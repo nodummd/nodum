@@ -276,19 +276,50 @@ jobs:
             - CORS: flag reflecting an arbitrary `Origin` (or `*`) together with
               credentials, or wildcards added to cors_middleware.py.
 
+            ## Severity scale — use these exact emoji and labels, nothing else
+            - 🔴 **Critical** — exploitable now by an unauthenticated or cross-tenant
+              actor: auth bypass, vault-scope escape, RCE, SQL injection, a live secret
+              in the tree, or a published-page leak of private vault content.
+            - 🟠 **High** — exploitable by an authenticated user, or unauthenticated with
+              a precondition: SSRF past `url_guard`, stored XSS through the inline-HTML
+              allowlist, token or share-link handling that leaks or fails to rotate.
+            - 🟡 **Medium** — needs an unlikely precondition or yields limited gain:
+              user enumeration, a missing rate limit, an over-broad CORS or cookie
+              attribute, an unescaped LIKE pattern.
+            - 🔵 **Low** — hardening and defence-in-depth. No concrete exploit path from
+              this diff, but the change moves in the wrong direction.
+            - 🟢 **Good** — something the diff gets right that is worth naming. Only ever
+              used in the "What's done well" section, never to tag a problem.
+
             ## Output
-            Post a single summary comment. Order findings by severity. For each:
+            Post a single summary comment. Open it with a count line, then the legend,
+            then a rule:
+
+                🔴 0 · 🟠 1 · 🟡 2 · 🔵 1
+                🔴 critical · 🟠 high · 🟡 medium · 🔵 low · 🟢 done well
+                ---
+
+            The counts must match the findings you post. Group findings under
+            `### 🔴 Critical`, `### 🟠 High`, `### 🟡 Medium`, `### 🔵 Low`, in that
+            order, omitting any heading whose group is empty. Never inflate a severity
+            to look thorough, and never soften one to look clean. For each finding:
             - **Location:** `file:line`
-            - **Severity:** Critical / High / Medium / Low
             - **Class:** the checklist section (or OWASP category)
             - **Issue & impact:** the concrete exploit scenario reachable from this diff
             - **Fix:** specific, minimal remediation (prefer an existing project
               primitive: `get_owned_vault`, `validate_segment`, `url_guard`,
               `ServiceResponse`, the inline-HTML allowlist)
 
-            End with an overall risk assessment and a merge recommendation (safe to
-            merge / fix before merge / needs discussion). If the diff has no
-            security-relevant changes, say so plainly rather than inventing findings.
+            Then a **### 🟢 What's done well** section naming the security-relevant
+            things this diff gets right, each anchored to a `file:line` — a new query
+            that re-scopes by `vault_id`, a token compared in constant time, a fixture
+            that pins the ownership check. Required; one line saying there was nothing
+            security-relevant is a valid answer.
+
+            End with an overall risk assessment and a merge recommendation: exactly one
+            of ✅ **safe to merge** · 🟠 **fix before merge** · 🔴 **blocked** ·
+            💬 **needs discussion**. If the diff has no security-relevant changes, say
+            so plainly rather than inventing findings — 🔴 0 · 🟠 0 is a valid result.
 
     steps:
       - name: Checkout repository

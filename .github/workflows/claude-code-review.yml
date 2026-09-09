@@ -142,24 +142,48 @@ jobs:
                Progress Log).
             Factor CI results on this PR into the review if any jobs failed.
 
+            ## Severity scale — use these exact emoji and labels, nothing else
+            - 🔴 **Critical** — must fix before merge. Cross-tenant read or write, auth
+              bypass, a secret in the tree, data loss, or a change that breaks the build,
+              a migration, or an existing API contract.
+            - 🟠 **High** — should fix before merge. A real bug on a path this diff makes
+              reachable: wrong results, an unhandled error path, a race, a missing
+              `vault_id` re-scope on a new query, an N+1 on a hot path.
+            - 🟡 **Medium** — fix soon, does not block the merge. Limited blast radius: a
+              narrow edge case, new behaviour with no test, a cache left stale, a
+              response that skips the project envelope.
+            - 🔵 **Low** — optional polish. Naming, dead code, a clearer helper, a comment
+              or doc line this diff made wrong.
+            - 🟢 **Good** — something the diff gets right that is worth naming. Only ever
+              used in the "What's done well" section, never to tag a problem.
+
             ## Review format
-            For each issue found, provide:
-            1. **Location:** file and line number
-            2. **Severity:** Critical, Major, Minor, or Suggestion
-            3. **Issue:** clear description
-            4. **Fix:** specific recommendation or example
-            5. **Rationale:** why this change matters
+            Open the comment with a count line, then the legend, then a rule:
+
+                🔴 1 · 🟠 2 · 🟡 0 · 🔵 3
+                🔴 critical · 🟠 high · 🟡 medium · 🔵 low · 🟢 done well
+                ---
+
+            The counts must match the findings you actually post. Then group the
+            findings under `### 🔴 Critical`, `### 🟠 High`, `### 🟡 Medium`,
+            `### 🔵 Low`, in that order, and OMIT any heading whose group is empty.
+            Never invent or inflate a finding to fill a group, and never downgrade a
+            real one to make the counts look better. For each finding:
+            1. **Location:** `file:line`
+            2. **Issue:** what is wrong, in one or two sentences
+            3. **Fix:** the specific change, with a short code example where it helps
+            4. **Rationale:** why it matters in this codebase
 
             ## Summary format
-            At the end of your review, provide:
-            1. **Overall assessment:** general quality and readiness
-            2. **Critical issues:** must be fixed before merging
-            3. **Suggestions:** nice-to-have improvements
-            4. **Positive highlights:** what was done well
-            5. **Merge recommendation:** ready to merge, needs changes, or requires
-               discussion
-            Be constructive and specific. If the diff is clean, say so plainly
-            rather than inventing findings.
+            End the comment with:
+            1. **Overall assessment** — quality and readiness, two or three sentences.
+            2. **### 🟢 What's done well** — concrete things this diff gets right, each
+               anchored to a `file:line`. This section is required. If the diff is
+               genuinely unremarkable, say that in one line rather than padding it.
+            3. **Merge recommendation** — exactly one of: ✅ **ready to merge** ·
+               🟠 **needs changes** · 🔴 **blocked** · 💬 **needs discussion**.
+            Be constructive and specific. If the diff is clean, say so plainly rather
+            than inventing findings: a review with 🔴 0 · 🟠 0 is a valid outcome.
 
           # Opus 5 + [1m] → 1M-token context window. A whole-PR review benefits most from
           # the largest context, so KEEP the suffix.
