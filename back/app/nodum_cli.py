@@ -168,8 +168,7 @@ def cmd_clean(env: str, deploy_dir: Path, force: bool) -> int:
             )
             return 1
         confirm = input(
-            "Clean removes the stack AND all volumes (DB data, uploaded files, etc.). "
-            "Type 'yes' to confirm: "
+            "Clean removes the stack AND all volumes (DB data, uploaded files, etc.). Type 'yes' to confirm: "
         )
         if confirm.strip().lower() != "yes":
             print("Aborted.", file=sys.stderr)
@@ -251,9 +250,7 @@ Examples
     )
 
     sub.add_parser("stop", help="Stop and remove containers (volumes kept).", parents=[common])
-    restart_p = sub.add_parser(
-        "restart", help="Stop then start (rebuilds if images changed).", parents=[common]
-    )
+    restart_p = sub.add_parser("restart", help="Stop then start (rebuilds if images changed).", parents=[common])
     restart_p.add_argument(
         "--build",
         action="store_true",
@@ -268,21 +265,13 @@ Examples
 
     logs_p = sub.add_parser("logs", help="View container logs.", parents=[common])
     logs_p.add_argument("-f", "--follow", action="store_true", help="Follow log output.")
-    logs_p.add_argument(
-        "service", nargs="?", default=None, help="Target service (api, web, caddy, ...)."
-    )
+    logs_p.add_argument("service", nargs="?", default=None, help="Target service (api, web, caddy, ...).")
 
-    exec_p = sub.add_parser(
-        "exec", help="Run a command inside a service container.", parents=[common]
-    )
+    exec_p = sub.add_parser("exec", help="Run a command inside a service container.", parents=[common])
     exec_p.add_argument("service", help="Service name (api, web, caddy, postgres, ...).")
-    exec_p.add_argument(
-        "cmd", nargs=argparse.REMAINDER, help="Command to run inside the container."
-    )
+    exec_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to run inside the container.")
 
-    sub.add_parser(
-        "migrate", help="Run Alembic migrations (one-shot, staging/prod only).", parents=[common]
-    )
+    sub.add_parser("migrate", help="Run Alembic migrations (one-shot, staging/prod only).", parents=[common])
 
     clean_p = sub.add_parser(
         "clean",
