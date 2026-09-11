@@ -3,9 +3,9 @@
 # nodum — CLI for managing a local Nodum Docker Compose stack
 # ============================================================
 #
-# Install (from the repo root):
+# Install (from the `back/` directory):
 #   pip install -e .        # editable (dev workflow)
-#   pip install .            # from a built wheel / source tarball
+#   pip install .             # from a built wheel / source tarball
 #
 # After install, the `nodum` command is on PATH. Usage:
 #
@@ -53,7 +53,7 @@ def find_project_root(start: Path) -> Path:
         if (current / GIT_MARKER).exists():
             return current
         current = current.parent
-    return current  # fallback: resolved start
+    return start.resolve()  # fallback: resolved start
 
 
 def resolve_deploy_dir(root: Path) -> Path:
@@ -118,9 +118,6 @@ def cmd_stop(env: str, deploy_dir: Path) -> int:
 
 
 def cmd_restart(env: str, deploy_dir: Path, build: bool) -> int:
-    code = compose(env, deploy_dir, ["down"])
-    if code != 0:
-        return code
     args = ["up", "-d"]
     if build:
         args.append("--build")
@@ -149,14 +146,15 @@ def cmd_migrate(env: str, deploy_dir: Path) -> int:
         print(
             f"Error: `nodum migrate` is only supported on staging/prod.\n"
             f"  The {env!r} compose file has no `migrate` service.\n"
-            f"  For dev/test, run manually:\n"
-            f"    nodum exec api alembic upgrade head\n"
+            f"  For dev/test, migrations run automatically on `nodum start`\n"
+            f"  (see back/scripts/pre-start.sh). To re-run by hand:\n"
+            f"    nodum exec api uv run alembic upgrade head\n"
             f"  or target staging/prod:\n"
             f"    nodum migrate --env staging",
             file=sys.stderr,
         )
         return 2
-    return compose(env, deploy_dir, ["up", "migrate", "--exit-code-from", "migrate"])
+    return compose(env, deploy_dir, ["run", "--rm", "migrate"])
 
 
 def cmd_clean(env: str, deploy_dir: Path, force: bool) -> int:
@@ -168,9 +166,11 @@ def cmd_clean(env: str, deploy_dir: Path, force: bool) -> int:
             )
             return 1
         confirm = input(
-            "Clean removes the stack AND all volumes (DB data, uploaded files, etc.). Type 'yes' to confirm: "
+            f"Clean removes the {env} stack AND ALL ITS VOLUMES"
+            " (DB data, uploaded files, etc.). "
+            f"Type {env!r} to confirm: "
         )
-        if confirm.strip().lower() != "yes":
+        if confirm.strip().lower() != env:
             print("Aborted.", file=sys.stderr)
             return 1
     return compose(env, deploy_dir, ["down", "-v"])
@@ -250,16 +250,13 @@ Examples
     )
 
     sub.add_parser("stop", help="Stop and remove containers (volumes kept).", parents=[common])
-    restart_p = sub.add_parser("restart", help="Stop then start (rebuilds if images changed).", parents=[common])
+    restart_p = sub.add_parser(
+        "restart", help="Restart running containers (rebuilds if images changed).", parents=[common]
+    )
     restart_p.add_argument(
         "--build",
         action="store_true",
         help="Rebuild images before starting.",
-    )
-    restart_p.add_argument(
-        "--no-build",
-        action="store_true",
-        help="Skip `docker compose build` (reuse existing images).",
     )
     sub.add_parser("status", help="Show container states.", parents=[common])
 
@@ -297,7 +294,9 @@ def _shift_globals_before_command(argv: list[str] | None) -> list[str]:
 
         nodum --env prod --no-build start  ->  nodum start --env prod --no-build
     """
-    argv = list(argv or sys.argv[1:])
+    if argv is None:
+        argv = sys.argv[1:]
+    argv = list(argv)
     before_cmd: list[str] = []
     i = 0
     while i < len(argv):
@@ -316,7 +315,7 @@ def _shift_globals_before_command(argv: list[str] | None) -> list[str]:
     return argv
 
 
-_SUB_COMMANDS = frozenset(("start", "stop", "restart", "status", "logs", "exec", "migrate", "clean"))
+    _SUB_COMMANDS = frozenset(sub.choices)
 
 
 def main(argv: list[str] | None = None) -> int:
