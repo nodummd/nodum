@@ -12,13 +12,13 @@
 #   nodum start              # dev stack (postgres + redis + minio + api + web)
 #   nodum start --env prod   # production stack (needs deploy/.env.prod)
 #   nodum stop               # stop containers (keep volumes)
-#   nodum restart            # restart the current stack
+#   nodum restart            # restart the current stack (recreate containers)
 #   nodum status             # state of every running container
 #   nodum logs [-f] [service]  # tail logs (e.g. nodum logs -f api)
 #   nodum exec <service> <cmd>  # run a command inside a service container
+#     (use `uv run` for Python tools — the venv is not on PATH in the API image)
 #   nodum migrate            # run Alembic migrations (one-shot, staging/prod only)
 #   nodum clean              # stop + prune volumes (DESTRUCTIVE -- prompts first)
-#   nodum help               # this screen
 #
 # Environment files:
 #   dev    -> deploy/.env.dev  | deploy/.env
@@ -43,6 +43,10 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 GIT_MARKER = ".git"
+
+_SUB_COMMANDS = frozenset(
+    ("start", "stop", "restart", "status", "logs", "exec", "migrate", "clean")
+)
 
 
 def find_project_root(start: Path) -> Path:
@@ -118,7 +122,7 @@ def cmd_stop(env: str, deploy_dir: Path) -> int:
 
 
 def cmd_restart(env: str, deploy_dir: Path, build: bool) -> int:
-    args = ["up", "-d"]
+    args = ["up", "-d", "--force-recreate"]
     if build:
         args.append("--build")
     return compose(env, deploy_dir, args)
@@ -168,7 +172,23 @@ def cmd_clean(env: str, deploy_dir: Path, force: bool) -> int:
         confirm = input(
             f"Clean removes the {env} stack AND ALL ITS VOLUMES"
             " (DB data, uploaded files, etc.). "
-            f"Type {env!r} to confirm: "
+            f"Type {env} to confirm: "
+        )
+        if confirm.strip().lower() != env:
+            print("Aborted.", file=sys.stderr)
+            return 1
+    # For staging/prod with --force, require a second confirmation flag.
+    # For dev/test, --force skips the prompt as before.
+    if force and env in ("staging", "prod"):
+        if not sys.stdin.isatty():
+            print(
+                f"Error: refusing to destroy {env} stack without a tty even with --force. "
+                f"Pass --yes-i-mean-{env} to confirm.",
+                file=sys.stderr,
+            )
+            return 1
+        confirm = input(
+            f"Final confirmation: type {env} to destroy the {env} stack and ALL volumes: "
         )
         if confirm.strip().lower() != env:
             print("Aborted.", file=sys.stderr)
@@ -223,15 +243,15 @@ Examples
   nodum start --env prod          start production (needs deploy/.env.prod)
   nodum --env prod start          same, alternate order
   nodum stop                      stop all containers
-  nodum restart                   restart (no rebuild by default)
-  nodum restart --build           restart with image rebuild
+  nodum restart                   recreate all containers (no rebuild by default)
+  nodum restart --build           recreate + rebuild images
   nodum status                    container states
   nodum logs -f api               follow API logs
   nodum logs web                  web container logs
-  nodum exec api python -m alembic revision --autogenerate -m "foo"
+  nodum exec api uv run alembic revision --autogenerate -m "foo"
   nodum migrate --env staging     run migrations on staging
   nodum clean                     stop + remove all volumes (DESTRUCTIVE)
-  nodum clean --force             same, no prompt
+  nodum clean --force             same, no prompt (dev/test only)
   nodum -r /opt/nodum start       use a specific checkout
 """,
     )
@@ -251,24 +271,30 @@ Examples
 
     sub.add_parser("stop", help="Stop and remove containers (volumes kept).", parents=[common])
     restart_p = sub.add_parser(
-        "restart", help="Restart running containers (rebuilds if images changed).", parents=[common]
+        "restart",
+        help="Recreate running containers (optional rebuild).",
+        parents=[common],
     )
     restart_p.add_argument(
         "--build",
         action="store_true",
-        help="Rebuild images before starting.",
+        help="Rebuild images before restarting.",
     )
     sub.add_parser("status", help="Show container states.", parents=[common])
 
     logs_p = sub.add_parser("logs", help="View container logs.", parents=[common])
     logs_p.add_argument("-f", "--follow", action="store_true", help="Follow log output.")
-    logs_p.add_argument("service", nargs="?", default=None, help="Target service (api, web, caddy, ...).")
+    logs_p.add_argument(
+        "service", nargs="?", default=None, help="Target service (api, web, caddy, ...)."
+    )
 
     exec_p = sub.add_parser("exec", help="Run a command inside a service container.", parents=[common])
     exec_p.add_argument("service", help="Service name (api, web, caddy, postgres, ...).")
     exec_p.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to run inside the container.")
 
-    sub.add_parser("migrate", help="Run Alembic migrations (one-shot, staging/prod only).", parents=[common])
+    sub.add_parser(
+        "migrate", help="Run Alembic migrations (one-shot, staging/prod only).", parents=[common]
+    )
 
     clean_p = sub.add_parser(
         "clean",
@@ -315,9 +341,6 @@ def _shift_globals_before_command(argv: list[str] | None) -> list[str]:
     return argv
 
 
-    _SUB_COMMANDS = frozenset(sub.choices)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     cleaned = _shift_globals_before_command(argv)
@@ -352,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         case "clean":
             return cmd_clean(env, deploy_dir, args.force)
         case _:
+            # Unreachable: add_subparsers(required=True) guarantees command is set.
             parser.print_help()
             return 1
 
