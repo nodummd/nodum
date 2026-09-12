@@ -31,6 +31,11 @@ WEB_PORT=3100
 # Matches CI: pgvector, because a migration creates the extension and plain
 # postgres fails at `CREATE EXTENSION vector` with nothing else wrong.
 PG_IMAGE="pgvector/pgvector:0.8.0-pg16"
+REDIS_IMAGE="redis:7.4.2-alpine"
+# quay.io, not Docker Hub: MinIO deleted the `minio/minio` Hub repository in
+# September 2026 and it now 401s for every tag. Pinned rather than floating so
+# the e2e stack cannot drift onto a release the app has never been run against.
+MINIO_IMAGE="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 
 export POSTGRES_SERVER=localhost POSTGRES_PORT=$PG_PORT
 export POSTGRES_USER=nodum POSTGRES_PASSWORD=nodum POSTGRES_DB=nodum
@@ -83,10 +88,10 @@ up() {
   container nodum-test-pg \
     -e POSTGRES_USER=nodum -e POSTGRES_PASSWORD=nodum -e POSTGRES_DB=nodum \
     -p "127.0.0.1:$PG_PORT:5432" "$PG_IMAGE"
-  container nodum-test-redis -p "127.0.0.1:$REDIS_PORT:6379" redis:7-alpine
+  container nodum-test-redis -p "127.0.0.1:$REDIS_PORT:6379" "$REDIS_IMAGE"
   container nodum-test-minio \
     -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-    -p "127.0.0.1:$MINIO_PORT:9000" minio/minio server /data
+    -p "127.0.0.1:$MINIO_PORT:9000" "$MINIO_IMAGE" server /data
 
   wait_for postgres "docker exec nodum-test-pg pg_isready -U nodum"
   wait_for minio "curl -sf http://127.0.0.1:$MINIO_PORT/minio/health/live"

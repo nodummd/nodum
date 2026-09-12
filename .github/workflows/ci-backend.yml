@@ -100,12 +100,17 @@ jobs:
       # MinIO cannot be a `services:` container: its image needs the `server
       # /data` command, and service containers cannot override CMD. Same image
       # and args as deploy/docker-compose.yml so CI matches the real stack.
+      #
+      # MinIO publishes to quay.io; the Docker Hub mirror `minio/minio` was
+      # deleted in September 2026 and now 401s for every tag. Do not move
+      # this back to Docker Hub — it is the second MinIO image to vanish
+      # from there.
       - name: Start MinIO
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           for _ in $(seq 1 60); do
             if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
               echo "MinIO ready"; exit 0
