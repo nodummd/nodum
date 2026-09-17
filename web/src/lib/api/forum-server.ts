@@ -83,13 +83,16 @@ export interface CommunityProfile {
   recent_topics: CommunityTopicItem[];
 }
 
-async function getCommunity<T>(path: string, fresh = false): Promise<T | null> {
+/** `true` = never cached; a number = revalidate after that many seconds. */
+async function getCommunity<T>(path: string, fresh: boolean | number = false): Promise<T | null> {
   try {
     const res = await fetch(`${API_ORIGIN}/api/v1/community${path}`, {
       headers: { Accept: "application/json" },
       // Lists tolerate 30s of staleness; a thread you just replied to must
       // show the reply on the very next render.
-      ...(fresh ? { cache: "no-store" as const } : { next: { revalidate: 30 } }),
+      ...(fresh === true
+        ? { cache: "no-store" as const }
+        : { next: { revalidate: typeof fresh === "number" ? fresh : 30 } }),
     });
     if (!res.ok) return null;
     const body: unknown = await res.json();
@@ -102,15 +105,23 @@ async function getCommunity<T>(path: string, fresh = false): Promise<T | null> {
   }
 }
 
-export const getCategories = () => getCommunity<CommunityCategory[]>("/categories");
+export const getCategories = (revalidate?: number) =>
+  getCommunity<CommunityCategory[]>("/categories", revalidate ?? false);
 
-export const getTopics = (params: { category?: string; top?: string; limit?: number; offset?: number }) => {
+/** `revalidate` overrides the 30s list staleness — the sitemap wants hours. */
+export const getTopics = (params: {
+  category?: string;
+  top?: string;
+  limit?: number;
+  offset?: number;
+  revalidate?: number;
+}) => {
   const q = new URLSearchParams();
   if (params.category) q.set("category", params.category);
   if (params.top) q.set("top", params.top);
   if (params.limit) q.set("limit", String(params.limit));
   if (params.offset) q.set("offset", String(params.offset));
-  return getCommunity<CommunityTopicList>(`/topics?${q}`);
+  return getCommunity<CommunityTopicList>(`/topics?${q}`, params.revalidate ?? false);
 };
 
 export const getTopic = (id: string) => getCommunity<CommunityTopicItem>(`/topics/${id}`, true);

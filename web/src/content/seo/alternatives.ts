@@ -58,6 +58,10 @@ export interface Alternative {
    * " · Nodum" to whatever goes here. So the H1 gets to be a full sentence
    * and this gets the competitor's name first and about forty characters to
    * say why. Falls back to `headline` if absent, but every entry sets it.
+   *
+   * A title that starts "Nodum vs" skips the template — it already names the
+   * brand — so the head-to-head query ("nodum vs obsidian") and the
+   * alternative query land on one URL instead of splitting across two.
    */
   metaTitle?: string;
   /** Meta description, ~155 characters, a complete sentence. */
@@ -98,13 +102,15 @@ export const ALTERNATIVES: Alternative[] = [
     name: "Obsidian",
     url: "https://obsidian.md",
     rank: 1,
-    metaTitle: "Obsidian alternative — open source, runs in your browser",
+    metaTitle: "Nodum vs Obsidian — open-source Obsidian alternative",
     headline: "The open-source Obsidian alternative that runs in your browser",
     description:
       "Nodum is a free, MIT-licensed Obsidian alternative for the web: same [[wikilinks]], same backlinks, same graph — no install, and you can read the source.",
     answer:
       "Nodum is an open-source alternative to Obsidian that runs in a browser instead of as a desktop app. It uses the same wikilink syntax, the same backlinks and the same plain-markdown files, adds a GPU-rendered knowledge graph, and is MIT licensed — so you can read every line, self-host it, and export your vault as ordinary .md files at any time.",
     keywords: [
+      "nodum vs obsidian",
+      "obsidian vs nodum",
       "obsidian alternative",
       "open source obsidian alternative",
       "open source alternative for obsidian",
@@ -277,13 +283,15 @@ export const ALTERNATIVES: Alternative[] = [
     name: "Notion",
     url: "https://www.notion.so",
     rank: 2,
-    metaTitle: "Notion alternative — open source, markdown files",
+    metaTitle: "Nodum vs Notion — open-source, markdown Notion alternative",
     headline: "An open-source Notion alternative for people who want their notes as files",
     description:
       "Nodum is a free, open-source Notion alternative built on plain markdown, [[wikilinks]] and a knowledge graph — self-hostable, exportable, no per-seat pricing.",
     answer:
       "Nodum is an open-source alternative to Notion for personal knowledge work. Where Notion stores your writing as blocks in a hosted database, Nodum stores plain markdown files you can export as a folder at any time. It adds wikilinks, automatic backlinks and a knowledge graph, and it is MIT licensed and self-hostable.",
     keywords: [
+      "nodum vs notion",
+      "notion vs nodum",
       "notion alternative",
       "open source notion alternative",
       "self hosted notion alternative",
@@ -370,13 +378,15 @@ export const ALTERNATIVES: Alternative[] = [
     name: "Logseq",
     url: "https://logseq.com",
     rank: 3,
-    metaTitle: "Logseq alternative — documents instead of outlines",
+    metaTitle: "Nodum vs Logseq — a Logseq alternative for documents",
     headline: "A Logseq alternative for people who write documents, not outlines",
     description:
       "Nodum and Logseq are both open source and both link notes. Nodum is a document editor in the browser; Logseq is a local-first outliner. Here is the honest split.",
     answer:
       "Nodum and Logseq are both open-source, link-first knowledge bases, and the real difference is the writing unit. Logseq is an outliner: everything is a bullet, and blocks are the thing you reference. Nodum is a document editor: a note is a page of prose you can link to and embed. Logseq runs locally; Nodum runs in a browser against a server you can host yourself.",
     keywords: [
+      "nodum vs logseq",
+      "logseq vs nodum",
       "logseq alternative",
       "logseq vs obsidian",
       "open source logseq alternative",
@@ -462,13 +472,15 @@ export const ALTERNATIVES: Alternative[] = [
     name: "Evernote",
     url: "https://evernote.com",
     rank: 4,
-    metaTitle: "Evernote alternative — open source markdown notes",
+    metaTitle: "Nodum vs Evernote — open-source Evernote alternative",
     headline: "An open-source Evernote alternative built on markdown you can take with you",
     description:
       "Leaving Evernote? Nodum is free and open source, stores plain markdown, links notes with [[wikilinks]], and has a web clipper of its own. Self-hostable.",
     answer:
       "Nodum is a free, open-source alternative to Evernote. Evernote is a proprietary hosted notebook with rich-text notes and tiered subscriptions; Nodum stores plain markdown files, links them with wikilinks, draws them as a knowledge graph, and is MIT licensed, so you can self-host it and export everything as a folder of .md files.",
     keywords: [
+      "nodum vs evernote",
+      "evernote vs nodum",
       "evernote alternative",
       "open source evernote alternative",
       "free evernote alternative",
@@ -545,13 +557,15 @@ export const ALTERNATIVES: Alternative[] = [
     name: "Roam Research",
     url: "https://roamresearch.com",
     rank: 5,
-    metaTitle: "Roam Research alternative — free and open source",
+    metaTitle: "Nodum vs Roam Research — free, open-source alternative",
     headline: "An open-source Roam Research alternative, without the subscription",
     description:
       "Roam made bidirectional linking mainstream and charges for it. Nodum is open source, free, self-hostable, and keeps your notes as plain markdown files.",
     answer:
       "Nodum is a free, open-source alternative to Roam Research. Both are networked-thought tools built on bidirectional links and a graph. Roam is a proprietary, subscription-only outliner with block references; Nodum is MIT-licensed, stores plain markdown files you can export at will, and can be self-hosted.",
     keywords: [
+      "nodum vs roam research",
+      "roam research vs nodum",
       "roam research alternative",
       "free roam research alternative",
       "open source roam alternative",

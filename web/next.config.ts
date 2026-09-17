@@ -11,7 +11,7 @@ import type { NextConfig } from "next";
 // backend rather than a misconfigured build. It must be set for `next build`.
 const API_PROXY_URL = process.env.API_PROXY_URL ?? "http://localhost:8000";
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://nodum.md").replace(/\/+$/, "");
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://nodum.md").replace(/\/+$/, "");
 
 /**
  * Permanent redirects for URLs people type or link without checking.
@@ -29,6 +29,14 @@ const KEYWORD_ALIASES: { from: string; to: string }[] = [
   { from: "/logseq-alternative", to: "/alternatives/logseq" },
   { from: "/roam-alternative", to: "/alternatives/roam-research" },
   { from: "/compare", to: "/alternatives" },
+  // Head-to-head shapes: "nodum vs obsidian" is the query, and these are the
+  // URLs people (and answer engines) construct from it.
+  // First match wins, so the specific shape precedes the general one.
+  { from: "/compare/nodum-vs-:slug", to: "/alternatives/:slug" },
+  { from: "/compare/:slug", to: "/alternatives/:slug" },
+  { from: "/vs/:slug", to: "/alternatives/:slug" },
+  { from: "/nodum-vs-:slug", to: "/alternatives/:slug" },
+  { from: "/:slug-vs-nodum", to: "/alternatives/:slug" },
   { from: "/vs", to: "/alternatives" },
   { from: "/second-brain", to: "/learn/second-brain" },
   { from: "/ai-notes", to: "/learn/ai-note-taking" },
@@ -53,6 +61,9 @@ const nextConfig: NextConfig = {
   rewrites() {
     return Promise.resolve([
       { source: "/api/:path*", destination: `${API_PROXY_URL}/api/:path*` },
+      // IndexNow key file: /<8–128 hex-ish chars>.txt, answered by
+      // app/indexnow/[key] only when it matches INDEXNOW_KEY.
+      { source: "/:key([a-zA-Z0-9-]{8,128}).txt", destination: "/indexnow/:key" },
     ]);
   },
   redirects() {

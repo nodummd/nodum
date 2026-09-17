@@ -61,7 +61,10 @@ ${bullet("Documentation", "/docs", `${docs.length} articles covering every panel
 ${bullet("Learn", "/learn", `${TOPICS_BY_RANK.length} tool-agnostic guides: second brains, Zettelkasten, knowledge graphs, PKM, markdown, self-hosting`)}
 ${bullet("Alternatives", "/alternatives", `${ALTERNATIVES_BY_RANK.length} comparisons with other note apps, each stating what the other tool does better`)}
 ${bullet("Glossary", "/glossary", `${GLOSSARY.length} definitions: wikilink, backlink, transclusion, Zettelkasten, MOC, frontmatter, local-first`)}
-${bullet("Source code", "/", `The repository is at ${GITHUB_URL}`)}
+${bullet("API reference", "/api-reference", "The public REST API, interactive, with an OpenAPI document")}
+${bullet("Community", "/community", "How to get help, contribute to the code, and extend Nodum with the API and MCP")}
+${bullet("Forum", "/forum", "Questions, bug reports, feature requests and showcases from Nodum users")}
+${bullet("Source code", GITHUB_URL, `The ${LICENSE}-licensed repository: frontend, backend and deploy stack`)}
 
 ## Comparisons with other tools
 

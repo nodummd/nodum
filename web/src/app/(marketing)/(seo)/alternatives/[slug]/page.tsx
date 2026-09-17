@@ -51,6 +51,7 @@ export async function generateMetadata({
   if (!alt) return { title: "Not found" };
   return pageMetadata({
     title: alt.metaTitle ?? alt.headline,
+    absoluteTitle: alt.metaTitle?.startsWith("Nodum vs") ?? false,
     description: alt.description,
     path: `/alternatives/${alt.slug}`,
     keywords: alt.keywords,

@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { ALTERNATIVES, CHECKED } from "@/content/seo/alternatives";
 import { TOPICS } from "@/content/seo/topics";
+import { getCategories, getTopics, type CommunityTopicItem } from "@/lib/api/forum-server";
 import { loadDocs } from "@/lib/docs";
 import { absolute } from "@/lib/seo/site";
 
@@ -24,13 +25,39 @@ import { absolute } from "@/lib/seo/site";
  * front door and the comparison cluster lead, because those are the pages an
  * answer engine is most likely to be asked to produce.
  *
+ * Section pages (docs, forum, community, API reference) are listed at the URL
+ * they are served from: `absolute()` resolves them to their subdomain when
+ * subdomains are on, so no entry here is a redirect.
+ *
+ * Forum categories and threads are included, with the thread's last reply as
+ * its lastmod — the one place on the site where that date is both real and
+ * changing. The API is unreachable while the image builds, so the build-time
+ * sitemap has none; `revalidate` regenerates it hourly at run time.
+ *
  * Published user sites under `/s/` are not enumerated here: there is no public
  * "list every published site" endpoint and adding one would change what a user
  * agreed to when they published. Each published site instead serves its own
  * sitemap at `/s/{slug}/sitemap.xml`, linked from its pages.
  */
+export const revalidate = 3600;
+
+/** The API caps a page at 100; stop well inside the 50,000-URL file limit. */
+const FORUM_PAGE = 100;
+const FORUM_MAX = 20_000;
+
+async function allForumTopics(): Promise<CommunityTopicItem[]> {
+  const topics: CommunityTopicItem[] = [];
+  for (let offset = 0; offset < FORUM_MAX; offset += FORUM_PAGE) {
+    const page = await getTopics({ limit: FORUM_PAGE, offset, revalidate });
+    if (!page) break;
+    topics.push(...page.items);
+    if (page.items.length < FORUM_PAGE || offset + FORUM_PAGE >= page.total) break;
+  }
+  return topics;
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const docs = await loadDocs();
+  const [docs, categories, forumTopics] = await Promise.all([loadDocs(), getCategories(revalidate), allForumTopics()]);
 
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: absolute("/"), changeFrequency: "weekly", priority: 1 },
@@ -71,5 +98,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
-  return [...staticRoutes, ...topicRoutes, ...alternativeRoutes, ...docRoutes];
+  const categoryRoutes: MetadataRoute.Sitemap = (categories ?? []).map((category) => ({
+    url: absolute(`/forum/c/${category.slug}`),
+    changeFrequency: "daily",
+    priority: 0.5,
+  }));
+
+  // Pinned topics float to the top of Latest, so the same thread can appear
+  // on more than one page of the listing.
+  const seen = new Set<string>();
+  const threadRoutes: MetadataRoute.Sitemap = forumTopics
+    .filter((topic) => !seen.has(topic.id) && seen.add(topic.id))
+    .map((topic) => ({
+      url: absolute(`/forum/t/${topic.id}/${topic.slug}`),
+      lastModified: topic.last_post_at,
+      changeFrequency: "weekly",
+      priority: 0.5,
+    }));
+
+  return [
+    ...staticRoutes,
+    ...topicRoutes,
+    ...alternativeRoutes,
+    ...docRoutes,
+    ...categoryRoutes,
+    ...threadRoutes,
+  ];
 }

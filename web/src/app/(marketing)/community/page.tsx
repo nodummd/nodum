@@ -4,12 +4,14 @@ import Link from "next/link";
 import { SiteFooter, SiteNav } from "@/components/marketing/site-chrome";
 import { getTopics } from "@/lib/api/forum-server";
 import { GITHUB_URL as GITHUB } from "@/lib/app-meta";
+import { pageMetadata } from "@/lib/seo/metadata";
 
-export const metadata: Metadata = {
-  title: "Community · Nodum",
+export const metadata: Metadata = pageMetadata({
+  title: "Community — contribute, get help, build extensions",
   description:
-    "The Nodum community — where to ask, report, request and show off; how to contribute; and how to extend Nodum today.",
-};
+    "The Nodum community — where to ask, report, request and show off; how to contribute to the open-source code; and how to extend Nodum today with its API and MCP server.",
+  path: "/community",
+});
 
 /** The community hub: a router with one live element, not a portal.
  *  Everything here is either a real link or a real topic — no invented

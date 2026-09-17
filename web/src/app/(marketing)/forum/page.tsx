@@ -1,12 +1,30 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { ListEngagement } from "@/components/forum/engagement";
 
 import { getCategories, getTopics } from "@/lib/api/forum-server";
+import { pageMetadata } from "@/lib/seo/metadata";
 
 import { Pager, TopicRow } from "./topic-row";
 
 const PAGE_SIZE = 30;
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string; top?: string }>;
+}): Promise<Metadata> {
+  const page = Math.max(1, Number((await searchParams).page) || 1);
+  return pageMetadata({
+    title: page > 1 ? `Forum — page ${page}` : "Forum — help, ideas and showcases",
+    description:
+      "The Nodum forum: ask for help, report bugs, vote on feature requests and share how you use Nodum, the open-source Obsidian alternative for the browser.",
+    // Top views are re-sorts of the same topics, so they canonicalize to
+    // Latest; later pages of Latest are distinct content and keep their own.
+    path: page > 1 ? `/forum?page=${page}` : "/forum",
+  });
+}
 
 /** The forum's front page: the category rail and Latest (or Top) topics. */
 export default async function CommunityIndex({
