@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import main as cli_main
 
 from nodum_cli.main import ENV_CHOICES, SUB_COMMANDS, build_parser, main
 
@@ -164,6 +165,45 @@ def test_exec_allows_empty_cmd():
     ns = parser.parse_args(["stack", "exec", "api"])
     assert ns.service == "api"
     assert ns.cmd == []
+
+
+def test_exec_guard_passes_flags_inside_command(monkeypatch, tmp_path, capfd):
+    """Flags like -r/--env inside the container command are not rejected."""
+    import subprocess
+
+    deploy_dir = tmp_path / "deploy"
+    deploy_dir.mkdir()
+    (deploy_dir / "compose.sh").touch()
+
+    monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
+    stub_calls = []
+
+    def fake_run(args, **kwargs):
+        stub_calls.append(args)
+        result = type("CompletedProcess", (), {"returncode": 0})()
+        return result
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["stack", "exec", "postgres", "grep", "-r", "foo", "/etc"])
+    assert exc_info.value.code == 0
+    assert len(stub_calls) == 1
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["stack", "exec", "api", "cp", "-r", "a", "b"])
+    assert exc_info.value.code == 0
+    assert len(stub_calls) == 2
+
+
+def test_exec_guard_rejects_env_as_first_token(monkeypatch, capfd):
+    """--env as the first token after the service name is rejected (exit 2)."""
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main(["stack", "exec", "api", "--env", "prod", "ls"])
+    assert exc_info.value.code == 2
+    err = capfd.readouterr().err
+    assert "global flags after the service name are not allowed" in err
+    assert "--env prod uv run alembic upgrade head   # wrong" in err
 
 
 def test_clean_has_force_flag():
