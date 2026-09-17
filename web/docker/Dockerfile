@@ -45,7 +45,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # vendored tree (brace-expansion, tar, picomatch, sigstore, ip-address) which
 # accounted for every fixable HIGH/CRITICAL Trivy found here — none of them
 # reachable, none of them fixable by updating our dependencies.
-RUN apk upgrade --no-cache \
+#
+# PATCH_DATE busts the cache for this layer so a CI build cache cannot pin the
+# upgrade to the day it first ran (see Dockerfile.api).
+ARG PATCH_DATE=unset
+RUN echo "security patches as of ${PATCH_DATE}" \
+    && apk upgrade --no-cache \
     && rm -rf /usr/local/lib/node_modules/npm \
               /usr/local/bin/npm /usr/local/bin/npx \
               /root/.npm
