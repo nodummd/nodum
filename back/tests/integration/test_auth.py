@@ -89,7 +89,14 @@ async def test_refresh_rotates_with_grace_then_blocks_reuse(client: AsyncClient)
     assert r2.status_code == 200, r2.text
     client.cookies.clear()
     graced_pair = r2.json()["data"]
-    assert graced_pair["refresh_token"] == new_pair["refresh_token"]
+    # Compare JTIs, not token strings: the two tokens carry their own iat/exp,
+    # so they differ whenever the two calls straddle a second boundary.
+    from app.utils.jwt_utils import decode_token
+
+    def _jti(token: str) -> str:
+        return str(decode_token(token, expected_type="refresh")["jti"])
+
+    assert _jti(graced_pair["refresh_token"]) == _jti(new_pair["refresh_token"])
 
     # Simulate grace expiry, then reuse of a long-spent token must trip the
     # stolen-token defense and kill the whole session family.
