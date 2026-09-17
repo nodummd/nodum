@@ -60,6 +60,37 @@ test.describe("host-based sections", () => {
     expect(apexRef.status()).toBe(200);
   });
 
+  test("apex-only pages leave a section host instead of 404ing there", async ({ request }) => {
+    // The footer's Compare/Learn links are on every host. Off localhost the
+    // section host 308s them to the apex; the host here is not this server's
+    // own origin, so the Location stays absolute.
+    const moved = await request.get(`http://${APEX}/alternatives/obsidian`, {
+      headers: { Host: "forum.nodum.test" },
+      maxRedirects: 0,
+    });
+    expect(moved.status()).toBe(308);
+    expect(moved.headers()["location"]).toMatch(/^https?:\/\/nodum\.test\/alternatives\/obsidian$/);
+
+    // On localhost the apex IS this origin — a redirect would be relativized
+    // into a loop — so the page is served in place, canonical on the apex.
+    const inPlace = await request.get(`http://${APEX}/learn`, {
+      headers: { Host: `forum.${APEX}` },
+      maxRedirects: 0,
+    });
+    expect(inPlace.status()).toBe(200);
+    const canonical = (await inPlace.text()).match(/<link rel="canonical" href="([^"]+)"/)?.[1];
+    expect(new URL(canonical as string).pathname).toBe("/learn");
+  });
+
+  test("www redirects to the canonical host", async ({ request }) => {
+    const res = await request.get(`http://${APEX}/alternatives?x=1`, {
+      headers: { Host: "www.nodum.md" },
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(308);
+    expect(res.headers()["location"]).toBe("https://nodum.md/alternatives?x=1");
+  });
+
   test("the navbar's Developers link reaches the API reference", async ({ page, request }) => {
     // Apex install: the link serves the reference in place.
     await page.goto("/");

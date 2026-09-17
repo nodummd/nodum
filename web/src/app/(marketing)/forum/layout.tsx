@@ -3,8 +3,10 @@ import Link from "next/link";
 
 import { SiteFooter, SiteNav } from "@/components/marketing/site-chrome";
 
+// No canonical here: a layout's alternates are inherited by every child page
+// that does not set its own, and a thread must never canonicalize to /forum.
 export const metadata: Metadata = {
-  title: "Forum · Nodum",
+  title: "Forum",
   description: "The Nodum forum — announcements, help, bug reports, feature requests and showcases.",
 };
 

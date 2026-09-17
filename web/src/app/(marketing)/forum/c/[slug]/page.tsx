@@ -4,19 +4,29 @@ import { notFound } from "next/navigation";
 
 import { ListEngagement } from "@/components/forum/engagement";
 import { getCategories, getTopics } from "@/lib/api/forum-server";
+import { pageMetadata } from "@/lib/seo/metadata";
 
 import { Pager, TopicRow } from "../../topic-row";
 
 const PAGE_SIZE = 30;
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ page?: string }>;
+}): Promise<Metadata> {
   const { slug } = await params;
+  const page = Math.max(1, Number((await searchParams).page) || 1);
   const category = (await getCategories())?.find((c) => c.slug === slug);
   if (!category) return {};
-  return {
-    title: `${category.name} · Nodum Community`,
-    description: category.description ?? `${category.name} — the Nodum community.`,
-  };
+  const path = `/forum/c/${category.slug}`;
+  return pageMetadata({
+    title: page > 1 ? `${category.name} — page ${page} · Forum` : `${category.name} · Forum`,
+    description: category.description ?? `${category.name} in the Nodum forum.`,
+    path: page > 1 ? `${path}?page=${page}` : path,
+  });
 }
 
 export default async function CategoryPage({

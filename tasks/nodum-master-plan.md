@@ -223,6 +223,48 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-09-17: indexing fixes, round two of SEO + GEO**
+  (`feature/40.seo-geo-indexing_maqbool_170920260222`). An audit of the
+  live site turned up bugs that no content work would have fixed:
+  - *Footer 404s.* Every Compare/Learn link on docs./forum./community. hosts
+    was rewritten into the section and 404'd. Apex-only pages (`APEX_ONLY` in
+    `web/src/lib/sections.ts`) now 308 to the apex; on localhost they are
+    served in place, because Next relativizes a Location that matches its
+    own origin and the section host would loop.
+  - *Canonicals pointing at redirects.* With subdomains on, `/docs/mcp` 308s
+    to `docs.<domain>/mcp`, yet pages declared the apex URL canonical and the
+    sitemap listed it. `absolute()` now resolves section paths to their
+    subdomain (`publicUrl`), which needs `NODUM_ENABLE_SUBDOMAIN_REDIRECTS`
+    at **build** time too: it is now a web build arg.
+  - *http:// redirects.* Section redirects went to `http://` behind the
+    double proxy. The proxy uses https for the site's own hosts when
+    SITE_URL is https. `www.` now 308s to the apex.
+  - *Doubled titles* ("Forum · Nodum · Nodum") and missing canonicals on the
+    forum/community/API reference; forum pages now use `pageMetadata`.
+  - *Dead verification tags.* `NEXT_PUBLIC_GOOGLE/BING_SITE_VERIFICATION`
+    were never passed to the image build, so production never rendered
+    them; they are now build args alongside `NEXT_PUBLIC_SITE_URL`.
+  - Added: forum threads and categories in the sitemap (last reply as
+    lastmod, hourly regeneration), `DiscussionForumPosting` JSON-LD on
+    threads, `robots.txt` as a route handler with `Content-Signal` and the
+    Sept 2026 crawler list, `/.well-known/security.txt` + `SECURITY.md`, and
+    IndexNow (key file at `/<INDEXNOW_KEY>.txt`, `web/scripts/indexnow.mjs`,
+    manual `IndexNow` workflow).
+  - The five headline comparisons are titled "Nodum vs X — …" so the
+    head-to-head and alternative queries share one URL; `/compare/*`,
+    `/vs/*`, `/nodum-vs-*` and `/*-vs-nodum` redirect there. There are no
+    separate /compare pages, on purpose: they would split one intent across
+    two URLs.
+  - *Ops to do.* Set `INDEXNOW_KEY` (env + repo secret),
+    `NEXT_PUBLIC_*_SITE_VERIFICATION`, enable GitHub private vulnerability
+    reporting, and run the IndexNow workflow once after deploy.
+- **2026-09-17 (v3.9.2 CI): stale OS-patch layer.** Release PR #88 failed
+  Trivy on libpcre2 (CVE-2026-86145/-89161), already fixed in Debian. The
+  gha build cache was replaying the `apt-get upgrade` layer. A `PATCH_DATE`
+  build arg (today's date, from CI) now busts it daily for api and web. Also
+  de-flaked the refresh-grace test, which compared JWT strings whose iat/exp
+  differ across a second boundary; it now compares JTIs.
+
 - **2026-08-22 (v3.7.0 — the public API's response contract)** — External
   responses become `{"ok": true, "data": …}` and `{"ok": false, "error":
   {"code", "details", "message"}}` with SCREAMING_SNAKE codes, so a client

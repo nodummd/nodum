@@ -4,7 +4,7 @@ import { getCategories } from "@/lib/api/forum-server";
 
 import { NewTopicForm } from "./new-topic-form";
 
-export const metadata: Metadata = { title: "New topic · Nodum Community", robots: { index: false } };
+export const metadata: Metadata = { title: "New topic · Forum", robots: { index: false } };
 
 export default async function NewTopicPage() {
   const categories = (await getCategories()) ?? [];

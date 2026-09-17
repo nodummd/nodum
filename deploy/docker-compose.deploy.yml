@@ -384,12 +384,19 @@ services:
       args:
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         API_PROXY_URL: http://api:8000
+        # Baked into the prerendered HTML — see web/docker/Dockerfile.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+        NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
+        NEXT_PUBLIC_BING_SITE_VERIFICATION: ${NEXT_PUBLIC_BING_SITE_VERIFICATION:-}
+        NODUM_ENABLE_SUBDOMAIN_REDIRECTS: ${NODUM_ENABLE_SUBDOMAIN_REDIRECTS:-}
     image: nodum-web:${NODUM_IMAGE_TAG:-latest}
     <<: *hardening
     environment:
       NODE_ENV: production
       API_PROXY_URL: http://api:8000
       NODUM_ENABLE_SUBDOMAIN_REDIRECTS: ${NODUM_ENABLE_SUBDOMAIN_REDIRECTS:-}
+      INDEXNOW_KEY: ${INDEXNOW_KEY:-}
+      SECURITY_CONTACT: ${SECURITY_CONTACT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
