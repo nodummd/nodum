@@ -52,13 +52,16 @@ jobs:
       # NOT a `services:` container: the official MinIO image needs the
       # `server /data` command and service containers cannot set one. The
       # previous bitnami/minio:2025.9.7 pin was deleted from the public Docker
-      # Hub catalogue, which failed every run at container-init time.
+      # Hub catalogue, which failed every run at container-init time. In
+      # September 2026 `minio/minio` went the same way, so the pull comes
+      # from quay.io, which is where MinIO actually publishes. Do not move
+      # it back to Docker Hub.
       - name: Start MinIO
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           for _ in $(seq 1 60); do
             if curl -sf http://127.0.0.1:9000/minio/health/live >/dev/null; then
               echo "MinIO ready"; exit 0

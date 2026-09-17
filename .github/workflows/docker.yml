@@ -99,6 +99,12 @@ jobs:
       # only surfaced during a deploy. Loaded into the local daemon rather than
       # pushed — this validates the build and feeds the scanner, it does not
       # publish anything.
+      # Feeds PATCH_DATE so the OS-upgrade layer is rebuilt at least daily
+      # rather than replayed from the gha cache (see Dockerfile.api).
+      - name: Stamp patch date
+        id: stamp
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Build production image
         uses: docker/build-push-action@v7
         with:
@@ -107,6 +113,7 @@ jobs:
           target: production
           load: true
           tags: nodum-${{ matrix.name }}:ci
+          build-args: PATCH_DATE=${{ steps.stamp.outputs.date }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 

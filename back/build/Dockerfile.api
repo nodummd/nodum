@@ -54,7 +54,14 @@ FROM python:3.14-slim-bookworm AS production
 # against the copies pip *vendors* (msgpack, setuptools), which no dependency
 # update can ever clear because they are not dependencies. Removing pip removes
 # the whole class, and drops an installer from an image running user content.
-RUN apt-get update \
+#
+# PATCH_DATE busts the cache for this layer: without it, a CI build cache keeps
+# serving an `apt-get upgrade` from whatever day it first ran, and a Debian fix
+# published since then never lands — Trivy then fails on a CVE that is
+# already patched upstream. CI passes today's date; local builds keep the cache.
+ARG PATCH_DATE=unset
+RUN echo "security patches as of ${PATCH_DATE}" \
+    && apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade "setuptools>=78.1.1" \

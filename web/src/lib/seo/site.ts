@@ -5,8 +5,10 @@
  * and every canonical, `sameAs` and sitemap entry follows.
  */
 
+import { publicUrl } from "@/lib/sections";
+
 /** No trailing slash, ever — every helper below concatenates onto it. */
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://nodum.md").replace(/\/+$/, "");
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://nodum.md").replace(/\/+$/, "");
 
 export const SITE_NAME = "Nodum";
 export const SITE_TAGLINE = "Notes are the knots";
@@ -38,10 +40,14 @@ export const SITE_META_DESCRIPTION =
  */
 export const SOCIAL_PROFILES = [GITHUB_URL, GITHUB_ORG_URL];
 
-/** Absolute URL for a site-relative path, safe to hand to a crawler. */
+/**
+ * Absolute URL for a site-relative path, safe to hand to a crawler. Section
+ * paths (`/docs/…`, `/forum/…`) resolve to their subdomain when those are on,
+ * so a canonical never names a URL that redirects.
+ */
 export function absolute(path = "/"): string {
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+  return publicUrl(SITE_URL, path.startsWith("/") ? path : `/${path}`);
 }
 
 /**

@@ -52,6 +52,9 @@ test.describe("robots.txt", () => {
       expect(body, `${agent} should have its own group`).toContain(`User-Agent: ${agent}`);
     }
 
+    // The same decision in the content-signals vocabulary.
+    expect(body).toContain("Content-Signal: search=yes, ai-input=yes, ai-train=yes");
+
     // ...and the one that ignores the rules is told anyway.
     expect(body).toMatch(/User-Agent: Bytespider\nDisallow: \/$/m);
 
@@ -64,6 +67,28 @@ test.describe("robots.txt", () => {
     expect(body).not.toContain("Disallow: /s/");
 
     expect(body).toMatch(/^Sitemap: https?:\/\/\S+\/sitemap\.xml$/m);
+  });
+});
+
+test.describe("well-known files", () => {
+  test("security.txt is RFC 9116 shaped and not expired", async ({ request }) => {
+    const res = await request.get("/.well-known/security.txt");
+    expect(res.status()).toBe(200);
+    const body = await res.text();
+    expect(body).toMatch(/^Contact: (mailto:|https:)\S+$/m);
+    const expires = body.match(/^Expires: (\S+)$/m)?.[1];
+    expect(expires).toBeTruthy();
+    const days = (new Date(expires as string).getTime() - Date.now()) / 86_400_000;
+    // Required, in the future, and under a year out.
+    expect(days).toBeGreaterThan(30);
+    expect(days).toBeLessThan(366);
+  });
+
+  test("an IndexNow key file is not answered for an unconfigured key", async ({ request }) => {
+    // The e2e stack sets no INDEXNOW_KEY, so no key file may exist — and the
+    // rewrite must not swallow other .txt routes.
+    expect((await request.get("/0123456789abcdef.txt")).status()).toBe(404);
+    expect((await request.get("/llms.txt")).status()).toBe(200);
   });
 });
 
@@ -151,6 +176,8 @@ test.describe("metadata", () => {
     "/faq",
     "/docs",
     "/docs/getting-started",
+    "/forum",
+    "/community",
     "/login",
     "/signup",
   ];
@@ -313,6 +340,11 @@ test.describe("internal linking", () => {
   test("keyword aliases redirect rather than 404", async ({ request }) => {
     const cases: [string, string][] = [
       ["/obsidian-alternative", "/alternatives/obsidian"],
+      ["/compare/nodum-vs-obsidian", "/alternatives/obsidian"],
+      ["/compare/notion", "/alternatives/notion"],
+      ["/nodum-vs-logseq", "/alternatives/logseq"],
+      ["/evernote-vs-nodum", "/alternatives/evernote"],
+      ["/vs/roam-research", "/alternatives/roam-research"],
       ["/second-brain", "/learn/second-brain"],
       ["/pkm", "/learn/personal-knowledge-management"],
     ];

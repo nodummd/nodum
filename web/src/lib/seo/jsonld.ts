@@ -59,12 +59,14 @@ export function website(): Thing {
     "@id": ID.website,
     url: SITE_URL,
     name: SITE_NAME,
+    // Google's site-name system reads these; the domain is how people type it.
+    alternateName: ["nodum.md", "Nodum Notes"],
     description: SITE_DESCRIPTION,
     inLanguage: "en",
     publisher: { "@id": ID.organization },
     potentialAction: {
       "@type": "SearchAction",
-      target: { "@type": "EntryPoint", urlTemplate: `${SITE_URL}/docs?q={search_term_string}` },
+      target: { "@type": "EntryPoint", urlTemplate: `${absolute("/docs")}?q={search_term_string}` },
       "query-input": "required name=search_term_string",
     },
   };
@@ -93,7 +95,7 @@ export function softwareApplication({
     url: SITE_URL,
     downloadUrl: GITHUB_URL,
     installUrl: `${SITE_URL}/signup`,
-    softwareHelp: { "@type": "CreativeWork", url: `${SITE_URL}/docs` },
+    softwareHelp: { "@type": "CreativeWork", url: absolute("/docs") },
     license: LICENSE_URL,
     isAccessibleForFree: true,
     image: absolute(OG_IMAGE),
@@ -338,4 +340,105 @@ export function howTo({
       text: s.text,
     })),
   };
+}
+
+/**
+ * A forum thread. Google reads DiscussionForumPosting for its forum and
+ * "Discussions" surfaces, and the answer engines lean hard on forum threads for
+ * how-do-I questions — so a thread declares its author, dates, replies and
+ * engagement explicitly rather than leaving them to be scraped from markup.
+ * Authors are named but not linked: member profiles are noindex.
+ */
+export interface ForumPost {
+  author: string | null;
+  text: string;
+  datePublished?: string;
+  dateModified?: string | null;
+  likes?: number;
+  anchor: string;
+}
+
+export function discussionForumPosting({
+  path,
+  headline,
+  category,
+  op,
+  replies,
+  replyCount,
+  views,
+  locked,
+}: {
+  path: string;
+  headline: string;
+  category?: string;
+  op: ForumPost;
+  replies: ForumPost[];
+  replyCount: number;
+  views: number;
+  locked: boolean;
+}): Thing {
+  const url = absolute(path);
+  const person = (name: string | null) => ({ "@type": "Person", name: name ?? "Deleted user" });
+  const likes = (n = 0) => ({
+    "@type": "InteractionCounter",
+    interactionType: "https://schema.org/LikeAction",
+    userInteractionCount: n,
+  });
+  return {
+    "@type": "DiscussionForumPosting",
+    "@id": `${url}#posting`,
+    mainEntityOfPage: url,
+    url,
+    headline,
+    text: op.text,
+    author: person(op.author),
+    ...(op.datePublished ? { datePublished: op.datePublished } : {}),
+    ...(op.dateModified ? { dateModified: op.dateModified } : {}),
+    ...(category ? { articleSection: category } : {}),
+    isPartOf: { "@id": ID.website },
+    about: { "@id": ID.software },
+    ...(locked ? { commentStatus: "locked" } : {}),
+    interactionStatistic: [
+      likes(op.likes),
+      {
+        "@type": "InteractionCounter",
+        interactionType: "https://schema.org/CommentAction",
+        userInteractionCount: replyCount,
+      },
+      {
+        "@type": "InteractionCounter",
+        interactionType: "https://schema.org/ViewAction",
+        userInteractionCount: views,
+      },
+    ],
+    comment: replies.map((r) => ({
+      "@type": "Comment",
+      url: `${url}#${r.anchor}`,
+      text: r.text,
+      author: person(r.author),
+      ...(r.datePublished ? { datePublished: r.datePublished } : {}),
+      ...(r.dateModified ? { dateModified: r.dateModified } : {}),
+      interactionStatistic: likes(r.likes),
+    })),
+  };
+}
+
+/**
+ * Markdown to a plain-text excerpt for a meta description: syntax stripped,
+ * whitespace collapsed, cut on a word boundary.
+ */
+export function plainExcerpt(markdown: string, max = 155): string {
+  const text = markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, label?: string) => label ?? target)
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*(?:[-+*]|\d+\.)\s+/gm, " ")
+    .replace(/[`*_>#~=|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max / 2))}…`;
 }

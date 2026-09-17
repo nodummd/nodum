@@ -6,21 +6,39 @@ import { LikeButton, ThreadEngagement } from "@/components/forum/engagement";
 import { PostBody } from "@/components/forum/post-body";
 import { ReportButton, StaffPostDelete, StaffTopicControls } from "@/components/forum/staff-tools";
 import { PostControls, ReplyBox } from "@/components/forum/thread-actions";
+import { JsonLd } from "@/components/seo/json-ld";
 import { getPosts, getTopic } from "@/lib/api/forum-server";
+import * as ld from "@/lib/seo/jsonld";
+import { pageMetadata } from "@/lib/seo/metadata";
 
 import { Pager } from "../../../topic-row";
 
 const PAGE_SIZE = 50;
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
+}): Promise<Metadata> {
   const { id } = await params;
+  const page = Math.max(1, Number((await searchParams).page) || 1);
   const topic = await getTopic(id);
   if (!topic) return {};
-  return {
-    title: `${topic.title} · Nodum Community`,
-    description: `${topic.reply_count} replies in ${topic.category_slug ?? "the community"}.`,
-    alternates: { canonical: `/forum/t/${topic.id}/${topic.slug}` },
-  };
+  // Same request the page makes, so React's fetch memoization serves both.
+  const opening = page === 1 ? (await getPosts(topic.id, 0, PAGE_SIZE))?.items[0] : undefined;
+  const excerpt = opening?.content && !opening.is_deleted ? ld.plainExcerpt(opening.content) : "";
+  const where = topic.category_slug ? ` in ${topic.category_slug}` : "";
+  const path = `/forum/t/${topic.id}/${topic.slug}`;
+  return pageMetadata({
+    title: page > 1 ? `${topic.title} — page ${page} · Forum` : `${topic.title} · Forum`,
+    description: excerpt || `${topic.title} — ${topic.reply_count} replies${where} on the Nodum forum.`,
+    path: page > 1 ? `${path}?page=${page}` : path,
+    type: "article",
+    publishedTime: topic.created_at,
+    modifiedTime: topic.last_post_at,
+  });
 }
 
 /** A thread. URLs are id-first; a wrong or missing slug 308s to canonical. */
@@ -41,8 +59,44 @@ export default async function TopicPage({
   const posts = await getPosts(topic.id, (page - 1) * PAGE_SIZE, PAGE_SIZE);
   if (!posts) notFound();
 
+  const toLd = (post: (typeof posts.items)[number]): ld.ForumPost => ({
+    author: post.author?.name ?? null,
+    text: post.content ?? "",
+    datePublished: post.created_at,
+    dateModified: post.edited_at,
+    likes: post.like_count,
+    anchor: `post-${post.post_number}`,
+  });
+  const visible = posts.items.filter((post) => !post.is_deleted);
+  const opening = page === 1 ? visible.find((post) => post.post_number === 1) : undefined;
+
   return (
     <article>
+      {/* The thread as structured data — on its first page only, where the
+          opening post is. Later pages are continuations, not new postings. */}
+      {opening && (
+        <JsonLd
+          data={ld.graph(
+            ld.discussionForumPosting({
+              path: `/forum/t/${topic.id}/${topic.slug}`,
+              headline: topic.title,
+              category: topic.category_slug,
+              op: { ...toLd(opening), datePublished: opening.created_at ?? topic.created_at },
+              replies: visible.filter((post) => post !== opening).map(toLd),
+              replyCount: topic.reply_count,
+              views: topic.view_count,
+              locked: topic.is_locked,
+            }),
+            ld.breadcrumbs([
+              { name: "Forum", path: "/forum" },
+              ...(topic.category_slug
+                ? [{ name: topic.category_slug, path: `/forum/c/${topic.category_slug}` }]
+                : []),
+              { name: topic.title, path: `/forum/t/${topic.id}/${topic.slug}` },
+            ]),
+          )}
+        />
+      )}
       <p className="mb-1">
         {topic.category_slug && (
           <Link href={`/forum/c/${topic.category_slug}`} className="mk-navlink px-0">

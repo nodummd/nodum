@@ -241,10 +241,34 @@ responses are `{"data": ...}` and errors `{"error": {"code", "message"}}`; migra
 numbered (`0001_...`). Frontend keeps workspace state in Zustand, server data in TanStack
 Query, and all API access behind `web/src/lib/api/`.
 
-## Author
+## Contributors
 
-Built and maintained by **Maqbool Thoufeeq T**
-— [@maqboolthoufeeq](https://github.com/maqboolthoufeeq) · <maqboolthoufeeq.t@gmail.com>
+<table>
+  <tr>
+    <td align="center" valign="top" width="170">
+      <a href="https://github.com/maqboolthoufeeq">
+        <img src="https://github.com/maqboolthoufeeq.png?size=200" width="96" height="96" alt="Maqbool Thoufeeq T" /><br />
+        <sub><b>Maqbool Thoufeeq T</b></sub>
+      </a>
+      <br />
+      <sub>Creator &amp; maintainer</sub>
+      <br />
+      <sub><a href="https://github.com/maqboolthoufeeq">@maqboolthoufeeq</a></sub>
+    </td>
+    <!-- Next contributor: copy the <td> above, swap the handle in all three
+         places and the display name, and add a one-line role. Keep the
+         maintainer first; everyone after that goes in merge order. -->
+  </tr>
+</table>
+
+Dependency bumps arrive on their own from [Dependabot](https://github.com/apps/dependabot),
+and every one still goes through CI and review like any other pull request.
+
+The table has room. Pick something off the [roadmap](#roadmap) or open an issue
+first if the change is large, read [Contributing](#contributing) for the branch
+model and the pre-commit gate, and send a pull request — your avatar is added
+here when it merges. Questions reach the maintainer at
+<maqboolthoufeeq.t@gmail.com>.
 
 ## License
 

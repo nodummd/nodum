@@ -28,6 +28,18 @@ ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ARG API_PROXY_URL=http://api:8000
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV API_PROXY_URL=$API_PROXY_URL
+# SEO settings the prerendered pages bake in: the canonical origin, search
+# console verification tags, and whether section pages (docs, forum, …) are
+# canonical on their subdomains. Setting these only on the running container
+# changes nothing — the HTML was written at build time. Empty = default.
+ARG NEXT_PUBLIC_SITE_URL=
+ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=
+ARG NEXT_PUBLIC_BING_SITE_VERIFICATION=
+ARG NODUM_ENABLE_SUBDOMAIN_REDIRECTS=
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=$NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION \
+    NEXT_PUBLIC_BING_SITE_VERIFICATION=$NEXT_PUBLIC_BING_SITE_VERIFICATION \
+    NODUM_ENABLE_SUBDOMAIN_REDIRECTS=$NODUM_ENABLE_SUBDOMAIN_REDIRECTS
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -45,7 +57,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # vendored tree (brace-expansion, tar, picomatch, sigstore, ip-address) which
 # accounted for every fixable HIGH/CRITICAL Trivy found here — none of them
 # reachable, none of them fixable by updating our dependencies.
-RUN apk upgrade --no-cache \
+#
+# PATCH_DATE busts the cache for this layer so a CI build cache cannot pin the
+# upgrade to the day it first ran (see Dockerfile.api).
+ARG PATCH_DATE=unset
+RUN echo "security patches as of ${PATCH_DATE}" \
+    && apk upgrade --no-cache \
     && rm -rf /usr/local/lib/node_modules/npm \
               /usr/local/bin/npm /usr/local/bin/npx \
               /root/.npm

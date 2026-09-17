@@ -1,0 +1,51 @@
+name: IndexNow
+
+# Tells Bing (and the other IndexNow engines) which URLs changed, so a deploy
+# is citable in Copilot / ChatGPT search in hours rather than at the next
+# crawl. Manual on purpose: it must run AFTER the deploy is live — the engines
+# verify ownership by fetching https://<host>/<key>.txt from the deployed
+# site, and a submission for content that is not served yet wastes the crawl.
+#
+# Needs the repository secret INDEXNOW_KEY, equal to the INDEXNOW_KEY the
+# production web container runs with.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Site whose sitemap to submit
+        default: https://nodum.md
+      since:
+        description: Only URLs with lastmod on/after this date (YYYY-MM-DD); blank = everything
+        default: ""
+      dry_run:
+        description: List what would be submitted without sending it
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Submit changed URLs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Submit
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+          SITE: ${{ inputs.site }}
+          SINCE: ${{ inputs.since }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--site "$SITE")
+          [ -n "$SINCE" ] && args+=(--since "$SINCE")
+          [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          node web/scripts/indexnow.mjs "${args[@]}"
