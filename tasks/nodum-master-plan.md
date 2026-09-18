@@ -223,6 +223,40 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
+- **2026-09-18 (v3.10.0): the `nodum` CLI lands as its own package** (PR #87,
+  by @ziuus, over five review rounds). `cli/` joins `back/` and `web/` as a
+  top-level component: stdlib-only, its own `pyproject.toml`, `uv.lock`,
+  tests and `ci-cli.yml`, with `cli-lint` / `cli-test` wired into
+  `make verify`. Everything is namespaced as `nodum stack <verb>` (up, down,
+  restart, ps, logs, exec, migrate, clean, reset) so the top-level
+  `nodum <noun>` space stays free for the API client in phase 2.
+  - *Why its own package.* The first attempt lived in `back/app/`, where the
+    console script installed into every environment built from the backend —
+    including the production image, which has no `deploy/` — and dragged
+    fastapi, sqlalchemy and celery in behind a wrapper around a bash script.
+  - *The design that survived review.* One subprocess boundary
+    (`compose.py` → `deploy/compose.sh`), so engine detection, env-file
+    resolution and the subdomain preflight keep a single source of truth;
+    `argparse.SUPPRESS` on the subparser copies of `--env`/`--root`, so both
+    flag orders parse with no argv surgery; `migrate` as `run --rm migrate`
+    rather than `up --exit-code-from`, which tore down a live postgres;
+    `restart` as `up -d --force-recreate`, since plain `up -d` is a no-op.
+  - *Bugs caught in review.* `exec api --env prod …` silently ran against
+    dev (the flag is swallowed by REMAINDER); the first fix then rejected
+    `-r` anywhere, breaking `grep -r` inside a container — it now checks only
+    the first token after the service name. Also: a relative `--root` broke
+    every command (the child chdirs before exec), and help examples that did
+    not parse, now round-tripped by `test_examples_parse`.
+  - *Version constants.* `APP_VERSION` had drifted in both places it lives —
+    `back/app/settings/common.py` (3.9.1) and `web/src/lib/app-meta.ts`
+    (3.3.0, shown in Settings → General and in the site's
+    `SoftwareApplication` JSON-LD). Both now read 3.10.0; they are not
+    generated, so a release has to bump them by hand.
+  - *Repo policy.* `main` and `dev` now carry GitHub rulesets (PR-only,
+    merge commits only, no deletion or force-push, required checks =
+    the ones that run on every PR). `dev` had been deleted by hand right
+    after a release merge, which auto-closed this very PR.
+
 - **2026-09-17: indexing fixes, round two of SEO + GEO**
   (`feature/40.seo-geo-indexing_maqbool_170920260222`). An audit of the
   live site turned up bugs that no content work would have fixed:
