@@ -223,7 +223,7 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
 
 ## 6. Progress Log
 
-- **2026-09-18 (v3.10.0): the `nodum` CLI lands as its own package** (PR #87,
+- **2026-09-18 (v3.11.0): the `nodum` CLI lands as its own package** (PR #87,
   by @ziuus, over five review rounds). `cli/` joins `back/` and `web/` as a
   top-level component: stdlib-only, its own `pyproject.toml`, `uv.lock`,
   tests and `ci-cli.yml`, with `cli-lint` / `cli-test` wired into
@@ -250,7 +250,7 @@ gitleaks clean → pushed to github.com/vorreix/nodum. Released as v1.0.0.
   - *Version constants.* `APP_VERSION` had drifted in both places it lives —
     `back/app/settings/common.py` (3.9.1) and `web/src/lib/app-meta.ts`
     (3.3.0, shown in Settings → General and in the site's
-    `SoftwareApplication` JSON-LD). Both now read 3.10.0; they are not
+    `SoftwareApplication` JSON-LD). Both now read 3.11.0; they are not
     generated, so a release has to bump them by hand.
   - *Repo policy.* `main` and `dev` now carry GitHub rulesets (PR-only,
     merge commits only, no deletion or force-push, required checks =
