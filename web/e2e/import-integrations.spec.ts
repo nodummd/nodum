@@ -160,6 +160,11 @@ test.describe("import picker", () => {
   test("a malformed export fails with the export instructions, not a stack trace", async ({
     page,
   }) => {
+    // A fresh signup, a workspace boot and a real import round-trip do not fit
+    // in the default 30s budget on CI: all three attempts of the v3.10.0
+    // release run died on the *test* timeout, so the assertion below never got
+    // its own window.
+    test.setTimeout(60_000);
     await signupFreshUser(page, "import-bad");
     const dialog = await openImportPicker(page);
     await dialog.getByLabel("Search import sources").fill("roam");
