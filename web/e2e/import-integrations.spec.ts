@@ -190,8 +190,12 @@ test.describe("import picker", () => {
     // own instructions say "Export All" too, so the page-wide match this
     // replaced was satisfied by the instructions alone — it passed even when
     // no error ever arrived.
+    // `[role=alert]` as a CSS attribute, not getByRole: the toast renders
+    // outside the dialog, and Radix marks everything outside a modal
+    // aria-hidden — so the accessibility tree, which getByRole consults, does
+    // not contain it. The attribute selector does not care.
     await expect(
-      page.getByRole("alert").filter({ hasText: /Export All/ }),
+      page.locator('[role="alert"]').filter({ hasText: /Export All/ }),
     ).toBeVisible({ timeout: 30_000 });
   });
 
