@@ -267,15 +267,16 @@ def main(argv: list[str] | None = None) -> int:
     # pragmatic one is to assert here and point the user at the correct form.
     if args.command == "stack" and args.stack_command == "exec":
         cmd: list[str] = getattr(args, "cmd", []) or []
-        rejected = [cmd[0]] if cmd and cmd[0] in ("--env", "-r", "--root") else []
+        rejected = [cmd[0]] if cmd and cmd[0].split("=", 1)[0] in ("--env", "-r", "--root") else []
         if rejected:
             print(
                 "Error: global flags after the service name are not allowed in "
-                "`nodum stack exec`.  Pass them before the verb:\n"
-                "  nodum stack exec api --env prod uv run alembic upgrade head   # wrong\n"
-                "  nodum stack exec api uv run alembic upgrade head              # right\n"
-                "  nodum stack exec postgres grep -r foo /etc                    # fine\n"
-                "  nodum stack exec api cp -r a b                               # fine",
+                "`nodum stack exec`.  Pass them before `stack`:\n"
+                "  nodum stack exec api --env prod ls       # wrong: --env is swallowed by the command\n"
+                "  nodum stack --env prod exec api ls       # right\n"
+                "  nodum stack exec postgres grep -r foo /etc   # fine\n"
+                "  nodum stack exec api cp -r a b            # fine\n"
+                "  nodum stack exec api -- uv run alembic upgrade head   # -- passes cmd through",
                 file=sys.stderr,
             )
             return 2

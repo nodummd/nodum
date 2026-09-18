@@ -10,20 +10,20 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-GIT_MARKER = "deploy/compose.sh"
+ROOT_MARKER = "deploy/compose.sh"
 
 
 def find_project_root(start: Path) -> Path:
-    """Walk up from *start* until we find ``deploy/compose.sh`` or hit /.
+    """Walk up from *start* until we find ``deploy/compose.sh`` or hit the
+    filesystem root.
 
     Returns the resolved path of the directory containing deploy/compose.sh,
-    or *start* resolved if the file isn't found before reaching the filesystem
-    root.
+    or *start* resolved if the file isn't found before reaching the top of the
+    filesystem.
     """
     current = start.resolve()
-    root = Path("/")
-    while current != root:
-        if (current / GIT_MARKER).exists():
+    while current != current.parent:
+        if (current / ROOT_MARKER).exists():
             return current
         current = current.parent
     return start.resolve()
@@ -40,11 +40,11 @@ def resolve_deploy_dir(root: Path) -> Path:
         sys.exit(
             f"Error: {deploy} not found.\n"
             "  The CLI expects to run from inside a nodum checkout "
-            "(the directory containing deploy/ and .git).\n"
+            "(the directory containing deploy/ and deploy/compose.sh).\n"
             f"  Current/root: {root}\n"
             "  Pass --root /path/to/nodum to override."
         )
-    compose_script = deploy / "compose.sh"
+    compose_script = root / ROOT_MARKER
     if not compose_script.is_file():
         sys.exit(
             f"Error: {compose_script} not found.\n"

@@ -25,7 +25,7 @@ env:
 
 jobs:
   lint:
-    name: Lint & format
+    name: CLI lint & format
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -48,7 +48,7 @@ jobs:
         run: cd cli && uv run ruff format --check --diff .
 
   test:
-    name: Unit tests
+    name: CLI unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

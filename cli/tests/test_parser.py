@@ -203,7 +203,8 @@ def test_exec_guard_rejects_env_as_first_token(monkeypatch, capfd):
     assert exc_info.value.code == 2
     err = capfd.readouterr().err
     assert "global flags after the service name are not allowed" in err
-    assert "--env prod uv run alembic upgrade head   # wrong" in err
+    assert "Pass them before `stack`" in err
+    assert "nodum stack --env prod exec api ls       # right" in err
 
 
 def test_clean_has_force_flag():
@@ -278,6 +279,43 @@ def test_root_absent_defaults_to_none():
     ns = parser.parse_args(["stack", "up"])
     assert "root" in ns
     assert ns.root is None
+
+
+# ---------------------------------------------------------------------------
+# build_parser — all example lines from _examples_block parse correctly
+# ---------------------------------------------------------------------------
+
+
+def test_examples_parse():
+    """Every non-blank line of _examples_block() round-trips through build_parser()."""
+    import re
+    import shlex
+
+    from nodum_cli.main import _examples_block, build_parser
+
+    parser = build_parser()
+    lines = _examples_block().strip().split("\n")
+    parsed = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped == "Examples":
+            continue
+        # Strip inline comment; command and description are separated by 2+ spaces
+        cmd_part = stripped.split("#")[0]
+        # Split on 2+ spaces to separate command from description
+        parts = re.split(r"\s{2,}", cmd_part)
+        cmd = parts[0].strip()
+        if cmd.startswith("nodum "):
+            cmd = cmd[6:]
+        argv = shlex.split(cmd)
+        try:
+            parser.parse_args(argv)
+        except SystemExit as e:
+            # nodum --help exits 0; that's fine
+            assert e.code == 0, f"unexpected exit {e.code} for {cmd}"
+        else:
+            parsed += 1
+    assert parsed >= 18, f"expected at least 18 example lines, got {parsed}"
 
 
 # ---------------------------------------------------------------------------

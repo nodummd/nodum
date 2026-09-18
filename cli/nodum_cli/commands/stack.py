@@ -70,10 +70,12 @@ def _clean_confirm(env: str, force: bool) -> int:
     """Shared destructive-guard logic used by ``stack_clean`` and ``stack_reset``."""
     if not force:
         if not sys.stdin.isatty():
-            print(
-                "Error: refusing to run destructively without a tty; pass --force.",
-                file=sys.stderr,
+            msg = "Error: refusing to run destructively without a tty" + (
+                "; non-interactive destruction of staging/prod is not supported."
+                if env in ("staging", "prod")
+                else "; pass --force."
             )
+            print(msg, file=sys.stderr)
             return 1
         try:
             confirm = input(
