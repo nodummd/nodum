@@ -265,7 +265,17 @@ Query, and all API access behind `web/src/lib/api/`.
       <br />
       <sub><a href="https://github.com/maqboolthoufeeq">@maqboolthoufeeq</a></sub>
     </td>
-    <!-- Next contributor: copy the <td> above, swap the handle in all three
+    <td align="center" valign="top" width="170">
+      <a href="https://github.com/ziuus">
+        <img src="https://github.com/ziuus.png?size=200" width="96" height="96" alt="Zius" /><br />
+        <sub><b>Zius</b></sub>
+      </a>
+      <br />
+      <sub>The <code>nodum</code> CLI</sub>
+      <br />
+      <sub><a href="https://github.com/ziuus">@ziuus</a></sub>
+    </td>
+    <!-- Next contributor: copy a <td> above, swap the handle in all three
          places and the display name, and add a one-line role. Keep the
          maintainer first; everyone after that goes in merge order. -->
   </tr>
