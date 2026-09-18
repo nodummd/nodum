@@ -172,8 +172,12 @@ test.describe("import picker", () => {
     });
 
     // The message names the export step, which is nearly always the real
-    // problem — not "import failed".
-    await expect(page.getByText(/Export All/)).toBeVisible({ timeout: 30_000 });
+    // problem — not "import failed". Scoped to the error toast: the source's
+    // own instructions say "Export All" too, so a page-wide match is a strict
+    // mode violation the moment both are on screen at once.
+    await expect(
+      page.getByRole("alert").filter({ hasText: /Export All/ }),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test("the catalogue endpoint is complete and every source is documented", async ({ page }) => {
