@@ -3,7 +3,8 @@
 # ============================================================
 
 .PHONY: help dev-up dev-down dev-logs test-up test-down back-test back-test-int back-lint back-format \
-        web-dev web-build web-lint web-typecheck e2e e2e-up e2e-down e2e-status verify
+        web-dev web-build web-lint web-typecheck e2e e2e-up e2e-down e2e-status verify \
+        cli-lint cli-test
 
 help:            ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -90,6 +91,15 @@ e2e-status:      ## What is running
 e2e:             ## Run Playwright e2e suite (run `make e2e-up` first)
 	cd web && BASE_URL=$${BASE_URL:-http://127.0.0.1:3100} npx playwright test
 
+# ── CLI ─────────────────────────────────────────────────────
+cli-lint:       ## Lint the nodum CLI (ruff check + format check)
+	cd cli && uv sync --frozen
+	cd cli && uv run ruff check . && uv run ruff format --check .
+
+cli-test:       ## Run the nodum CLI unit tests
+	cd cli && uv sync --frozen
+	cd cli && uv run pytest tests/ -q
+
 # ── Gates ───────────────────────────────────────────────────
 verify:          ## Everything CI runs, minus e2e — run before you push
 	$(MAKE) back-lint
@@ -98,6 +108,8 @@ verify:          ## Everything CI runs, minus e2e — run before you push
 	$(MAKE) web-image-check
 	$(MAKE) web-lint
 	$(MAKE) web-build
+	$(MAKE) cli-lint
+	$(MAKE) cli-test
 
 
 # ── Utilities ─────────────────────────────────────────────────────

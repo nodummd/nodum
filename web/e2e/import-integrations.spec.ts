@@ -115,6 +115,7 @@ test.describe("import picker", () => {
       }),
     });
 
+    await expect(dialog.getByText("Import from Google Keep")).toBeVisible();
     await dialog.locator("input[type=file]").first().setInputFiles({
       name: "takeout.zip",
       mimeType: "application/zip",
@@ -147,6 +148,7 @@ test.describe("import picker", () => {
   </note>
 </en-export>`;
 
+    await expect(dialog.getByText("Import from Evernote")).toBeVisible();
     await dialog.locator("input[type=file]").first().setInputFiles({
       name: "notes.enex",
       mimeType: "application/xml",
@@ -160,10 +162,22 @@ test.describe("import picker", () => {
   test("a malformed export fails with the export instructions, not a stack trace", async ({
     page,
   }) => {
+    // A fresh signup, a workspace boot and a real import round-trip do not fit
+    // in the default 30s budget on CI: all three attempts of the v3.11.0
+    // release run died on the *test* timeout, so the assertion below never got
+    // its own window.
+    test.setTimeout(60_000);
     await signupFreshUser(page, "import-bad");
     const dialog = await openImportPicker(page);
     await dialog.getByLabel("Search import sources").fill("roam");
     await dialog.getByRole("button", { name: /Roam/ }).click();
+    // Wait for the detail pane before handing over a file. The dialog's file
+    // input is mounted for the whole dialog, but its change handler drops the
+    // upload when no source is picked yet (`if (!picked …) return`), silently:
+    // no request, no toast, no failure. The sibling tests only get away with
+    // setting files straight after the click because building their zip gives
+    // React time to commit.
+    await expect(dialog.getByText("Import from Roam Research")).toBeVisible();
 
     await dialog.locator("input[type=file]").first().setInputFiles({
       name: "notes.json",
@@ -172,8 +186,17 @@ test.describe("import picker", () => {
     });
 
     // The message names the export step, which is nearly always the real
-    // problem — not "import failed".
-    await expect(page.getByText(/Export All/)).toBeVisible({ timeout: 30_000 });
+    // problem — not "import failed". Scoped to the error toast: the source's
+    // own instructions say "Export All" too, so the page-wide match this
+    // replaced was satisfied by the instructions alone — it passed even when
+    // no error ever arrived.
+    // `[role=alert]` as a CSS attribute, not getByRole: the toast renders
+    // outside the dialog, and Radix marks everything outside a modal
+    // aria-hidden — so the accessibility tree, which getByRole consults, does
+    // not contain it. The attribute selector does not care.
+    await expect(
+      page.locator('[role="alert"]').filter({ hasText: /Export All/ }),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test("the catalogue endpoint is complete and every source is documented", async ({ page }) => {
