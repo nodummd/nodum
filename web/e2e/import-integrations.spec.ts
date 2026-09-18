@@ -161,7 +161,7 @@ test.describe("import picker", () => {
     page,
   }) => {
     // A fresh signup, a workspace boot and a real import round-trip do not fit
-    // in the default 30s budget on CI: all three attempts of the v3.10.0
+    // in the default 30s budget on CI: all three attempts of the v3.11.0
     // release run died on the *test* timeout, so the assertion below never got
     // its own window.
     test.setTimeout(60_000);
