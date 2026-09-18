@@ -176,13 +176,15 @@ test.describe("import picker", () => {
       buffer: Buffer.from('{"not":"a roam export"}', "utf-8"),
     });
 
-    // The message names the export step, which is nearly always the real
-    // problem — not "import failed". Scoped to the error toast: the source's
-    // own instructions say "Export All" too, so a page-wide match is a strict
-    // mode violation the moment both are on screen at once.
+    // The upload is async — wait for the drop zone to return to idle, then
+    // check the toast. The error toast auto-dismisses after 5s, but a
+    // malformed file is rejected fast by the Roam parser. The scoped selector
+    // avoids the strict-mode violation from the Roam source step also matching
+    // /Export All/.
+    await expect(dialog.getByText("Drop your export here")).toBeVisible({ timeout: 30_000 });
     await expect(
       page.getByRole("alert").filter({ hasText: /Export All/ }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible({ timeout: 5_000 });
   });
 
   test("the catalogue endpoint is complete and every source is documented", async ({ page }) => {
