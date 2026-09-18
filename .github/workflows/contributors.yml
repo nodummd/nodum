@@ -33,18 +33,35 @@ jobs:
     steps:
       # Always onto dev: it is the integration branch, and main takes the
       # change with the next release like everything else.
+      #
+      # fetch-depth 0 and an explicit fetch, because a run triggered by the
+      # very push that added this workflow checked out a dev that did not have
+      # the script yet — the ref moves a moment after the event fires.
       - uses: actions/checkout@v7
         with:
           ref: dev
+          fetch-depth: 0
+
+      - name: Take the current tip of dev
+        run: |
+          git fetch origin dev
+          git checkout -B dev origin/dev
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
 
+      # A run can outrun the merge that adds or changes the script; there is
+      # nothing to do until dev actually carries it.
       - name: Regenerate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/update-contributors.mjs
+        run: |
+          if [ ! -f scripts/update-contributors.mjs ]; then
+            echo "dev has no scripts/update-contributors.mjs yet — nothing to do"
+            exit 0
+          fi
+          node scripts/update-contributors.mjs
 
       - name: Open a PR if it changed
         env:
