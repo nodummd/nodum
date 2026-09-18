@@ -1,0 +1,68 @@
+name: CI CLI
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "cli/**"
+      - ".github/workflows/ci-cli.yml"
+  pull_request:
+    paths:
+      - "cli/**"
+      - ".github/workflows/ci-cli.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the in-flight run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.3"
+
+jobs:
+  lint:
+    name: CLI lint & format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: cli/uv.lock
+
+      - name: Install dependencies
+        run: cd cli && uv sync --frozen --all-groups
+
+      - name: Ruff lint
+        run: cd cli && uv run ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: cd cli && uv run ruff format --check --diff .
+
+  test:
+    name: CLI unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: cli/uv.lock
+
+      - name: Install dependencies
+        run: cd cli && uv sync --frozen --all-groups
+
+      - name: Unit tests
+        run: cd cli && uv run pytest tests/ -q
