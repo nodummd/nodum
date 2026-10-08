@@ -24,7 +24,7 @@
     "@lezer/highlight": "^1.2.4",
     "@lezer/markdown": "^1.7.2",
     "@scalar/api-reference-react": "^0.9.74",
-    "@sentry/nextjs": "^10.71.0",
+    "@sentry/nextjs": "^11.4.0",
     "@tanstack/react-query": "^5.103.2",
     "@tanstack/react-virtual": "^3.14.13",
     "@types/mdast": "^4.0.4",
