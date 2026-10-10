@@ -260,8 +260,8 @@ Query, and all API access behind `web/src/lib/api/`.
   <tr>
     <td align="center" valign="top" width="170">
       <a href="https://github.com/maqboolthoufeeq">
-        <img src="https://github.com/maqboolthoufeeq.png?size=200" width="96" height="96" alt="Maqbool Thoufeeq T" /><br />
-        <sub><b>Maqbool Thoufeeq T</b></sub>
+        <img src="https://github.com/maqboolthoufeeq.png?size=200" width="96" height="96" alt="Maqbool Thoufeeq Tharayil" /><br />
+        <sub><b>Maqbool Thoufeeq Tharayil</b></sub>
       </a>
       <br />
       <sub>Creator &amp; maintainer</sub>
